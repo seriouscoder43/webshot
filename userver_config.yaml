@@ -1,0 +1,33 @@
+components_manager:
+    task_processors:
+        main-task-processor:
+            worker_threads: 4
+        fs-task-processor:
+            worker_threads: 1
+    default_task_processor: main-task-processor
+    components:
+        dns-client:
+            fs-task-processor: fs-task-processor
+        testsuite-support:
+        server:
+            listener:
+                port: 8080
+                task_processor: main-task-processor
+        logging:
+            fs-task-processor: fs-task-processor
+            loggers:
+                default:
+                    file_path: '@stderr'
+                    level: debug
+                    overflow_behavior: discard
+        webshot-handler:
+            path: /v1/webshot
+            method: GET,POST
+            task_processor: main-task-processor
+        webshot-crud:
+            webshot-root: 'wacz'
+            webshots-page-max: 10
+            webshot-storage-url: 'http://localhost:8081'
+        webshot-db:
+            dbconnection: 'postgresql://postgres@localhost:5432'
+            blocking_task_processor: fs-task-processor

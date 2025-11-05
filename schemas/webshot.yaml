@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: Webshot Service API
+  version: 0.1.0
+paths:
+  /v1/webshot:
+    get:
+      summary: Fetch a stored webshot
+      description: Returns the binary WACZ archive associated with the provided UUID.
+      parameters:
+        - in: query
+          name: uuid
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Identifier of the requested webshot.
+      responses:
+        '200':
+          description: Webshot archive returned successfully.
+          content:
+            application/wacz:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Webshot not found.
+    post:
+      summary: Enqueue capture of a webshot
+      description: Triggers asynchronous capture of the provided URL.
+      parameters:
+        - in: query
+          name: url
+          schema:
+            type: string
+            format: uri
+          required: true
+          description: URL to capture.
+      responses:
+        '201':
+          description: Capture accepted for processing.
+        '400':
+          description: Invalid URL supplied.
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
