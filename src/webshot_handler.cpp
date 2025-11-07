@@ -1,6 +1,10 @@
 #include <ada.h>
 
+#include <fmt/format.h>
+
 #include <userver/components/component.hpp>
+#include <userver/formats/json.hpp>
+#include <userver/formats/serialize/common_containers.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/http/content_type.hpp>
 #include <userver/logging/log.hpp>
@@ -8,17 +12,14 @@
 #include <userver/server/http/http_method.hpp>
 #include <userver/server/http/http_request.hpp>
 #include <userver/server/http/http_response.hpp>
-#include <userver/server/http/http_response_body_stream.hpp>
 #include <userver/server/http/http_status.hpp>
 #include <userver/utils/boost_uuid4.hpp>
-#include <userver/yaml_config/merge_schemas.hpp>
-#include <userver/yaml_config/schema.hpp>
-#include <userver/yaml_config/yaml_config.hpp>
 
 #include "include/url_validation.hpp"
 #include "include/webshot_handler.hpp"
 
 using namespace v1;
+namespace json = userver::formats::json;
 
 WebshotHandler::WebshotHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -31,9 +32,21 @@ std::string WebshotHandler::
     HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
         const
 {
+    auto &response = request.GetHttpResponse();
     if (request.GetMethod() == server::http::HttpMethod::kPost) {
-        auto url = ada::parse<ada::url_aggregator>(request.GetArg("url"));
-        auto &response = request.GetHttpResponse();
+        json::Value body;
+        try {
+            body = json::FromString(request.RequestBody());
+        } catch (const std::exception &e) {
+            response.SetStatus(server::http::HttpStatus::kBadRequest);
+            return {};
+        }
+        if (!body.HasMember("url") || !body["url"].IsString()) {
+            response.SetStatus(server::http::HttpStatus::kBadRequest);
+            return {};
+        }
+        const std::string url_str = body["url"].As<std::string>();
+        auto url = ada::parse<ada::url_aggregator>(url_str);
         if (!url || !isValidForWebshotUrl(*url)) {
             LOG_INFO() << fmt::format(
                 "Invalid url submitted: {}", url ? url->get_href() : "failed to parse"
@@ -41,24 +54,31 @@ std::string WebshotHandler::
             response.SetStatus(server::http::HttpStatus::kBadRequest);
             return {};
         }
-        url->set_username("");
-        url->set_password("");
-        url->clear_hash();
-        if (auto hostname = url->get_hostname(); hostname.back() == '.')
-            url->set_hostname(std::string_view(begin(hostname), end(hostname) - 1));
-        crud.createWebshot(std::string(url->get_href()));
+        crud.createWebshot(normalizeUrl(*url));
         response.SetStatus(server::http::HttpStatus::kCreated);
         return {};
     }
-    const auto uuid = us::utils::BoostUuidFromString(request.GetArg("uuid"));
-    auto &response = request.GetHttpResponse();
-    auto webshot = crud.findWebshot(uuid);
-    if (!webshot) {
-        LOG_INFO() << fmt::format("Webshot not found: {}", us::utils::ToString(uuid));
+
+    const std::string urlArg = request.GetArg("url");
+    if (urlArg.empty()) {
+        response.SetStatus(server::http::HttpStatus::kBadRequest);
+        return {};
+    }
+    auto url = ada::parse<ada::url_aggregator>(urlArg);
+    if (!url || !isValidForWebshotUrl(*url)) {
+        LOG_INFO(
+        ) << fmt::format("Invalid url for lookup: {}", url ? url->get_href() : "failed to parse");
+        response.SetStatus(server::http::HttpStatus::kBadRequest);
+        return {};
+    }
+    const auto normalized = normalizeUrl(*url);
+    auto locations = crud.findWebshotByUrl(normalized);
+    if (locations.empty()) {
+        LOG_INFO() << fmt::format("No webshots for url: {}", normalized);
         response.SetStatus(server::http::HttpStatus::kNotFound);
         return {};
     }
-    response.SetStatus(server::http::HttpStatus::kFound);
-    response.SetHeader(us::http::headers::kLocation, webshot->path);
-    return {};
+    response.SetStatus(server::http::HttpStatus::kOk);
+    response.SetContentType(us::http::content_type::kApplicationJson);
+    return json::ToString(json::ValueBuilder(locations).ExtractValue());
 }

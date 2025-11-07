@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Enable standard CTest switch BUILD_TESTING
+include(CTest)
+
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic \
 -Wconversion -Wsign-conversion -Wfloat-equal \
 -Wdisabled-optimization -Wctad-maybe-unsupported")
@@ -15,12 +18,14 @@ set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
 
 set(${PROJECT_NAME}_headers
     src/include/webshot_handler.hpp
+    src/include/webshot_by_id_handler.hpp
     src/include/webshot_crud.hpp
     src/include/common_definitions.hpp
     src/include/url_validation.hpp
 )
 add_library(${PROJECT_NAME}_objs OBJECT
     src/webshot_handler.cpp
+    src/webshot_by_id_handler.cpp
     src/webshot_crud.cpp
     src/url_validation.cpp
 	${${PROJECT_NAME}_headers}
@@ -38,13 +43,13 @@ target_link_libraries(${PROJECT_NAME}_objs PRIVATE ada::ada)
 target_link_libraries(${PROJECT_NAME}_objs PUBLIC userver::core userver::postgresql)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_objs)
 
-enable_testing()
-
-add_executable(is_valid_webshot_url_test tests/is_valid_webshot_url_test.cpp)
-target_link_libraries(is_valid_webshot_url_test PRIVATE userver::utest ada::ada ${PROJECT_NAME}_objs)
-target_include_directories(is_valid_webshot_url_test PRIVATE src/include)
-add_test(NAME is_valid_webshot_url COMMAND is_valid_webshot_url_test)
-set_tests_properties(is_valid_webshot_url PROPERTIES ENVIRONMENT "LSAN_OPTIONS=detect_leaks=0")
+if (BUILD_TESTING)
+  add_executable(is_valid_webshot_url_test tests/is_valid_webshot_url_test.cpp)
+  target_link_libraries(is_valid_webshot_url_test PRIVATE userver::utest ada::ada ${PROJECT_NAME}_objs)
+  target_include_directories(is_valid_webshot_url_test PRIVATE src/include)
+  add_test(NAME is_valid_webshot_url COMMAND is_valid_webshot_url_test)
+  set_tests_properties(is_valid_webshot_url PROPERTIES ENVIRONMENT "LSAN_OPTIONS=detect_leaks=0")
+endif()
 
 if (USE_SANITIZERS)
   target_compile_options(${PROJECT_NAME} PRIVATE "-fsanitize=address,undefined")

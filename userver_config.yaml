@@ -24,8 +24,12 @@ components_manager:
             path: /v1/webshot
             method: GET,POST
             task_processor: main-task-processor
+        webshot-by-id:
+            path: /v1/webshot/{uuid}
+            method: GET
+            task_processor: main-task-processor
         webshot-crud:
-            webshot-root: 'wacz'
+            webshot-root: '/tmp/build-webshot-san/wacz'
             webshots-page-max: 10
             webshot-storage-url: 'http://localhost:8081'
         webshot-db:

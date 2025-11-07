@@ -2,6 +2,8 @@
 #include "include/sql.hpp"
 
 #include <fmt/format.h>
+
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <utility>
@@ -24,6 +26,7 @@
 #include <userver/utils/async.hpp>
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
+#include <userver/yaml_config/yaml_config.hpp>
 
 using namespace v1;
 namespace pg = us::storages::postgres;
@@ -54,10 +57,9 @@ WebshotCrud::WebshotCrud(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : us::components::ComponentBase(config, context),
-      webshotRoot(config["webshot-root"].As<std::string>()),
-      webshotsPageMax(config["webshots-page-max"].As<ssize_t>()),
-      webshotStorageUrl(config["webshot-storage-url"].As<std::string>()),
       impl(std::make_unique<WebshotCrud::Impl>(
+          config["webshot-root"].As<std::string>(), config["webshots-page-max"].As<ssize_t>(),
+          config["webshot-storage-url"].As<std::string>(),
           context.FindComponent<us::components::Postgres>("webshot-db").GetCluster(),
           engine::current_task::GetTaskProcessor()
       ))
@@ -68,11 +70,19 @@ WebshotCrud::~WebshotCrud() = default;
 
 class [[nodiscard]] WebshotCrud::Impl {
 public:
+    const std::string webshotRoot;
+    const ssize_t webshotsPageMax;
+    const std::string webshotStorageUrl;
     pg::ClusterPtr cluster;
-    // must die last
+    // must die first
     concurrent::BackgroundTaskStorage backgroundTaskStorage;
-    Impl(pg::ClusterPtr cluster_, engine::TaskProcessor &tp_)
-        : cluster(std::move(cluster_)), backgroundTaskStorage(tp_)
+    Impl(
+        std::string webshotRoot_, ssize_t webshotsPageMax_, std::string webshotStorageUrl_,
+        pg::ClusterPtr cluster_, engine::TaskProcessor &tp_
+    )
+        : webshotRoot(webshotRoot_), webshotsPageMax(webshotsPageMax_),
+          webshotStorageUrl(webshotStorageUrl_), cluster(std::move(cluster_)),
+          backgroundTaskStorage(tp_)
     {
     }
     template <typename... Ts> [[nodiscard]] auto readonly(Ts &&...args)
@@ -162,20 +172,33 @@ void WebshotCrud::createWebshot(std::string url)
         }
         const auto uuid =
             impl->readwrite(sql::kInsertWebshot.data(), url).AsSingleRow<boost::uuids::uuid>();
-        us::fs::CreateDirectories(engine::current_task::GetBlockingTaskProcessor(), webshotRoot);
+        us::fs::CreateDirectories(
+            engine::current_task::GetBlockingTaskProcessor(), impl->webshotRoot
+        );
         us::fs::blocking::Rename(
-            pathToWaczFile, fmt::format("{}/{}", webshotRoot, utils::ToString(uuid))
+            pathToWaczFile, fmt::format("{}/{}", impl->webshotRoot, utils::ToString(uuid))
         );
     });
 }
 
 std::optional<Webshot> WebshotCrud::findWebshot(boost::uuids::uuid uuid)
 {
-    const auto location = impl->readonly(sql::kSelectWebshot.data(), uuid, webshotsPageMax)
-                              .AsOptionalSingleRow<boost::uuids::uuid>();
+    const auto location =
+        impl->readonly(sql::kSelectWebshot.data(), uuid).AsOptionalSingleRow<boost::uuids::uuid>();
     if (!location) {
         LOG_INFO() << fmt::format("UUID not found: {}", us::utils::ToString(uuid));
         return {};
     }
-    return {{fmt::format("{}/{}", webshotStorageUrl, utils::ToString(*location))}};
+    return {{fmt::format("{}/{}", impl->webshotStorageUrl, utils::ToString(*location))}};
+}
+
+std::vector<std::string> WebshotCrud::findWebshotByUrl(const std::string &url)
+{
+    const auto ids = impl->readonly(sql::kSelectWebshotByUrl.data(), url, impl->webshotsPageMax)
+                         .AsContainer<std::vector<boost::uuids::uuid>>();
+    std::vector<std::string> uuids;
+    std::transform(begin(ids), end(ids), std::back_inserter(uuids), [](auto id) {
+        return utils::ToString(id);
+    });
+    return uuids;
 }

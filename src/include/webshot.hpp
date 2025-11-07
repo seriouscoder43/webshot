@@ -3,5 +3,5 @@
 #include <string>
 
 struct Webshot {
-    std::string path;
+    std::string location;
 };

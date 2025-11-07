@@ -14,6 +14,7 @@
 
 ## Agent Environment Notes
 - ChatGPT agents can access every path declared in `CMakePresets.json`, including generated build directories such as `/tmp/build-webshot-san`; ensure sensitive data is kept elsewhere.
+- Before editing, using, drawing conclusions from, or recalling the contents of any file, ChatGPT must re-check that the file has not changed since it was last read (e.g., by re-reading it). If the file has changed, base all actions on the latest contents.
 
 ## Build, Test, and Development Commands
 - `cmake --preset configure-preset-clang-san` configures a sanitizer-enabled Ninja build in `/tmp/build-webshot-san` with the expected `userver_DIR`.

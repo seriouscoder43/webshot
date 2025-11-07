@@ -1,7 +1,8 @@
 #pragma once
 
 #include <ada.h>
+#include <ada/url_aggregator.h>
+#include <string>
 
-#include "common_definitions.hpp"
-
-bool isValidForWebshotUrl(const ada::url_aggregator& url);
+bool isValidForWebshotUrl(const ada::url_aggregator &url);
+std::string normalizeUrl(ada::url_aggregator url);

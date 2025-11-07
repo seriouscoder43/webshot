@@ -1,18 +1,17 @@
 #pragma once
 #include <string_view>
 
-#include <userver/server/handlers/http_handler_base.hpp>
-
 #include "webshot_crud.hpp"
+#include <userver/server/handlers/http_handler_base.hpp>
 
 namespace us = userver;
 namespace server = us::server;
 
 namespace v1 {
-class [[nodiscard]] WebshotHandler : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] WebshotById : public server::handlers::HttpHandlerBase {
 public:
-    static constexpr std::string_view kName = "webshot-handler";
-    explicit WebshotHandler(
+    static constexpr std::string_view kName = "webshot-by-id";
+    explicit WebshotById(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
