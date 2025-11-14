@@ -12,7 +12,6 @@
 
 ## Agent Environment Notes
 - ChatGPT agents can access every path declared in `CMakePresets.json`, including generated build directories such as `/tmp/build-webshot-san`; ensure sensitive data is kept elsewhere.
-- Before editing, using, drawing conclusions from, or recalling the contents of any file, ChatGPT must re-check that the file has not changed since it was last read (e.g., by re-reading it). If the file has changed, base all actions on the latest contents.
 - Local userver HTML docs are available at `/home/noofva/misc/src/userver-develop/build_san/docs/html/`.
 
 ## Build, Test, and Development Commands
@@ -23,7 +22,14 @@
 
 ## Coding Style & Naming Conventions
 - Follow userver conventions: classes and components PascalCase (`V1Files`), constants prefixed `k`, functions lowerCamelCase, and request handlers suffixed with descriptive nouns.
+- Object (variable) names are lowerCamelCase.
+- Write `size_t`, `ssize_t`, `int64_t` (not `std::size_t`/`std::ssize_t`/`std::int64_t`).
 - Keep shared headers under `src/include/` guarded by `#pragma once`; limit namespace aliases to implementation files unless broadly reused.
+- Declarations must exactly match definitions (names and signatures).
+- Use parentheses for initialization, not brace init (except where aggregate-init is required).
+
+## Language Standard
+- The codebase targets C++17 semantics, regardless of any higher standard values set in `CMakeLists.txt` for dependencies or tooling. Do not use C++20+ language/library features in project code.
 
 ## Testing Guidelines
 - Add unit or component tests under a `tests/` tree (create it if absent) and register each target in `CMakeLists.txt` with `add_executable` and `add_test`.
