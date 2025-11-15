@@ -1,5 +1,4 @@
 #pragma once
-#include "webshot_crud.hpp"
 
 #include <string_view>
 
@@ -9,6 +8,7 @@ namespace us = userver;
 namespace server = us::server;
 
 namespace v1 {
+class WebshotCrud;
 class [[nodiscard]] WebshotById : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "webshot-by-id";

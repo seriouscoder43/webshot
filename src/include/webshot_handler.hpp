@@ -1,6 +1,4 @@
 #pragma once
-#include "webshot_crud.hpp"
-
 #include <string_view>
 
 #include <userver/clients/dns/resolver.hpp>
@@ -11,6 +9,9 @@ namespace server = us::server;
 
 namespace v1 {
 class WebshotConfig;
+class WebshotDenylist;
+class WebshotCrud;
+
 class [[nodiscard]] WebshotHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "webshot-handler";
@@ -28,5 +29,6 @@ private:
     WebshotCrud &crud;
     const WebshotConfig &config;
     userver::clients::dns::Resolver &resolver;
+    WebshotDenylist &denylist;
 };
 }; // namespace v1

@@ -1,6 +1,5 @@
 #pragma once
 #include "webshot_config.hpp"
-#include "webshot_crud.hpp"
 
 #include <string_view>
 
@@ -10,6 +9,8 @@ namespace us = userver;
 namespace server = us::server;
 
 namespace v1 {
+class WebshotCrud;
+
 class [[nodiscard]] WebshotExactHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "webshot-exact";

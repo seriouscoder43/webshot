@@ -1,7 +1,10 @@
 #include "include/webshot_handler.hpp"
 #include "include/host_policy.hpp"
+#include "include/http_utils.hpp"
 #include "include/link.hpp"
+#include "include/server_errors.hpp"
 #include "include/webshot_config.hpp"
+#include "include/webshot_denylist.hpp"
 #include "schemas/webshot.hpp"
 
 #include <string>
@@ -31,7 +34,8 @@ WebshotHandler::WebshotHandler(
 )
     : HttpHandlerBase(config, context), crud(context.FindComponent<WebshotCrud>()),
       config(context.FindComponent<WebshotConfig>()),
-      resolver(context.FindComponent<userver::clients::dns::Component>().GetResolver())
+      resolver(context.FindComponent<userver::clients::dns::Component>().GetResolver()),
+      denylist(context.FindComponent<WebshotDenylist>())
 {
 }
 
@@ -39,65 +43,66 @@ std::string WebshotHandler::
     HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
         const
 {
+    using server::http::HttpMethod::kPost;
     using server::http::HttpStatus::kBadRequest;
     using server::http::HttpStatus::kCreated;
+    using server::http::HttpStatus::kForbidden;
+    using server::http::HttpStatus::kInternalServerError;
     using server::http::HttpStatus::kOk;
-    using us::http::content_type::kTextPlain;
 
     auto &response = request.GetHttpResponse();
-    if (request.GetMethod() == server::http::HttpMethod::kPost) {
-        dto::CreateWebshotRequest req;
-        try {
-            const auto body = json::FromString(request.RequestBody());
-            req = body.As<dto::CreateWebshotRequest>();
-        } catch (const std::exception &e) {
-            response.SetStatus(kBadRequest);
-            return {};
+    try {
+        if (request.GetMethod() == kPost) {
+            dto::CreateWebshotRequest req;
+            try {
+                const auto body = json::FromString(request.RequestBody());
+                req = body.As<dto::CreateWebshotRequest>();
+            } catch (const std::exception &e) {
+                return httpu::respondError(response, kBadRequest, "invalid request body");
+            }
+            try {
+                auto parsed = Link::fromUserInput(req.link, config.queryPartLengthMax());
+                std::string host = parsed.host();
+                if (hostpolicy::IsBareName(host) || hostpolicy::IsDeniedHostname(host) ||
+                    hostpolicy::HasSpecialTldSuffix(host))
+                    throw InvalidLinkException("forbidden host");
+                auto pubs = hostpolicy::resolvePublic(
+                    resolver, host, std::chrono::milliseconds(1500)
+                );
+                if (pubs.empty())
+                    throw InvalidLinkException("forbidden host");
+                if (!denylist.isAllowedHost(host))
+                    return httpu::respondError(
+                        response, kForbidden, "POST failed due to domain in denylist"
+                    );
+                crud.createWebshot(std::move(parsed));
+                response.SetStatus(kCreated);
+                return {};
+            } catch (const InvalidLinkException &e) {
+                return httpu::respondError(response, kBadRequest, e.what());
+            }
         }
-        try {
-            auto parsed = Link::fromUserInput(req.link, config.queryPartLengthMax());
-            // Preflight host policy: reject bare/special hosts and require public DNS resolution
-            const std::string host = parsed.host();
-            if (hostpolicy::IsBareName(host) || hostpolicy::IsDeniedHostname(host) ||
-                hostpolicy::HasSpecialTldSuffix(host))
-                throw InvalidLinkException("forbidden host");
-            auto pubs = hostpolicy::resolvePublic(resolver, host, std::chrono::milliseconds(1500));
-            if (pubs.empty())
-                throw InvalidLinkException("forbidden host");
-            crud.createWebshot(std::move(parsed));
-            response.SetStatus(kCreated);
-            return {};
-        } catch (const InvalidLinkException &e) {
-            response.SetStatus(kBadRequest);
-            response.SetContentType(kTextPlain);
-            return e.what();
-        }
-    }
 
-    const std::string urlArg = request.GetArg("url");
-    if (urlArg.empty()) {
-        response.SetStatus(kBadRequest);
-        return {};
-    }
-    Link link;
-    try {
-        link = Link::fromUserInput(urlArg, config.queryPartLengthMax());
-    } catch (const InvalidLinkException &e) {
-        response.SetStatus(kBadRequest);
-        response.SetContentType(kTextPlain);
-        return e.what();
-    }
-    const auto token = request.GetArg("page_token");
-    try {
-        auto page = crud.findWebshotByLinkPage(
-            link, token.empty() ? std::nullopt : std::make_optional(token)
-        );
-        response.SetStatus(kOk);
-        response.SetContentType(us::http::content_type::kApplicationJson);
-        return json::ToString(json::ValueBuilder(page).ExtractValue());
-    } catch (const std::exception &exc) {
-        LOG_INFO() << "Bad pagination request: " << exc.what();
-        response.SetStatus(kBadRequest);
-        return exc.what();
+        const std::string urlArg = request.GetArg("url");
+        if (urlArg.empty())
+            return httpu::respondError(response, kBadRequest, "missing parameter: url");
+        Link link;
+        try {
+            link = Link::fromUserInput(urlArg, config.queryPartLengthMax());
+        } catch (const InvalidLinkException &e) {
+            return httpu::respondError(response, kBadRequest, e.what());
+        }
+        const auto token = request.GetArg("page_token");
+        try {
+            auto page = crud.findWebshotByLinkPage(
+                link, token.empty() ? std::nullopt : std::make_optional(token)
+            );
+            return httpu::respondJson(response, kOk, page);
+        } catch (const errors::InvalidPageTokenException &) {
+            return httpu::respondError(response, kBadRequest, "invalid page_token");
+        }
+    } catch (const std::exception &e) {
+        LOG_ERROR() << "Unhandled error in webshot_handler: " << e.what();
+        return httpu::respondError(response, kInternalServerError, "internal server error");
     }
 }
