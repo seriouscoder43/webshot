@@ -28,13 +28,14 @@
 - Declarations must exactly match definitions (names and signatures).
 - Use parentheses for initialization, not brace init (except where aggregate-init is required).
 - Filenames must be snake_case (e.g., `ip_utils.cpp`, `webshot_handler.hpp`). Do not introduce PascalCase or camelCase filenames.
+- Naming restriction: never introduce identifiers, filenames, configuration keys, env vars, database objects, Docker labels, or documentation terms that include the words "application", "app", or "system".
 
 ## Language Standard
 - The codebase targets C++17 semantics, regardless of any higher standard values set in `CMakeLists.txt` for dependencies or tooling. Do not use C++20+ language/library features in project code.
 
 ## Testing Guidelines
 - Add unit or component tests under a `tests/` tree (create it if absent) and register each target in `CMakeLists.txt` with `add_executable` and `add_test`.
-- Favor the `userver::utest` harness (see `<userver/utest/utest.hpp>`) so tests run inside coroutines and inherit the framework’s timeouts, logging, and sanitiser setup; only fall back to raw GoogleTest when migrating legacy code.
+- Favor the `userver::utest` harness (see `<userver/utest/utest.hpp>`) so tests run inside coroutines and inherit the framework’s timeouts, logging, and sanitiser setup;
 - Update `userver_config.yaml` or per-test configs to isolate external dependencies; aim for deterministic tests that fail fast on regressions.
 
 ## Commit & Pull Request Guidelines

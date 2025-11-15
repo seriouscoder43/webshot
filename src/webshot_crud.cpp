@@ -93,9 +93,9 @@ WebshotCrud::WebshotCrud(
 )
     : us::components::ComponentBase(config, context),
       impl(std::make_unique<WebshotCrud::Impl>(
-          config["webshot-root"].As<std::string>(), config["webshots-page-max"].As<ssize_t>(),
-          config["webshots-per-link-max"].As<ssize_t>(2),
-          config["webshots-links-per-page-max"].As<ssize_t>(10),
+          config["webshot-root"].As<std::string>(), config["webshots-page-max"].As<int64_t>(),
+          config["webshots-per-link-max"].As<int64_t>(2),
+          config["webshots-links-per-page-max"].As<int64_t>(10),
           config["webshot-storage-url"].As<std::string>(),
           config["crawler-network"].As<std::string>(),
           context.FindComponent<us::components::Postgres>("webshot-db").GetCluster(),
@@ -122,8 +122,8 @@ public:
     // must die first
     concurrent::BackgroundTaskStorage backgroundTaskStorage;
     Impl(
-        std::string webshotRoot_, ssize_t webshotsPageMax_, ssize_t webshotsPerLinkMax_,
-        ssize_t webshotsLinksPerPageMax_, std::string webshotStorageUrl_, std::string crawlerNet_,
+        std::string webshotRoot_, int64_t webshotsPageMax_, int64_t webshotsPerLinkMax_,
+        int64_t webshotsLinksPerPageMax_, std::string webshotStorageUrl_, std::string crawlerNet_,
         pg::ClusterPtr cluster_, us::clients::dns::Resolver &resolver_, engine::TaskProcessor &tp_,
         size_t concurrentCrawlRunsMax
     )
