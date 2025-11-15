@@ -45,6 +45,7 @@ components_manager:
             crawl-concurrency: *blocking_num_workers
             webshots-per-link-max: 2
             webshots-links-per-page-max: 10
+            crawler-network: 'crawler_net'
         webshot-db:
             dbconnection: 'postgresql://postgres@localhost:5432'
             blocking_task_processor: fs-task-processor

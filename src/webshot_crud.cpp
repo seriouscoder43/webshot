@@ -1,18 +1,22 @@
 #include "include/webshot_crud.hpp"
+#include "include/container_guard.hpp"
+#include "include/host_policy.hpp"
+#include "include/link.hpp"
 #include "include/sql.hpp"
 #include "include/utils.hpp"
 #include "schemas/webshot.hpp"
 
 #include <chrono>
+#include <exception>
 #include <optional>
 #include <string>
 #include <utility>
 
-#include <boost/uuid/string_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 
 #include <fmt/format.h>
 
+#include <userver/clients/dns/component.hpp>
 #include <userver/components/component.hpp>
 #include <userver/components/component_base.hpp>
 #include <userver/concurrent/background_task_storage.hpp>
@@ -38,15 +42,15 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
-using namespace v1;
 namespace pg = us::storages::postgres;
 namespace engine = us::engine;
 namespace concurrent = userver::concurrent;
 namespace utils = us::utils;
-using Uuid = boost::uuids::uuid;
 namespace b64 = us::crypto::base64;
 namespace json = us::formats::json;
 namespace chrono = std::chrono;
+using namespace v1;
+using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 
 us::yaml_config::Schema WebshotCrud::GetStaticConfigSchema()
@@ -74,6 +78,9 @@ properties:
     webshot-storage-url:
         type: string
         description: '.'
+    crawler-network:
+        type: string
+        description: 'Name of the Docker network to run crawlers on (scoped egress rules)'
     crawl-concurrency:
         type: integer
         minimum: 1
@@ -90,7 +97,9 @@ WebshotCrud::WebshotCrud(
           config["webshots-per-link-max"].As<ssize_t>(2),
           config["webshots-links-per-page-max"].As<ssize_t>(10),
           config["webshot-storage-url"].As<std::string>(),
+          config["crawler-network"].As<std::string>(),
           context.FindComponent<us::components::Postgres>("webshot-db").GetCluster(),
+          context.FindComponent<us::clients::dns::Component>().GetResolver(),
           engine::current_task::GetBlockingTaskProcessor(),
           config["crawl-concurrency"].As<size_t>(1)
       ))
@@ -106,20 +115,23 @@ public:
     const int64_t webshotsPerLinkMax;
     const int64_t webshotsLinksPerPageMax;
     const std::string webshotStorageUrl;
+    const std::string crawlerNetwork;
     pg::ClusterPtr cluster;
+    us::clients::dns::Resolver &resolver;
     engine::CancellableSemaphore crawlSlots;
     // must die first
     concurrent::BackgroundTaskStorage backgroundTaskStorage;
     Impl(
         std::string webshotRoot_, ssize_t webshotsPageMax_, ssize_t webshotsPerLinkMax_,
-        ssize_t webshotsLinksPerPageMax_, std::string webshotStorageUrl_, pg::ClusterPtr cluster_,
-        engine::TaskProcessor &tp_, size_t concurrentCrawlRunsMax
+        ssize_t webshotsLinksPerPageMax_, std::string webshotStorageUrl_, std::string crawlerNet_,
+        pg::ClusterPtr cluster_, us::clients::dns::Resolver &resolver_, engine::TaskProcessor &tp_,
+        size_t concurrentCrawlRunsMax
     )
         : webshotRoot(webshotRoot_), webshotsPageMax(webshotsPageMax_),
           webshotsPerLinkMax(webshotsPerLinkMax_),
           webshotsLinksPerPageMax(webshotsLinksPerPageMax_), webshotStorageUrl(webshotStorageUrl_),
-          cluster(std::move(cluster_)), crawlSlots(concurrentCrawlRunsMax),
-          backgroundTaskStorage(tp_)
+          crawlerNetwork(std::move(crawlerNet_)), cluster(std::move(cluster_)), resolver(resolver_),
+          crawlSlots(concurrentCrawlRunsMax), backgroundTaskStorage(tp_)
     {
     }
     template <typename... Ts> [[nodiscard]] auto readonly(Ts &&...args)
@@ -154,38 +166,59 @@ static std::optional<Cursor> decodeToken(const std::string &token)
         const auto val = json::FromString(decoded);
         const auto cur = val.As<dto::PaginationCursor>();
         return {{system_clock::time_point(chrono::microseconds(cur.t)), cur.i}};
-    } catch (...) {
+    } catch (std::exception &) {
         return {};
     }
 }
 
-void WebshotCrud::createWebshot(std::string link)
+void WebshotCrud::createWebshot(Link link)
 {
     impl->backgroundTaskStorage.AsyncDetach(
         "create-webshot-lambda",
         [impl = impl.get(), link]() -> void {
             try {
                 std::shared_lock<engine::CancellableSemaphore> slotLock(impl->crawlSlots);
+
                 engine::subprocess::ProcessStarter starter(
                     engine::current_task::GetBlockingTaskProcessor()
                 );
-                const std::string kWaczName = "1";
+
+                std::vector<std::string> pinIps = hostpolicy::resolvePublic(
+                    impl->resolver, link.host(), chrono::milliseconds(2000)
+                );
+
+                if (pinIps.empty()) {
+                    LOG_INFO(
+                    ) << fmt::format("crawl rejected: no public IPs for host {}", link.host());
+                    return;
+                }
+
+                const auto cname = fmt::format(
+                    "btcx-{}", utils::ToString(utils::generators::GenerateBoostUuid())
+                );
                 auto archiveRoot = us::fs::blocking::TempDirectory::Create();
-                engine::subprocess::ExecOptions execOpts;
-                execOpts.use_path = true;
-
-                auto url = fmt::format("http://{}", link);
-
-                auto child = starter.Exec(
-                    "docker",
-                    {"run",
-                     "--rm",
-                     "-v",
-                     fmt::format("{}:/crawls", archiveRoot.GetPath()),
-                     "--shm-size",
-                     "1g",
-                     "webrecorder/browsertrix-crawler",
-                     "crawl",
+                std::vector<std::string> create = {
+                    "create",
+                    "-v",
+                    fmt::format("{}:/crawls", archiveRoot.GetPath()),
+                    "-e",
+                    "CHROME_FLAGS=\"--dns-over-https-mode=off\"",
+                    "--shm-size",
+                    "1g",
+                };
+                create.push_back("--network");
+                create.push_back(impl->crawlerNetwork);
+                for (auto &&ip : pinIps) {
+                    create.push_back("--add-host");
+                    create.push_back(fmt::format("{}:{}", link.host(), ip));
+                }
+                const std::string kWaczName = "1";
+                create.push_back("--name");
+                create.push_back(cname);
+                create.push_back("webrecorder/browsertrix-crawler");
+                create.insert(
+                    create.end(),
+                    {"crawl",
                      "--collection",
                      kWaczName,
                      "--generateWACZ",
@@ -221,26 +254,33 @@ void WebshotCrud::createWebshot(std::string link)
                      "--logging",
                      "debug,stats,jserrors",
                      "--url",
-                     url},
-                    std::move(execOpts)
+                     link.httpUrl()}
                 );
-                auto status = child.Get();
+                ContainerGuard ctrGuard(starter, cname, create);
 
+                auto start_proc = starter.Exec(
+                    "docker", std::vector<std::string>{"start", "-a", cname},
+                    engine::subprocess::ExecOptions{.use_path = true}
+                );
+                auto status = start_proc.Get();
                 if (!status.IsExited() || status.GetExitCode() != 0) {
-                    LOG_INFO() << fmt::format("Failed to crawl {}, child process failed", url);
+                    LOG_INFO(
+                    ) << fmt::format("Failed to crawl {}, child process failed", link.httpUrl());
                     return;
                 }
+                // Remove container eagerly
+                ctrGuard.remove();
                 const auto pathToWaczFile = fmt::format(
                     "{0}/collections/{1}/{1}.wacz", archiveRoot.GetPath(), kWaczName
                 );
                 if (!us::fs::FileExists(
                         engine::current_task::GetBlockingTaskProcessor(), pathToWaczFile
                     )) {
-                    LOG_INFO() << fmt::format("Failed to crawl {}, no WACZ", url);
+                    LOG_INFO() << fmt::format("Failed to crawl {}, no WACZ", link.httpUrl());
                     return;
                 }
-                const auto uuid =
-                    impl->readwrite(sql::kInsertWebshot.data(), link).AsSingleRow<Uuid>();
+                const auto uuid = impl->readwrite(sql::kInsertWebshot.data(), link.normalized())
+                                      .AsSingleRow<Uuid>();
                 us::fs::CreateDirectories(
                     engine::current_task::GetBlockingTaskProcessor(), impl->webshotRoot
                 );
@@ -266,24 +306,24 @@ std::optional<Webshot> WebshotCrud::findWebshot(Uuid uuid)
     return {{fmt::format("{}/{}", impl->webshotStorageUrl, utils::ToString(*location))}};
 }
 
-dto::PagedFindWebshotByUrlResponse WebshotCrud::findWebshotByLinkPage(
-    const std::string &link, const std::optional<std::string> &pageToken
-)
+dto::PagedFindWebshotByUrlResponse
+WebshotCrud::findWebshotByLinkPage(const Link &link, const std::optional<std::string> &pageToken)
 {
     struct Row {
         Uuid uuid;
         pg::TimePointTz timepoint;
     };
     std::vector<Row> dbRows;
+    const auto &norm = link.normalized();
     if (!pageToken || pageToken->empty()) {
-        dbRows = impl->readonly(sql::kSelectWebshotByLinkFirst.data(), link, impl->webshotsPageMax)
+        dbRows = impl->readonly(sql::kSelectWebshotByLinkFirst.data(), norm, impl->webshotsPageMax)
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
     } else {
         auto cur = decodeToken(*pageToken);
         if (!cur)
             throw std::runtime_error("invalid page_token");
         dbRows = impl->readonly(
-                         sql::kSelectWebshotByLinkNext.data(), link, impl->webshotsPageMax,
+                         sql::kSelectWebshotByLinkNext.data(), norm, impl->webshotsPageMax,
                          pg::TimePointTz(cur->createdAt), cur->id
         )
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
@@ -297,7 +337,7 @@ dto::PagedFindWebshotByUrlResponse WebshotCrud::findWebshotByLinkPage(
         );
     }
     std::optional<std::string> next;
-    if (items.size() == static_cast<size_t>(impl->webshotsPageMax) && !items.empty()) {
+    if (::ssize(items) == impl->webshotsPageMax && !items.empty()) {
         const auto &last = items.back();
         auto tp = last.created_at.GetTimePoint();
         next = encodeToken(tp, last.uuid);
@@ -326,7 +366,7 @@ std::optional<PrefixCursor> decodePrefixToken(const std::string &token)
             out.id = *cur.i;
         }
         return out;
-    } catch (...) {
+    } catch (std::exception &) {
         return {};
     }
 }

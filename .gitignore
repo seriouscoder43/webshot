@@ -2,5 +2,9 @@
 CMakePresets.json
 .clang-format
 .editorconfig
-*.sh
-*.py
+dev.sh
+crawl.sh
+human_logs.py
+verify_netpol.sh
+plan.md
+security.md

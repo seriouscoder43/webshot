@@ -88,9 +88,14 @@ UTEST(TryNormalizeLink, RejectsOverlargePort)
     EXPECT_THROW(tryNormalizeLink("http://example.com:99999/", kLimit), InvalidLinkException);
 }
 
-UTEST(TryNormalizeLink, AcceptsIPv6Host)
+UTEST(TryNormalizeLink, RejectsIPv6Host)
 {
-    EXPECT_EQ(tryNormalizeLink("http://[::1]/", kLimit), std::string{"[::1]"});
+    EXPECT_THROW(tryNormalizeLink("http://[::1]/", kLimit), InvalidLinkException);
+}
+
+UTEST(TryNormalizeLink, RejectsIPv4Host)
+{
+    EXPECT_THROW(tryNormalizeLink("http://192.0.2.1/", kLimit), InvalidLinkException);
 }
 
 UTEST(TryNormalizeLink, KeepsEscapedSlashInPath)

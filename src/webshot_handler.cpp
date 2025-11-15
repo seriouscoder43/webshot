@@ -1,5 +1,6 @@
 #include "include/webshot_handler.hpp"
-#include "include/url_validation.hpp"
+#include "include/host_policy.hpp"
+#include "include/link.hpp"
 #include "include/webshot_config.hpp"
 #include "schemas/webshot.hpp"
 
@@ -7,6 +8,7 @@
 
 #include <fmt/format.h>
 
+#include <userver/clients/dns/component.hpp>
 #include <userver/components/component.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/formats/serialize/common_containers.hpp>
@@ -28,7 +30,8 @@ WebshotHandler::WebshotHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), crud(context.FindComponent<WebshotCrud>()),
-      config(context.FindComponent<WebshotConfig>())
+      config(context.FindComponent<WebshotConfig>()),
+      resolver(context.FindComponent<userver::clients::dns::Component>().GetResolver())
 {
 }
 
@@ -39,10 +42,7 @@ std::string WebshotHandler::
     using server::http::HttpStatus::kBadRequest;
     using server::http::HttpStatus::kCreated;
     using server::http::HttpStatus::kOk;
-
-    const auto normalize = [this](const std::string &s) {
-        return tryNormalizeLink(s, config.queryPartLengthMax());
-    };
+    using us::http::content_type::kTextPlain;
 
     auto &response = request.GetHttpResponse();
     if (request.GetMethod() == server::http::HttpMethod::kPost) {
@@ -55,13 +55,21 @@ std::string WebshotHandler::
             return {};
         }
         try {
-            auto link = normalize(req.link);
-            crud.createWebshot(std::move(link));
+            auto parsed = Link::fromUserInput(req.link, config.queryPartLengthMax());
+            // Preflight host policy: reject bare/special hosts and require public DNS resolution
+            const std::string host = parsed.host();
+            if (hostpolicy::IsBareName(host) || hostpolicy::IsDeniedHostname(host) ||
+                hostpolicy::HasSpecialTldSuffix(host))
+                throw InvalidLinkException("forbidden host");
+            auto pubs = hostpolicy::resolvePublic(resolver, host, std::chrono::milliseconds(1500));
+            if (pubs.empty())
+                throw InvalidLinkException("forbidden host");
+            crud.createWebshot(std::move(parsed));
             response.SetStatus(kCreated);
             return {};
         } catch (const InvalidLinkException &e) {
             response.SetStatus(kBadRequest);
-            response.SetContentType(us::http::content_type::kTextPlain);
+            response.SetContentType(kTextPlain);
             return e.what();
         }
     }
@@ -71,18 +79,18 @@ std::string WebshotHandler::
         response.SetStatus(kBadRequest);
         return {};
     }
-    std::string normalized;
+    Link link;
     try {
-        normalized = normalize(urlArg);
+        link = Link::fromUserInput(urlArg, config.queryPartLengthMax());
     } catch (const InvalidLinkException &e) {
         response.SetStatus(kBadRequest);
-        response.SetContentType(us::http::content_type::kTextPlain);
+        response.SetContentType(kTextPlain);
         return e.what();
     }
     const auto token = request.GetArg("page_token");
     try {
         auto page = crud.findWebshotByLinkPage(
-            normalized, token.empty() ? std::nullopt : std::make_optional(token)
+            link, token.empty() ? std::nullopt : std::make_optional(token)
         );
         response.SetStatus(kOk);
         response.SetContentType(us::http::content_type::kApplicationJson);

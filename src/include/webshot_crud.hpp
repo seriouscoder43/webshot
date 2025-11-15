@@ -1,5 +1,6 @@
 #pragma once
 
+#include "link.hpp"
 #include "schemas/webshot.hpp"
 #include "webshot.hpp"
 
@@ -26,12 +27,12 @@ public:
 
     ~WebshotCrud();
 
-    void createWebshot(std::string url);
+    void createWebshot(Link link);
     std::optional<Webshot> findWebshot(Uuid uuid);
 
-    std::vector<dto::UuidWithTime> findWebshotByLink(const std::string &link);
+    std::vector<dto::UuidWithTime> findWebshotByLink(const Link &link);
     dto::PagedFindWebshotByUrlResponse
-    findWebshotByLinkPage(const std::string &link, const std::optional<std::string> &pageToken);
+    findWebshotByLinkPage(const Link &link, const std::optional<std::string> &pageToken);
     dto::PagedFindWebshotByPrefixResponse findWebshotsByPrefixPage(
         const std::string &normalizedPrefix, const std::optional<std::string> &pageToken
     );

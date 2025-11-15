@@ -1,5 +1,6 @@
 #include "include/webshots_by_prefix_handler.hpp"
 
+#include "include/link.hpp"
 #include "schemas/webshot.hpp"
 
 #include <string>
@@ -42,8 +43,7 @@ std::string WebshotsByPrefixHandler::
     }
     std::string normalizedPrefix;
     try {
-        // Use the same normalization as exact search; returns scheme-less link string
-        normalizedPrefix = tryNormalizeLink(prefixArg, cfg.queryPartLengthMax());
+        normalizedPrefix = Link::fromUserInput(prefixArg, cfg.queryPartLengthMax()).normalized();
     } catch (const InvalidLinkException &e) {
         response.SetStatus(server::http::HttpStatus::kBadRequest);
         response.SetContentType(us::http::content_type::kTextPlain);

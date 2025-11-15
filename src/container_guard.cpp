@@ -1,0 +1,71 @@
+#include "include/container_guard.hpp"
+
+#include <exception>
+
+#include <fmt/core.h>
+
+#include <userver/engine/subprocess/process_starter.hpp>
+#include <userver/logging/log.hpp>
+
+namespace engine = userver::engine;
+
+using engine::subprocess::ExecOptions;
+static inline ExecOptions makeExecOpts()
+{
+    ExecOptions o;
+    o.use_path = true;
+    return o;
+}
+
+ContainerGuard::ContainerGuard(
+    engine::subprocess::ProcessStarter &starter, std::string name,
+    const std::vector<std::string> &createArgs
+)
+    : starter_(&starter), name_(std::move(name)), removed_(false)
+{
+    auto proc = starter_->Exec("docker", createArgs, makeExecOpts());
+    auto status = proc.Get();
+    if (!status.IsExited() || status.GetExitCode() != 0) {
+        removed_ = true;
+        throw std::runtime_error(fmt::format("docker create failed for {}", name_));
+    }
+}
+
+ContainerGuard::~ContainerGuard() { remove(); }
+
+ContainerGuard::ContainerGuard(ContainerGuard &&o) noexcept
+    : starter_(o.starter_), name_(std::move(o.name_)), removed_(o.removed_)
+{
+    o.starter_ = nullptr;
+    o.removed_ = true;
+}
+
+ContainerGuard &ContainerGuard::operator=(ContainerGuard &&o) noexcept
+{
+    if (this != &o) {
+        remove();
+        starter_ = o.starter_;
+        name_ = std::move(o.name_);
+        removed_ = o.removed_;
+        o.starter_ = nullptr;
+        o.removed_ = true;
+    }
+    return *this;
+}
+
+// (sidecar / pause / unpause / wait removed in simplified model)
+
+void ContainerGuard::remove() noexcept
+{
+    if (removed_ || name_.empty() || starter_ == nullptr)
+        return;
+    try {
+        auto proc = starter_->Exec(
+            "docker", std::vector<std::string>{"rm", "-f", name_}, makeExecOpts()
+        );
+        static_cast<void>(proc.Get());
+    } catch (std::exception &) {
+        LOG_INFO() << fmt::format("docker rm for {} failed:", name_);
+    }
+    removed_ = true;
+}

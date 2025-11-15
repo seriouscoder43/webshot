@@ -56,3 +56,30 @@ services:
             - scalar
         extra_hosts:
             - "host.docker.internal:host-gateway"
+    crawler-netkeeper:
+        image: alpine:3.20
+        container_name: crawler-netkeeper
+        command: ["sh","-lc","sleep infinity"]
+        restart: unless-stopped
+        networks:
+            - crawler_net
+    crawler-netpol:
+        container_name: crawler-netpol
+        image: alpine:3.20
+        cap_add:
+            - NET_ADMIN
+        network_mode: host
+        volumes:
+            - ./docker/docker_user_netpol.sh:/usr/local/bin/docker_user_netpol.sh:ro
+        entrypoint: ["/bin/sh","-lc"]
+        command: 
+            - "apk add --no-cache iptables bash jq >/dev/null 2>&1 || true; /usr/local/bin/docker_user_netpol.sh apply-cidr 172.31.0.0/16; tail -f /dev/null"
+        restart: unless-stopped
+
+networks:
+    crawler_net:
+        name: crawler_net
+        driver: bridge
+        ipam:
+            config:
+                - subnet: 172.31.0.0/16

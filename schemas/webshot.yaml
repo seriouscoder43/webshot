@@ -161,7 +161,7 @@ components:
           $ref: '#/components/schemas/Link'
     Link:
       type: string
-      description: "Either an absolute HTTP/HTTPS link (e.g., https://example.com/a) or a link without scheme (e.g., example.com/a). Must not start with '/'."
+      description: "Either an absolute HTTP/HTTPS link (e.g., https://example.com/a) or a link without scheme (e.g., example.com/a). Must not start with '/'. Hostnames only; IP literals (IPv4/IPv6) are not allowed."
       pattern: ^(?:[Hh][Tt][Tt][Pp][Ss]?://|[^/].+)$
     UuidWithTime:
       type: object

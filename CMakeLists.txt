@@ -9,7 +9,9 @@ set(${PROJECT_NAME}_headers
     src/include/webshot_crud.hpp
     src/include/common_definitions.hpp
     src/include/webshot_config.hpp
-    src/include/url_validation.hpp
+    src/include/link.hpp
+    src/include/host_policy.hpp
+    src/include/ip_utils.hpp
 )
 add_library(${PROJECT_NAME}_objs OBJECT
     src/webshot_handler.cpp
@@ -17,8 +19,11 @@ add_library(${PROJECT_NAME}_objs OBJECT
     src/webshots_by_prefix_handler.cpp
     src/webshot_by_id_handler.cpp
     src/webshot_crud.cpp
+    src/link.cpp
+    src/container_guard.cpp
     src/webshot_config.cpp
-    src/url_validation.cpp
+    src/host_policy.cpp
+    src/ip_utils.cpp
 	${${PROJECT_NAME}_headers}
 )
 target_precompile_headers(${PROJECT_NAME}_objs PRIVATE ${${PROJECT_NAME}_headers})
@@ -60,7 +65,8 @@ target_link_libraries(${PROJECT_NAME}_objs PUBLIC userver::core userver::postgre
 
 include(CTest)
 if (BUILD_TESTING)
-  add_executable(is_valid_webshot_url_test tests/is_valid_webshot_url_test.cpp src/url_validation.cpp)
+  add_executable(is_valid_webshot_url_test tests/is_valid_webshot_url_test.cpp src/url_validation.cpp src/ip_utils.cpp)
+  target_sources(is_valid_webshot_url_test PRIVATE src/link.cpp)
   target_link_libraries(is_valid_webshot_url_test PRIVATE userver::utest ada::ada)
   target_include_directories(is_valid_webshot_url_test PRIVATE src/include)
   apply_defaults(is_valid_webshot_url_test)

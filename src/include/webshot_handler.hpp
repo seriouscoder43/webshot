@@ -3,6 +3,7 @@
 
 #include <string_view>
 
+#include <userver/clients/dns/resolver.hpp>
 #include <userver/server/handlers/http_handler_base.hpp>
 
 namespace us = userver;
@@ -26,5 +27,6 @@ public:
 private:
     WebshotCrud &crud;
     const WebshotConfig &config;
+    userver::clients::dns::Resolver &resolver;
 };
 }; // namespace v1

@@ -1,9 +1,8 @@
 #include "include/webshot_exact_handler.hpp"
 
-#include "schemas/webshot.hpp"
-
 #include <string>
 
+#include "include/link.hpp"
 #include <userver/components/component.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/http/content_type.hpp>
@@ -43,9 +42,9 @@ std::string WebshotExactHandler::
         response.SetStatus(kBadRequest);
         return {};
     }
-    std::string normalized;
+    Link link;
     try {
-        normalized = tryNormalizeLink(linkArg, cfg.queryPartLengthMax());
+        link = Link::fromUserInput(linkArg, cfg.queryPartLengthMax());
     } catch (const InvalidLinkException &e) {
         response.SetStatus(kBadRequest);
         response.SetContentType(us::http::content_type::kTextPlain);
@@ -54,7 +53,7 @@ std::string WebshotExactHandler::
     const auto token = request.GetArg("page_token");
     try {
         auto page = crud.findWebshotByLinkPage(
-            normalized, token.empty() ? std::nullopt : std::make_optional(token)
+            link, token.empty() ? std::nullopt : std::make_optional(token)
         );
         response.SetStatus(kOk);
         response.SetContentType(us::http::content_type::kApplicationJson);
