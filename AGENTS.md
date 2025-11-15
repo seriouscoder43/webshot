@@ -27,6 +27,7 @@
 - Keep shared headers under `src/include/` guarded by `#pragma once`; limit namespace aliases to implementation files unless broadly reused.
 - Declarations must exactly match definitions (names and signatures).
 - Use parentheses for initialization, not brace init (except where aggregate-init is required).
+- Filenames must be snake_case (e.g., `ip_utils.cpp`, `webshot_handler.hpp`). Do not introduce PascalCase or camelCase filenames.
 
 ## Language Standard
 - The codebase targets C++17 semantics, regardless of any higher standard values set in `CMakeLists.txt` for dependencies or tooling. Do not use C++20+ language/library features in project code.
@@ -38,5 +39,4 @@
 
 ## Commit & Pull Request Guidelines
 - Adhere to the rules documented in `conventional_commits.md`; subjects stay in Conventional Commit form (`feat:`, `fix:`) with wrapped bodies for non-trivial context, and batch schema edits with their generated outputs.
-- Pre-commit hooks run automatically; optionally run `pre-commit run --all-files` when you want to re-check locally or troubleshoot.
 - Pull requests should summarize behavior changes, list affected endpoints/configuration, link issues, and attach screenshots or schema diffs when relevant.
