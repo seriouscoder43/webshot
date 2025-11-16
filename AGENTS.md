@@ -30,6 +30,13 @@
 - Filenames must be snake_case (e.g., `ip_utils.cpp`, `webshot_handler.hpp`). Do not introduce PascalCase or camelCase filenames.
 - Naming restriction: never introduce identifiers, filenames, configuration keys, env vars, database objects, Docker labels, or documentation terms that include the words "application", "app", or "system".
 
+### [[nodiscard]] usage
+- Prefer `[[nodiscard]]` on any function that returns a value that should not be ignored (e.g., `std::optional<T>`, containers/DTOs, builders, find/query helpers, and JSON/HTTP response helpers).
+- Prefer `[[nodiscard]]` on lightweight data structs/classes that are commonly returned from functions where dropping the value is a bug (e.g., `Link`, `Webshot`, handler components).
+- Do not annotate destructors, move operations, or obvious mutators/setters.
+- If a function returns only for side-effects (logging, metrics, void), do not mark it `[[nodiscard]]`.
+- When in doubt, annotate; the compiler will surface accidental value drops during reviews.
+
 ## Language Standard
 - The codebase targets C++17 semantics, regardless of any higher standard values set in `CMakeLists.txt` for dependencies or tooling. Do not use C++20+ language/library features in project code.
 
