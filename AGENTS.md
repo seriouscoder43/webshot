@@ -1,9 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/` contains the userver service: `main.cpp` wires core components and `src/include/` exposes HTTP handlers such as `V1Files`.
-- `schemas/openapi.yaml` defines the public API; CMake regenerates serializers into the build tree via `userver_target_generate_chaotic`, so keep schema and handler contracts aligned.
+- `src/` contains the userver service: `src/main.cpp` wires core components and `src/include/` exposes HTTP handlers and components such as `webshot_handler.hpp`, `webshot_crud.hpp`, and friends.
+- `schemas/webshot.yaml` defines the public API; CMake regenerates serializers into the build tree via `userver_target_generate_chaotic`, so keep schema and handler contracts aligned.
 - `userver_config.yaml` configures listeners, task processors, and handler bindings; update it whenever you add components or change ports.
+- `sql/schema/` holds Postgres schema files for the metadata and denylist databases used by the service.
 - Tooling configs at the repo root (`.clang-format`, `.editorconfig`, `.pre-commit-config.yaml`) govern formatting, editor defaults, and security checks.
 
 ## Service Overview
