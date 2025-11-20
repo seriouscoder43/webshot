@@ -1,13 +1,19 @@
+#include <map>
 #include <string>
 #include <vector>
 
+#include <userver/utest/http_client.hpp>
 #include <userver/utest/utest.hpp>
 
 #include "s3/sigv4_signer.hpp"
+#include "s3_v4_client.hpp"
 
 using v1::s3v4::BuildCanonicalRequest;
 using v1::s3v4::CanonicalRequestParts;
+using v1::s3v4::MakeS3ClientV4;
 using v1::s3v4::PercentEncode;
+using v1::s3v4::S3Credentials;
+using v1::s3v4::S3V4Config;
 using v1::s3v4::SignHeaders;
 using v1::s3v4::SigV4Params;
 
@@ -85,4 +91,120 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
         "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, "
         "Signature=67fe34c8530db585abddc51067328adfedb6e42487d2566dc7d927d6e2722900";
     EXPECT_EQ(itAuth->second, expectedAuth);
+}
+
+namespace {
+
+std::map<std::string, std::string> parseQuery(const std::string &url)
+{
+    std::map<std::string, std::string> out;
+    const auto pos = url.find('?');
+    if (pos == std::string::npos)
+        return out;
+    const std::string query = url.substr(pos + 1);
+    std::size_t start = 0;
+    while (start < query.size()) {
+        const auto amp = query.find('&', start);
+        const auto eq = query.find('=', start);
+        if (eq == std::string::npos)
+            break;
+        const std::string key = query.substr(start, eq - start);
+        const std::string value = query.substr(
+            eq + 1, amp == std::string::npos ? std::string::npos : amp - eq - 1
+        );
+        out[key] = value;
+        if (amp == std::string::npos)
+            break;
+        start = amp + 1;
+    }
+    return out;
+}
+
+S3V4Config makeConfig()
+{
+    S3V4Config cfg;
+    cfg.endpoint = "https://examplebucket.s3.amazonaws.com";
+    cfg.region = "us-east-1";
+    cfg.timeout = std::chrono::milliseconds(1000);
+    cfg.virtualHosted = false;
+    return cfg;
+}
+
+S3Credentials makeCreds()
+{
+    S3Credentials creds;
+    creds.accessKeyId = "AKIAIOSFODNN7EXAMPLE";
+    creds.secretAccessKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+    return creds;
+}
+
+} // namespace
+
+UTEST(S3SigV4Client, PresignPathStyleClampsShortTtl)
+{
+    auto httpClient = userver::utest::CreateHttpClient();
+    auto cfg = makeConfig();
+    auto creds = makeCreds();
+    auto client = MakeS3ClientV4(*httpClient, cfg, creds, "examplebucket");
+
+    const std::time_t expired = std::time(nullptr) - 3600;
+    const std::string url = client->GenerateDownloadUrl("test.txt", expired, true);
+
+    const auto params = parseQuery(url);
+    auto it = params.find("X-Amz-Expires");
+    ASSERT_NE(it, params.end());
+    EXPECT_EQ(it->second, std::string{"1"});
+}
+
+UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
+{
+    auto httpClient = userver::utest::CreateHttpClient();
+    auto cfg = makeConfig();
+    auto creds = makeCreds();
+    auto client = MakeS3ClientV4(*httpClient, cfg, creds, "examplebucket");
+
+    const std::time_t farFuture = std::time(nullptr) + 14 * 24 * 60 * 60;
+    const std::string url = client->GenerateDownloadUrl("test.txt", farFuture, true);
+
+    const auto params = parseQuery(url);
+    auto it = params.find("X-Amz-Expires");
+    ASSERT_NE(it, params.end());
+    EXPECT_EQ(it->second, std::string{"604800"});
+}
+
+UTEST(S3SigV4Client, VirtualHostRequiresBucket)
+{
+    auto httpClient = userver::utest::CreateHttpClient();
+    auto cfg = makeConfig();
+    auto creds = makeCreds();
+    auto client = MakeS3ClientV4(*httpClient, cfg, creds, std::string{});
+
+    const auto expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(60);
+    EXPECT_THROW(
+        client->GenerateDownloadUrlVirtualHostAddressing("obj", expiresAt, "https"),
+        std::runtime_error
+    );
+}
+
+UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)
+{
+    auto httpClient = userver::utest::CreateHttpClient();
+    auto cfg = makeConfig();
+    cfg.endpoint = "s3.example.com";
+    auto creds = makeCreds();
+    auto client = MakeS3ClientV4(*httpClient, cfg, creds, "bucket-name");
+
+    const auto expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(60);
+    const std::string url = client->GenerateDownloadUrlVirtualHostAddressing(
+        "path/object", expiresAt, "https"
+    );
+
+    const auto schemePos = url.find("://");
+    ASSERT_NE(schemePos, std::string::npos);
+    const auto hostStart = schemePos + 3;
+    const auto pathStart = url.find('/', hostStart);
+    ASSERT_NE(pathStart, std::string::npos);
+    const std::string host = url.substr(hostStart, pathStart - hostStart);
+
+    EXPECT_EQ(host, std::string{"bucket-name.s3.example.com"});
 }
