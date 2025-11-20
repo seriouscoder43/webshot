@@ -13,6 +13,9 @@ components_manager:
             missing-ok: false
             config: /home/noofva/work/webshot/secrets/secdist.json
             format: json
+        dynamic-config:
+            defaults:
+                USERVER_RPS_CCONTROL_ENABLED: true
         webshot-config:
             query-part-length-max: 32768
             s3-bucket: webshot
@@ -27,6 +30,9 @@ components_manager:
             listener:
                 port: 8080
                 task_processor: main-task-processor
+        congestion-control:
+            fake-mode: false
+            load-enabled: true
         logging:
             fs-task-processor: fs-task-processor
             loggers:
@@ -39,7 +45,7 @@ components_manager:
             method: GET,POST
             task_processor: main-task-processor
             request-timeout-ms: 10000
-            max_request_size: &max-data-per-request: 65536
+            max_request_size: &max-data-per-request 65536
         webshots-by-prefix:
             path: /v1/webshot/prefix
             method: GET

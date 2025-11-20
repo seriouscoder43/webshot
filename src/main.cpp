@@ -13,6 +13,7 @@
 #include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component.hpp>
 #include <userver/components/minimal_server_component_list.hpp>
+#include <userver/congestion_control/component.hpp>
 #include <userver/storages/postgres/component.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/provider_component.hpp>
@@ -30,6 +31,7 @@ int main(int argc, char *argv[])
                               .Append<us::components::DefaultSecdistProvider>()
                               .Append<us::components::Postgres>("webshot-meta-db")
                               .Append<us::components::Postgres>("denylist-db")
+                              .Append<us::congestion_control::Component>()
                               .Append<v1::WebshotDenylist>()
                               .Append<v1::WebshotConfig>()
                               .Append<v1::WebshotCrud>()
