@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(webshot CXX)
 
+set(WEBSHOT_ENABLE_COVERAGE
+    OFF
+    CACHE BOOL
+          "Enable LLVM coverage instrumentation for the webshot service binary")
+set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
+
 set(${PROJECT_NAME}_headers
     src/include/webshot_handler.hpp
     src/include/webshots_by_prefix_handler.hpp
@@ -61,6 +67,11 @@ add_executable(${PROJECT_NAME} src/main.cpp
 apply_defaults(${PROJECT_NAME}_objs)
 apply_defaults(${PROJECT_NAME})
 
+if(WEBSHOT_ENABLE_COVERAGE)
+  target_compile_options(${PROJECT_NAME}_objs PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
+  target_link_options(${PROJECT_NAME} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
+endif()
+
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
@@ -84,11 +95,15 @@ target_sources(
 include(CTest)
 if(BUILD_TESTING)
 
-  set(
-    WEBSHOT_TEST_DB_DSN
-    "postgresql://postgres@localhost:15434/postgres"
-    CACHE STRING "PostgreSQL DSN used by testsuite (--postgresql)"
-  )
+  set(WEBSHOT_TEST_DB_DSN
+      "postgresql://postgres@localhost:15434/postgres"
+      CACHE STRING "PostgreSQL DSN used by testsuite (--postgresql)")
+  set(WEBSHOT_LLVM_COV_BIN
+      "llvm-cov-19"
+      CACHE STRING "llvm-cov binary used for coverage reporting")
+  set(WEBSHOT_LLVM_PROFDATA_BIN
+      "llvm-profdata-19"
+      CACHE STRING "llvm-profdata binary used for coverage reporting")
   add_executable(is_valid_webshot_url_test tests/is_valid_webshot_url_test.cpp
                                            src/link.cpp src/ip_utils.cpp)
   target_link_libraries(
@@ -177,20 +192,73 @@ if(BUILD_TESTING)
   set_tests_properties(webshot_prefix_pagination
                        PROPERTIES ENVIRONMENT "LSAN_OPTIONS=detect_leaks=0")
 
+  if(WEBSHOT_ENABLE_COVERAGE)
+    foreach(test_target
+            is_valid_webshot_url_test s3_v4_client_test webshot_cursor_test
+            webshot_pagination_test webshot_prefix_pagination_test)
+      if(TARGET ${test_target})
+        target_compile_options(${test_target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
+        target_link_options(${test_target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
+      endif()
+    endforeach()
+  endif()
+
   if(USERVER_FEATURE_TESTSUITE)
     add_custom_target(webshot-testsuite)
     add_dependencies(webshot-testsuite ${PROJECT_NAME})
 
     userver_testsuite_add(
-      SERVICE_TARGET webshot-testsuite
-      TEST_SUFFIX tests
-      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests
+      SERVICE_TARGET
+      webshot-testsuite
+      TEST_SUFFIX
+      tests
+      WORKING_DIRECTORY
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests
       PYTEST_ARGS
-        --service-config=${CMAKE_CURRENT_SOURCE_DIR}/userver_config.yaml
-        --service-binary=$<TARGET_FILE:${PROJECT_NAME}>
-        --service-secdist=${CMAKE_CURRENT_SOURCE_DIR}/secrets/secdist.json
-        --service-source-dir=${CMAKE_CURRENT_SOURCE_DIR}
-        --postgresql=${WEBSHOT_TEST_DB_DSN})
+      --service-config=${CMAKE_CURRENT_SOURCE_DIR}/userver_config.yaml
+      --service-binary=$<TARGET_FILE:${PROJECT_NAME}>
+      --service-secdist=${CMAKE_CURRENT_SOURCE_DIR}/secrets/secdist.json
+      --service-source-dir=${CMAKE_CURRENT_SOURCE_DIR}
+      --postgresql=${WEBSHOT_TEST_DB_DSN})
+
+    # Aggregate C++ coverage for server sources (including unit tests) in one
+    # command.
+    add_custom_target(
+      webshot-coverage
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              ${CMAKE_CURRENT_BINARY_DIR}/coverage
+      # Ensure testsuite runner scripts are generated.
+      COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR} --target
+              webshot-testsuite
+      # Run all CTest tests (unit tests + testsuite) under coverage
+      # instrumentation.
+      COMMAND
+        ${CMAKE_COMMAND} -E env
+        LLVM_PROFILE_FILE=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-%p.profraw
+        ${CMAKE_CTEST_COMMAND} --output-on-failure
+      # Merge raw profiles (use a shell so the glob expands).
+      COMMAND
+        bash -lc
+        "${WEBSHOT_LLVM_PROFDATA_BIN} merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata"
+      # Print a textual coverage summary for service sources only; ignore
+      # coverage from tests/.
+      COMMAND
+        ${WEBSHOT_LLVM_COV_BIN} report $<TARGET_FILE:${PROJECT_NAME}>
+        $<TARGET_FILE:is_valid_webshot_url_test>
+        $<TARGET_FILE:s3_v4_client_test> $<TARGET_FILE:webshot_cursor_test>
+        $<TARGET_FILE:webshot_pagination_test>
+        $<TARGET_FILE:webshot_prefix_pagination_test>
+        -instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
+        "-ignore-filename-regex=.*/tests/.*"
+      USES_TERMINAL VERBATIM)
+    add_dependencies(
+      webshot-coverage
+      ${PROJECT_NAME}
+      is_valid_webshot_url_test
+      s3_v4_client_test
+      webshot_cursor_test
+      webshot_pagination_test
+      webshot_prefix_pagination_test)
   endif()
 endif()
 
@@ -205,9 +273,9 @@ file(GLOB SQL_QUERY_FILES ${CMAKE_CURRENT_SOURCE_DIR}/sql/queries/*.sql)
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp
   COMMAND
-    python3 ${CMAKE_CURRENT_SOURCE_DIR}/sql/gen_sql_header.py
-    --input-dir ${CMAKE_CURRENT_SOURCE_DIR}/sql/queries
-    --output ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp
+    python3 ${CMAKE_CURRENT_SOURCE_DIR}/sql/gen_sql_header.py --input-dir
+    ${CMAKE_CURRENT_SOURCE_DIR}/sql/queries --output
+    ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/sql/gen_sql_header.py ${SQL_QUERY_FILES}
   COMMENT "Generating SQL header from sql/queries"
   VERBATIM)
