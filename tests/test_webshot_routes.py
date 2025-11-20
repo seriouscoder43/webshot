@@ -1,6 +1,3 @@
-import uuid
-
-
 async def test_list_webshots_missing_link(service_client):
     response = await service_client.get("/v1/webshot")
 
@@ -82,3 +79,40 @@ async def test_disallow_and_purge_invalid_host(service_client):
     assert response.status == 400
     body = response.json()
     assert body["error"]["message"] == "invalid host"
+
+
+async def test_create_webshot_missing_body(service_client):
+    response = await service_client.post("/v1/webshot")
+
+    assert response.status == 400
+    body = response.json()
+    assert body["error"]["message"] == "invalid request body"
+
+
+async def test_create_webshot_forbidden_special_tld(service_client):
+    response = await service_client.post(
+        "/v1/webshot",
+        json={"link": "http://example.test/a"},
+    )
+
+    assert response.status == 400
+    body = response.json()
+    assert body["error"]["message"] == "forbidden host"
+
+
+async def test_create_webshot_denylisted_host(service_client):
+    # Insert host into denylist via dedicated endpoint.
+    deny_resp = await service_client.post(
+        "/v1/disallow-and-purge",
+        params={"host": "https://example.com/"},
+    )
+    assert deny_resp.status == 202
+
+    response = await service_client.post(
+        "/v1/webshot",
+        json={"link": "https://example.com/"},
+    )
+
+    assert response.status == 403
+    body = response.json()
+    assert body["error"]["message"] == "host in denylist"

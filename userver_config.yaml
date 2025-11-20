@@ -2,8 +2,11 @@ components_manager:
     task_processors:
         main-task-processor:
             worker_threads: 4
+        crawling-task-processor:
+            worker_threads: 4
+            thread_name: crawling-task-processor-worker
         fs-task-processor:
-            worker_threads: &blocking_num_workers 1
+            worker_threads: &blocking_num_workers 4
     default_task_processor: main-task-processor
     components:
         http-client:
@@ -44,7 +47,7 @@ components_manager:
             path: /v1/webshot
             method: GET,POST
             task_processor: main-task-processor
-            request-timeout-ms: 10000
+            request-timeout-ms: 60000
             max_request_size: &max-data-per-request 65536
         webshots-by-prefix:
             path: /v1/webshot/prefix
@@ -71,7 +74,6 @@ components_manager:
             webshots-links-per-page-max: 10
             crawler-network: 'crawler_net'
             crawler-image: 'webrecorder/browsertrix-crawler'
-            crawler-collection-name: 'webshot'
             crawler-workers: 1
             crawler-page-load-timeout-sec: 10
             crawler-post-load-delay-sec: 1

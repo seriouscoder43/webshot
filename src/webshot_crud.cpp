@@ -22,6 +22,7 @@
 #include <chrono>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -29,7 +30,6 @@
 
 #include <fmt/format.h>
 
-#include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component.hpp>
 #include <userver/components/component.hpp>
 #include <userver/components/component_base.hpp>
@@ -97,9 +97,6 @@ properties:
     crawler-image:
         type: string
         description: 'Docker image used for the crawl container'
-    crawler-collection-name:
-        type: string
-        description: 'Collection name used by the crawler for the capture'
     crawler-workers:
         type: integer
         minimum: 1
@@ -151,9 +148,9 @@ WebshotCrud::WebshotCrud(
 
 WebshotCrud::~WebshotCrud() = default;
 
-/** @brief Private pimpl that holds dependencies and query helpers. */
 struct [[nodiscard]] CrawlContext;
 
+/** @brief Private pimpl that holds dependencies and query helpers. */
 class [[nodiscard]] WebshotCrud::Impl {
 public:
     const int64_t webshotsPageMax;
@@ -161,7 +158,6 @@ public:
     const int64_t webshotsLinksPerPageMax;
     const std::string crawlerNetwork;
     const std::string crawlerImage;
-    const std::string crawlerCollectionName;
     const int64_t crawlerWorkers;
     const int64_t crawlerPageLoadTimeoutSec;
     const int64_t crawlerPostLoadDelaySec;
@@ -174,18 +170,21 @@ public:
     const std::string crawlerScopeType;
     const WebshotConfig &svcCfg;
     pg::ClusterPtr cluster;
-    us::clients::dns::Resolver &resolver;
     us::clients::http::Client &httpClient;
     us::s3api::ClientPtr s3Client;
     WebshotDenylist &denylist;
     engine::CancellableSemaphore crawlSlots;
+    engine::TaskProcessor &crawlingTaskProcessor;
     // must die first
     concurrent::BackgroundTaskStorage backgroundTaskStorage;
+
+    [[nodiscard]] dto::UuidWithTimeLink runCrawlJob(Link link, std::vector<std::string> pinnedIps);
 
     [[nodiscard]] CrawlContext makeCrawlContext(Link link, std::vector<std::string> pinnedIps);
     [[nodiscard]] bool
     runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
-    [[nodiscard]] bool persistMetadataForContext(const CrawlContext &ctx);
+    [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
+    persistMetadataForContext(const CrawlContext &ctx);
     void purgeHost(const std::string &host);
     explicit Impl(
         const us::components::ComponentConfig &cfg, const us::components::ComponentContext &ctx
@@ -194,8 +193,7 @@ public:
           webshotsPerLinkMax(cfg["webshots-per-link-max"].As<int64_t>()),
           webshotsLinksPerPageMax(cfg["webshots-links-per-page-max"].As<int64_t>()),
           crawlerNetwork(cfg["crawler-network"].As<std::string>()),
-          crawlerImage(cfg["crawler-image"].As<std::string>("webrecorder/browsertrix-crawler")),
-          crawlerCollectionName(cfg["crawler-collection-name"].As<std::string>("webshot")),
+          crawlerImage(cfg["crawler-image"].As<std::string>()),
           crawlerWorkers(cfg["crawler-workers"].As<int64_t>()),
           crawlerPageLoadTimeoutSec(cfg["crawler-page-load-timeout-sec"].As<int64_t>()),
           crawlerPostLoadDelaySec(cfg["crawler-post-load-delay-sec"].As<int64_t>()),
@@ -204,15 +202,15 @@ public:
           crawlerBehaviorTimeoutSec(cfg["crawler-behavior-timeout-sec"].As<int64_t>()),
           crawlerOverheadTimeoutSec(cfg["crawler-overhead-timeout-sec"].As<int64_t>()),
           purgeJobTimeoutSec(cfg["purge-job-timeout-sec"].As<int64_t>()),
-          crawlerLang(cfg["crawler-lang"].As<std::string>("en")),
-          crawlerScopeType(cfg["crawler-scope-type"].As<std::string>("page-spa")),
+          crawlerLang(cfg["crawler-lang"].As<std::string>()),
+          crawlerScopeType(cfg["crawler-scope-type"].As<std::string>()),
           svcCfg(ctx.FindComponent<WebshotConfig>()),
           cluster(ctx.FindComponent<us::components::Postgres>("webshot-meta-db").GetCluster()),
-          resolver(ctx.FindComponent<us::clients::dns::Component>().GetResolver()),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           denylist(ctx.FindComponent<WebshotDenylist>()),
           crawlSlots(cfg["crawl-concurrency"].As<size_t>()),
-          backgroundTaskStorage(engine::current_task::GetBlockingTaskProcessor())
+          crawlingTaskProcessor(ctx.GetTaskProcessor("crawling-task-processor")),
+          backgroundTaskStorage(crawlingTaskProcessor)
     {
         const auto &secdist = ctx.FindComponent<us::components::Secdist>().Get();
         const auto &creds = secdist.Get<S3CredentialsSecdist>();
@@ -248,6 +246,36 @@ struct [[nodiscard]] CrawlContext {
     std::string s3Key;
     std::string location;
 };
+
+[[nodiscard]] dto::UuidWithTimeLink
+WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
+{
+    UINVARIANT(!pinnedIps.empty(), "can't crawl with no IPs");
+
+    const auto totalSeconds = crawlerOverheadTimeoutSec + crawlerPageLoadTimeoutSec +
+                              crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
+                              crawlerPageExtraDelaySec + crawlerBehaviorTimeoutSec;
+    engine::current_task::SetDeadline(
+        engine::Deadline::FromDuration(std::chrono::seconds(totalSeconds))
+    );
+
+    std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
+
+    engine::subprocess::ProcessStarter starter(engine::current_task::GetBlockingTaskProcessor());
+
+    CrawlContext ctx = makeCrawlContext(std::move(link), std::move(pinnedIps));
+
+    if (!runCrawlerForContext(ctx, starter)) {
+        throw std::runtime_error("crawl failed");
+    }
+
+    auto createdAt = persistMetadataForContext(ctx);
+    if (!createdAt) {
+        throw std::runtime_error("failed to persist metadata");
+    }
+
+    return dto::UuidWithTimeLink{ctx.id, *createdAt, ctx.link.normalized()};
+}
 
 [[nodiscard]] CrawlContext
 WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIps)
@@ -289,7 +317,7 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
         createArgs.push_back(fmt::format("{}:{}", ctx.link.host(), ip));
     }
 
-    const std::string &collection = crawlerCollectionName;
+    const std::string collection = "1";
     createArgs.push_back("--name");
     createArgs.push_back(cname);
     createArgs.push_back(crawlerImage);
@@ -370,7 +398,8 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
     return true;
 }
 
-[[nodiscard]] bool WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
+[[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
+WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 {
     const auto &host = ctx.link.host();
     std::string hostRev(rbegin(host), rend(host));
@@ -382,12 +411,22 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
             LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
         }
         LOG_INFO() << fmt::format("Host became denylisted during crawl: {}", host);
-        return false;
+        return {};
     }
 
     try {
-        readwrite(sql::kInsertWebshot.data(), ctx.id, ctx.link.normalized(), hostRev, ctx.location)
-            .AsSingleRow<Uuid>();
+        struct Row {
+            Uuid id;
+            pg::TimePointTz created_at;
+        };
+        auto row = readwrite(
+                       sql::kInsertWebshot.data(), ctx.id, ctx.link.normalized(), hostRev,
+                       ctx.location
+        )
+                       .AsSingleRow<Row>(pg::kRowTag);
+        static_cast<void>(row.id);
+        return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row.created_at
+        ));
     } catch (const std::exception &e) {
         try {
             s3Client->DeleteObject(ctx.s3Key);
@@ -396,10 +435,8 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
         }
         LOG_ERROR(
         ) << fmt::format("DB insert failed for {}: {}", us::utils::ToString(ctx.id), e.what());
-        return false;
+        return {};
     }
-
-    return true;
 }
 
 void WebshotCrud::Impl::purgeHost(const std::string &host)
@@ -431,43 +468,15 @@ void WebshotCrud::Impl::purgeHost(const std::string &host)
     }
 }
 
-void WebshotCrud::createWebshot(Link link, std::vector<std::string> pinnedIps)
+dto::UuidWithTimeLink WebshotCrud::createWebshot(Link link, std::vector<std::string> pinnedIps)
 {
-    UINVARIANT(!pinnedIps.empty(), "can't crawl with no IPs");
-    impl->backgroundTaskStorage.AsyncDetach(
-        "create-webshot-lambda",
-        [impl = impl.get(), link = std::move(link), pinnedIps = std::move(pinnedIps)]() mutable {
-            try {
-                const auto totalSeconds = impl->crawlerOverheadTimeoutSec +
-                                          impl->crawlerPageLoadTimeoutSec +
-                                          impl->crawlerPostLoadDelaySec +
-                                          impl->crawlerNetIdleWaitSec +
-                                          impl->crawlerPageExtraDelaySec +
-                                          impl->crawlerBehaviorTimeoutSec;
-                engine::current_task::SetDeadline(
-                    engine::Deadline::FromDuration(std::chrono::seconds(totalSeconds))
-                );
-                std::shared_lock<engine::CancellableSemaphore> slotLock(impl->crawlSlots);
-
-                engine::subprocess::ProcessStarter starter(
-                    engine::current_task::GetBlockingTaskProcessor()
-                );
-
-                CrawlContext ctx = impl->makeCrawlContext(std::move(link), std::move(pinnedIps));
-
-                if (!impl->runCrawlerForContext(ctx, starter))
-                    return;
-
-                if (!impl->persistMetadataForContext(ctx))
-                    return;
-            } catch (const engine::SemaphoreLockCancelledError &e) {
-                LOG_INFO(
-                ) << fmt::format("Crawl task cancelled while waiting for slot: ", e.what());
-            } catch (const std::exception &e) {
-                LOG_ERROR() << fmt::format("Crawl task failed: {}", e.what());
-            }
-        }
-    );
+    auto *implPtr = impl.get();
+    return us::utils::Async(
+               implPtr->crawlingTaskProcessor, "create-webshot",
+               [implPtr, link = std::move(link), pinned = std::move(pinnedIps)]() mutable {
+                   return implPtr->runCrawlJob(std::move(link), std::move(pinned));
+               }
+    ).Get();
 }
 
 std::optional<Webshot> WebshotCrud::findWebshot(Uuid uuid)
@@ -629,7 +638,7 @@ dto::PagedFindWebshotByPrefixResponse WebshotCrud::findWebshotsByPrefixPage(
 
 void WebshotCrud::disallowAndPurgeHost(std::string host)
 {
-    impl->denylist.insertHost(host);
+    impl->denylist.insertHost(host, "disallow-and-purge");
 
     LOG_INFO() << fmt::format("enqueued for host {}", host);
 

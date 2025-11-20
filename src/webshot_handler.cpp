@@ -20,6 +20,7 @@
 
 #include <userver/clients/dns/component.hpp>
 #include <userver/components/component.hpp>
+#include <userver/engine/exception.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/formats/serialize/common_containers.hpp>
@@ -99,12 +100,9 @@ std::string WebshotHandler::
                 if (pubs.empty())
                     throw InvalidLinkException("forbidden host");
                 if (!denylist.isAllowedHost(host))
-                    return httpu::respondError(
-                        response, kForbidden, "POST failed due to host in denylist"
-                    );
-                crud.createWebshot(std::move(parsed), std::move(pubs));
-                response.SetStatus(kCreated);
-                return {};
+                    return httpu::respondError(response, kForbidden, "host in denylist");
+                auto webshot = crud.createWebshot(std::move(parsed), std::move(pubs));
+                return httpu::respondJson(response, kCreated, webshot);
             } catch (const InvalidLinkException &e) {
                 return httpu::respondError(response, kBadRequest, e.what());
             }
@@ -128,6 +126,9 @@ std::string WebshotHandler::
         } catch (const errors::InvalidPageTokenException &) {
             return httpu::respondError(response, kBadRequest, "invalid page_token");
         }
+    } catch (const engine::WaitInterruptedException &e) {
+        // Propagate task cancellation (e.g. client aborted request) to userver
+        throw;
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("Unhandled error in webshot_handler: {}", e.what());
         return httpu::respondError(response, kInternalServerError, "internal server error");

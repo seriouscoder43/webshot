@@ -27,7 +27,7 @@ public:
     /** @brief Returns true if the host is not deny‑listed. */
     [[nodiscard]] bool isAllowedHost(const std::string &host) noexcept;
     /** @brief Insert a host into the denylist (noop if already present). */
-    void insertHost(const std::string &host);
+    void insertHost(const std::string &host, const std::string &reason);
     static userver::yaml_config::Schema GetStaticConfigSchema();
 
 private:

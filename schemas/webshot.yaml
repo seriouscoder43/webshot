@@ -65,8 +65,8 @@ paths:
 
     post:
       operationId: createWebshot
-      summary: Enqueue capture of a webshot
-      description: Triggers asynchronous capture of the provided URL.
+      summary: Capture a webshot and return its metadata
+      description: Performs capture of the provided URL and, on success, returns a JSON descriptor of the stored artifact.
       requestBody:
         required: true
         content:
@@ -84,7 +84,11 @@ paths:
                   link: example.org/path?q=1
       responses:
         '201':
-          description: Capture accepted for processing.
+          description: Capture completed; JSON descriptor of the stored WACZ file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UuidWithTimeLink'
         '400':
           description: Invalid JSON or URL supplied.
           content:
@@ -110,7 +114,7 @@ paths:
                 denylisted:
                   value:
                     error:
-                      message: POST failed due to host in denylist
+                      message: host in denylist
         '500':
           description: Internal server error.
           content:

@@ -34,12 +34,16 @@ public:
     ~WebshotCrud();
 
     /**
-     * @brief Enqueue a crawl for the given link and persist metadata.
+     * @brief Run a crawl for the given link and persist metadata.
      *
      * Expects a normalized Link and a non-empty list of prevalidated public IP
      * addresses for its host (SSR F checks are done at handler level).
+     *
+     * On success returns a single capture descriptor including UUID, creation
+     * time and normalized link.
      */
-    void createWebshot(Link link, std::vector<std::string> pinnedIps);
+    [[nodiscard]] dto::UuidWithTimeLink
+    createWebshot(Link link, std::vector<std::string> pinnedIps);
     /** @brief Look up a capture by id. */
     [[nodiscard]] std::optional<Webshot> findWebshot(Uuid uuid);
 

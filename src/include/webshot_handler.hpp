@@ -19,7 +19,7 @@ class WebshotCrud;
  * @brief HTTP handler for creating and listing captures for an exact URL.
  *
  * Supports:
- * - POST to enqueue a new capture for the provided link.
+ * - POST to capture the provided link and redirect to the stored artifact.
  * - GET to list captures for the exact normalized `link` query parameter.
  */
 class [[nodiscard]] WebshotHandler : public server::handlers::HttpHandlerBase {
