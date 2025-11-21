@@ -181,8 +181,7 @@ public:
     [[nodiscard]] dto::UuidWithTimeLink runCrawlJob(Link link, std::vector<std::string> pinnedIps);
 
     [[nodiscard]] CrawlContext makeCrawlContext(Link link, std::vector<std::string> pinnedIps);
-    [[nodiscard]] bool
-    runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
+    void runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
     [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
     persistMetadataForContext(const CrawlContext &ctx);
     void purgeHost(const std::string &host);
@@ -265,9 +264,7 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 
     CrawlContext ctx = makeCrawlContext(std::move(link), std::move(pinnedIps));
 
-    if (!runCrawlerForContext(ctx, starter)) {
-        throw std::runtime_error("crawl failed");
-    }
+    runCrawlerForContext(ctx, starter);
 
     auto createdAt = persistMetadataForContext(ctx);
     if (!createdAt) {
@@ -292,7 +289,7 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
     return ctx;
 }
 
-[[nodiscard]] bool WebshotCrud::Impl::runCrawlerForContext(
+void WebshotCrud::Impl::runCrawlerForContext(
     CrawlContext &ctx, engine::subprocess::ProcessStarter &starter
 )
 {
@@ -370,8 +367,11 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
     );
     auto status = startProc.Get();
     if (!status.IsExited() || status.GetExitCode() != 0) {
-        LOG_INFO() << fmt::format("Failed to crawl {}, child process failed", ctx.link.httpUrl());
-        return false;
+        const auto msg = fmt::format(
+            "Failed to crawl {}, child process failed", ctx.link.httpUrl()
+        );
+        LOG_INFO() << msg;
+        throw std::runtime_error(msg);
     }
     // do eagerly
     ctrGuard.remove();
@@ -381,8 +381,9 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
     );
 
     if (!us::fs::FileExists(engine::current_task::GetBlockingTaskProcessor(), pathToArchive)) {
-        LOG_INFO() << fmt::format("Failed to crawl {}, no WACZ", ctx.link.httpUrl());
-        return false;
+        const auto msg = fmt::format("Failed to crawl {}, no WACZ", ctx.link.httpUrl());
+        LOG_INFO() << msg;
+        throw std::runtime_error(msg);
     }
 
     try {
@@ -391,11 +392,10 @@ WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIp
             "application/zip", std::nullopt, std::nullopt
         );
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
-        return false;
+        const auto msg = fmt::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
+        LOG_ERROR() << msg;
+        throw;
     }
-
-    return true;
 }
 
 [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
