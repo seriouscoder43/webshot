@@ -8,3 +8,4 @@ human_logs.py
 verify_netpol.sh
 plan.md
 security.md
+secrets/
