@@ -38,26 +38,6 @@ ContainerGuard::ContainerGuard(
 
 ContainerGuard::~ContainerGuard() { remove(); }
 
-ContainerGuard::ContainerGuard(ContainerGuard &&o) noexcept
-    : starter_(o.starter_), name_(std::move(o.name_)), removed_(o.removed_)
-{
-    o.starter_ = nullptr;
-    o.removed_ = true;
-}
-
-ContainerGuard &ContainerGuard::operator=(ContainerGuard &&o) noexcept
-{
-    if (this != &o) {
-        remove();
-        starter_ = o.starter_;
-        name_ = std::move(o.name_);
-        removed_ = o.removed_;
-        o.starter_ = nullptr;
-        o.removed_ = true;
-    }
-    return *this;
-}
-
 void ContainerGuard::remove() noexcept
 {
     if (removed_ || name_.empty() || starter_ == nullptr)

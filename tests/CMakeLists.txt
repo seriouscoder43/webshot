@@ -27,18 +27,20 @@ function(webshot_add_cpp_test target)
                       ${ARGS_INCLUDE_DIRS})
   apply_defaults(${target})
   add_test(NAME ${target} COMMAND ${target})
-  set_tests_properties(${target} PROPERTIES ENVIRONMENT
-                                            "LSAN_OPTIONS=detect_leaks=0")
+  set(test_env "LSAN_OPTIONS=detect_leaks=0")
+  list(APPEND test_env "PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{PATH}")
+  set_tests_properties(${target} PROPERTIES ENVIRONMENT "${test_env}")
 
   if(WEBSHOT_ENABLE_COVERAGE)
     target_compile_options(${target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
     target_link_options(${target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
   endif()
+
+  set_property(GLOBAL APPEND PROPERTY WEBSHOT_CPP_TESTS ${target})
 endfunction()
 
 webshot_add_cpp_test(
-  is_valid_webshot_url_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/is_valid_webshot_url_test.cpp
+  link_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/link_test.cpp
   ${CMAKE_SOURCE_DIR}/src/link.cpp ${CMAKE_SOURCE_DIR}/src/ip_utils.cpp)
 
 webshot_add_cpp_test(
@@ -99,12 +101,19 @@ webshot_add_cpp_test(
   error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils_test.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
 
+get_property(WEBSHOT_CPP_TESTS GLOBAL PROPERTY WEBSHOT_CPP_TESTS)
+set(WEBSHOT_COVERAGE_TARGETS ${PROJECT_NAME} ${WEBSHOT_CPP_TESTS})
+set(WEBSHOT_COVERAGE_TARGET_FILES "")
+foreach(tgt IN LISTS WEBSHOT_COVERAGE_TARGETS)
+  list(APPEND WEBSHOT_COVERAGE_TARGET_FILES $<TARGET_FILE:${tgt}>)
+endforeach()
+
 add_executable(docker ${CMAKE_CURRENT_SOURCE_DIR}/docker_stub_main.cpp)
 apply_defaults(docker)
 
 if(USERVER_FEATURE_TESTSUITE)
   add_custom_target(webshot-testsuite)
-  add_dependencies(webshot-testsuite ${PROJECT_NAME})
+  add_dependencies(webshot-testsuite ${PROJECT_NAME} docker)
 
   userver_testsuite_add(
     SERVICE_TARGET
@@ -122,6 +131,8 @@ if(USERVER_FEATURE_TESTSUITE)
 
   add_custom_target(
     webshot-coverage
+    COMMAND ${CMAKE_COMMAND} -E remove_directory
+            ${CMAKE_CURRENT_BINARY_DIR}/coverage
     COMMAND ${CMAKE_COMMAND} -E make_directory
             ${CMAKE_CURRENT_BINARY_DIR}/coverage
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target
@@ -134,24 +145,32 @@ if(USERVER_FEATURE_TESTSUITE)
       bash -lc
       "${WEBSHOT_LLVM_PROFDATA_BIN} merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata"
     COMMAND
-      ${WEBSHOT_LLVM_COV_BIN} report $<TARGET_FILE:${PROJECT_NAME}>
-      $<TARGET_FILE:is_valid_webshot_url_test> $<TARGET_FILE:s3_v4_client_test>
-      $<TARGET_FILE:webshot_cursor_test> $<TARGET_FILE:webshot_pagination_test>
-      $<TARGET_FILE:webshot_prefix_pagination_test> $<TARGET_FILE:ip_utils_test>
-      $<TARGET_FILE:host_policy_test> $<TARGET_FILE:container_guard_test>
+      ${WEBSHOT_LLVM_COV_BIN} report ${WEBSHOT_COVERAGE_TARGET_FILES}
       -instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
-      "-ignore-filename-regex=.*/tests/.*"
+      "-ignore-filename-regex=.*/tests/.*|.*/webshot_config\\.(cpp|hpp)"
+      -show-instantiation-summary
     USES_TERMINAL VERBATIM)
 
-  add_dependencies(
-    webshot-coverage
-    ${PROJECT_NAME}
-    is_valid_webshot_url_test
-    s3_v4_client_test
-    webshot_cursor_test
-    webshot_pagination_test
-    webshot_prefix_pagination_test
-    ip_utils_test
-    host_policy_test
-    container_guard_test)
+  # Skip coverage instrumentation for config glue; track behavior with the
+  # reporting regex instead.
+  set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/src/webshot_config.cpp
+    PROPERTIES COMPILE_OPTIONS
+               "-fno-profile-instr-generate;-fno-coverage-mapping")
+
+  add_custom_target(
+    webshot-coverage-html
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${CMAKE_CURRENT_BINARY_DIR}/coverage/html
+    COMMAND
+      ${WEBSHOT_LLVM_COV_BIN} show --format=html
+      --output-dir=${CMAKE_CURRENT_BINARY_DIR}/coverage/html
+      --instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
+      ${WEBSHOT_COVERAGE_TARGET_FILES}
+      "-ignore-filename-regex=.*/tests/.*|.*/webshot_config\\.(cpp|hpp)"
+      -show-instantiation-summary
+    DEPENDS webshot-coverage
+    USES_TERMINAL VERBATIM)
+
+  add_dependencies(webshot-coverage ${PROJECT_NAME} docker ${WEBSHOT_CPP_TESTS})
 endif()

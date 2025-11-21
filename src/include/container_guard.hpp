@@ -31,11 +31,8 @@ public:
 
     ContainerGuard(const ContainerGuard &) = delete;
     ContainerGuard &operator=(const ContainerGuard &) = delete;
-    ContainerGuard(ContainerGuard &&) noexcept;
-    ContainerGuard &operator=(ContainerGuard &&) noexcept;
-
-    /** @return Managed container name. */
-    const std::string &name() const noexcept { return name_; }
+    ContainerGuard(ContainerGuard &&) = delete;
+    ContainerGuard &operator=(ContainerGuard &&) = delete;
 
     /**
      * @brief Explicitly remove the container now. Safe to call multiple times.

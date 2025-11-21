@@ -39,13 +39,8 @@ UTEST(ContainerGuard, CreateAndRemoveOnDestruction)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    const std::string name = "ok-container";
-    const std::vector<std::string> args{"create", name};
-
-    {
-        ContainerGuard guard(starter, name, args);
-        EXPECT_EQ(guard.name(), name);
-    }
+    const std::vector<std::string> args{"create", "ok-container"};
+    ContainerGuard guard(starter, "ok-container", args);
 }
 
 UTEST(ContainerGuard, CreateFailureThrows)
@@ -57,33 +52,6 @@ UTEST(ContainerGuard, CreateFailureThrows)
     const std::vector<std::string> args{"create", "fail"};
 
     EXPECT_THROW(ContainerGuard guard(starter, name, args), std::runtime_error);
-}
-
-UTEST(ContainerGuard, MoveTransfersOwnership)
-{
-    prependCurrentDirToPath();
-    auto starter = makeStarter();
-
-    const std::string name = "move-container";
-    const std::vector<std::string> args{"create", name};
-
-    ContainerGuard first(starter, name, args);
-    EXPECT_EQ(first.name(), name);
-
-    ContainerGuard second(std::move(first));
-    EXPECT_EQ(second.name(), name);
-}
-
-UTEST(ContainerGuard, MoveAssignmentRemovesPrevious)
-{
-    prependCurrentDirToPath();
-    auto starter = makeStarter();
-
-    ContainerGuard first(starter, "first-container", {"create", "first-container"});
-    ContainerGuard second(starter, "second-container", {"create", "second-container"});
-
-    second = std::move(first);
-    EXPECT_EQ(second.name(), std::string("first-container"));
 }
 
 UTEST(ContainerGuard, ExplicitRemoveIsIdempotent)
