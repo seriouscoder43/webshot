@@ -155,7 +155,7 @@ std::unordered_map<std::string, std::string> SignHeaders(
     out["x-amz-date"] = p.amzDate;
     out["x-amz-content-sha256"] = std::string(payloadSha256Hex);
     if (p.sessionToken)
-        out["x-amz-security-token"] = *p.sessionToken;
+        out["x-amz-security-token"] = p.sessionToken->GetUnderlying();
     // Merge to headers vector for canonicalization and sort
     for (const auto &kv : out)
         headers.emplace_back(kv.first, kv.second);
@@ -171,7 +171,7 @@ std::unordered_map<std::string, std::string> SignHeaders(
     );
 
     namespace US = USERVER_NAMESPACE::crypto::hash;
-    const std::string kSecret = fmt::format("AWS4{}", p.secretAccessKey);
+    const std::string kSecret = fmt::format("AWS4{}", p.secretAccessKey.GetUnderlying());
     const std::string kDate = US::HmacSha256(kSecret, p.date, US::OutputEncoding::kBinary);
     const std::string kRegion = US::HmacSha256(kDate, p.region, US::OutputEncoding::kBinary);
     const std::string kService = US::HmacSha256(kRegion, p.service, US::OutputEncoding::kBinary);
@@ -182,7 +182,7 @@ std::unordered_map<std::string, std::string> SignHeaders(
         kSigning, string_to_sign, US::OutputEncoding::kHex
     );
 
-    const std::string credential = fmt::format("{}/{}", p.accessKeyId, scope);
+    const std::string credential = fmt::format("{}/{}", p.accessKeyId.GetUnderlying(), scope);
     std::string authorization = fmt::format(
         "AWS4-HMAC-SHA256 Credential={}, SignedHeaders={}, Signature={}", credential,
         cr.signedHeaders, signature

@@ -6,6 +6,9 @@
 
 #include <userver/clients/http/client.hpp>
 #include <userver/s3api/clients/s3api.hpp>
+#include <userver/utils/strong_typedef.hpp>
+
+#include "s3_credentials_types.hpp"
 
 namespace v1::s3v4 {
 
@@ -23,9 +26,9 @@ struct [[nodiscard]] S3V4Config {
  * @brief Credentials used for signing requests with AWS Signature V4.
  */
 struct [[nodiscard]] S3Credentials {
-    std::string accessKeyId;
-    std::string secretAccessKey;
-    std::optional<std::string> sessionToken; // optional
+    AccessKeyId accessKeyId;
+    SecretAccessKey secretAccessKey;
+    std::optional<SessionToken> sessionToken; // optional
 };
 
 /**

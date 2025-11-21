@@ -369,7 +369,9 @@ private:
         );
         std::vector<std::pair<std::string, std::string>> query;
         query.emplace_back("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
-        query.emplace_back("X-Amz-Credential", fmt::format("{}/{}", params.accessKeyId, scope));
+        query.emplace_back(
+            "X-Amz-Credential", fmt::format("{}/{}", params.accessKeyId.GetUnderlying(), scope)
+        );
         query.emplace_back("X-Amz-Date", params.amzDate);
         query.emplace_back("X-Amz-Expires", std::to_string(ttl.count()));
         std::ostringstream sh;
@@ -381,7 +383,7 @@ private:
         const auto signed_headers = sh.str();
         query.emplace_back("X-Amz-SignedHeaders", signed_headers);
         if (params.sessionToken)
-            query.emplace_back("X-Amz-Security-Token", *params.sessionToken);
+            query.emplace_back("X-Amz-Security-Token", params.sessionToken->GetUnderlying());
 
         const auto cr = BuildCanonicalRequest(
             method, std::string("/").append(req), query, headers, std::string("UNSIGNED-PAYLOAD")
@@ -424,12 +426,14 @@ private:
         );
         std::vector<std::pair<std::string, std::string>> query;
         query.emplace_back("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
-        query.emplace_back("X-Amz-Credential", fmt::format("{}/{}", params.accessKeyId, scope));
+        query.emplace_back(
+            "X-Amz-Credential", fmt::format("{}/{}", params.accessKeyId.GetUnderlying(), scope)
+        );
         query.emplace_back("X-Amz-Date", params.amzDate);
         query.emplace_back("X-Amz-Expires", std::to_string(ttl.count()));
         query.emplace_back("X-Amz-SignedHeaders", std::string("host"));
         if (params.sessionToken)
-            query.emplace_back("X-Amz-Security-Token", *params.sessionToken);
+            query.emplace_back("X-Amz-Security-Token", params.sessionToken->GetUnderlying());
 
         const auto cr = BuildCanonicalRequest(
             method, std::string("/").append(req), query, headers, std::string("UNSIGNED-PAYLOAD")
@@ -452,7 +456,7 @@ private:
     ComputePresignSignature(const SigV4Params &params, const std::string &string_to_sign)
     {
         namespace US = USERVER_NAMESPACE::crypto::hash;
-        const std::string kSecret = fmt::format("AWS4{}", params.secretAccessKey);
+        const std::string kSecret = fmt::format("AWS4{}", params.secretAccessKey.GetUnderlying());
         const std::string kDate = US::HmacSha256(kSecret, params.date, US::OutputEncoding::kBinary);
         const std::string kRegion = US::HmacSha256(
             kDate, params.region, US::OutputEncoding::kBinary

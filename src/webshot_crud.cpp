@@ -220,7 +220,9 @@ public:
         s3Client = s3v4::MakeS3ClientV4(
             httpClient,
             s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
-            s3v4::S3Credentials{*creds.access_key_id, *creds.secret_access_key, std::nullopt},
+            s3v4::S3Credentials{
+                *creds.access_key_id, *creds.secret_access_key, creds.session_token
+            },
             std::string{}
         );
     }

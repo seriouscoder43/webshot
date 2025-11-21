@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../include/s3_credentials_types.hpp"
+
 namespace v1::s3v4 {
 
 /**
@@ -23,9 +25,9 @@ struct CanonicalRequestParts {
 struct [[nodiscard]] SigV4Params {
     std::string region;         // e.g. us-east-1
     std::string service = "s3"; // fixed for S3
-    std::string accessKeyId;
-    std::string secretAccessKey;
-    std::optional<std::string> sessionToken;
+    AccessKeyId accessKeyId;
+    SecretAccessKey secretAccessKey;
+    std::optional<SessionToken> sessionToken;
     std::string amzDate; // YYYYMMDDTHHMMSSZ
     std::string date;    // YYYYMMDD
 };

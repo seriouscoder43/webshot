@@ -8,12 +8,14 @@
 #include "s3/sigv4_signer.hpp"
 #include "s3_v4_client.hpp"
 
+using v1::s3v4::AccessKeyId;
 using v1::s3v4::BuildCanonicalRequest;
 using v1::s3v4::CanonicalRequestParts;
 using v1::s3v4::MakeS3ClientV4;
 using v1::s3v4::PercentEncode;
 using v1::s3v4::S3Credentials;
 using v1::s3v4::S3V4Config;
+using v1::s3v4::SecretAccessKey;
 using v1::s3v4::SignHeaders;
 using v1::s3v4::SigV4Params;
 
@@ -58,8 +60,8 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
     SigV4Params params;
     params.region = "us-east-1";
     params.service = "s3";
-    params.accessKeyId = "AKIAIOSFODNN7EXAMPLE";
-    params.secretAccessKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+    params.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"};
+    params.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"};
     params.amzDate = "20130524T000000Z";
     params.date = "20130524";
 
@@ -133,8 +135,8 @@ S3V4Config makeConfig()
 S3Credentials makeCreds()
 {
     S3Credentials creds;
-    creds.accessKeyId = "AKIAIOSFODNN7EXAMPLE";
-    creds.secretAccessKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+    creds.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"};
+    creds.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"};
     return creds;
 }
 
