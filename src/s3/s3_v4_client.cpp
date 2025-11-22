@@ -228,6 +228,46 @@ void S3V4Client::UpdateConfig(s3::ConnectionCfg &&) {}
 
 std::string_view S3V4Client::GetBucketName() const { return bucket_; }
 
+// Multipart upload API stubs (not used by this service)
+userver::s3api::multipart_upload::InitiateMultipartUploadResult
+S3V4Client::CreateMultipartUpload(const userver::s3api::multipart_upload::
+                                      CreateMultipartUploadRequest &) const
+{
+    throw std::runtime_error("CreateMultipartUpload not implemented in SigV4 client");
+}
+
+userver::s3api::multipart_upload::UploadPartResult
+S3V4Client::UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &) const
+{
+    throw std::runtime_error("UploadPart not implemented in SigV4 client");
+}
+
+userver::s3api::multipart_upload::CompleteMultipartUploadResult
+S3V4Client::CompleteMultipartUpload(const userver::s3api::multipart_upload::
+                                        CompleteMultipartUploadRequest &) const
+{
+    throw std::runtime_error("CompleteMultipartUpload not implemented in SigV4 client");
+}
+
+void S3V4Client::AbortMultipartUpload(const userver::s3api::multipart_upload::
+                                          AbortMultipartUploadRequest &) const
+{
+    throw std::runtime_error("AbortMultipartUpload not implemented in SigV4 client");
+}
+
+userver::s3api::multipart_upload::ListPartsResult
+S3V4Client::ListParts(const userver::s3api::multipart_upload::ListPartsRequest &) const
+{
+    throw std::runtime_error("ListParts not implemented in SigV4 client");
+}
+
+userver::s3api::multipart_upload::ListMultipartUploadsResult
+S3V4Client::ListMultipartUploads(const userver::s3api::multipart_upload::ListMultipartUploadsRequest
+                                     &) const
+{
+    throw std::runtime_error("ListMultipartUploads not implemented in SigV4 client");
+}
+
 // Presign support using chrono
 std::string
 S3V4Client::GenerateDownloadUrl(std::string_view path, time_t expires_epoch, bool use_ssl) const

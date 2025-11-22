@@ -43,7 +43,9 @@ struct [[nodiscard]] S3Credentials {
 /**
  * @brief Minimal SigV4 S3 client implementation.
  *
- * Only the subset of methods required by this service is implemented.
+ * Only the subset of methods required by this service is implemented; newly
+ * added interface methods that are not used by this service are provided as
+ * stubs that throw at runtime.
  */
 class [[nodiscard]] S3V4Client final : public userver::s3api::Client {
 public:
@@ -87,6 +89,25 @@ public:
     std::vector<std::string> ListBucketDirectories(std::string_view) const override;
     void UpdateConfig(userver::s3api::ConnectionCfg &&) override;
     std::string_view GetBucketName() const override;
+
+    // Multipart upload APIs are not used by this service; they are implemented
+    // as stubs to satisfy the userver::s3api::Client interface.
+    userver::s3api::multipart_upload::InitiateMultipartUploadResult CreateMultipartUpload(
+        const userver::s3api::multipart_upload::CreateMultipartUploadRequest &request
+    ) const override;
+    userver::s3api::multipart_upload::UploadPartResult
+    UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &request) const override;
+    userver::s3api::multipart_upload::CompleteMultipartUploadResult CompleteMultipartUpload(
+        const userver::s3api::multipart_upload::CompleteMultipartUploadRequest &request
+    ) const override;
+    void AbortMultipartUpload(
+        const userver::s3api::multipart_upload::AbortMultipartUploadRequest &request
+    ) const override;
+    userver::s3api::multipart_upload::ListPartsResult
+    ListParts(const userver::s3api::multipart_upload::ListPartsRequest &request) const override;
+    userver::s3api::multipart_upload::ListMultipartUploadsResult ListMultipartUploads(
+        const userver::s3api::multipart_upload::ListMultipartUploadsRequest &request
+    ) const override;
 
     std::string
     GenerateDownloadUrl(std::string_view path, time_t expires_epoch, bool use_ssl) const override;
