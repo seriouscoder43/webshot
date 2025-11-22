@@ -16,9 +16,9 @@ userver::formats::json::Value makeError(std::string_view message);
 /**
  * @brief Convenience for parameter‑specific errors.
  *
- * @param param_name Name of the offending parameter.
- * @param detail Additional context to append to the message.
+ * @param fieldName Name of the offending parameter.
+ * @param message Additional context to append to the message.
  */
-userver::formats::json::Value makeParamError(std::string_view param_name, std::string_view detail);
+userver::formats::json::Value makeParamError(std::string_view fieldName, std::string_view message);
 
 } // namespace v1::errors

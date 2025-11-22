@@ -43,10 +43,10 @@ bool HasSpecialTldSuffix(std::string_view host)
     return false;
 }
 
-static bool IsPublicV4(uint32_t ip_be)
+static bool IsPublicV4(uint32_t ipBe)
 {
-    const uint32_t ip_host = ::ntohl(ip_be);
-    return IpUtils::isPublicRoutableIPv4(ip_host);
+    const uint32_t ipHost = ::ntohl(ipBe);
+    return IpUtils::isPublicRoutableIPv4(ipHost);
 }
 
 static bool IsPublicV6(const struct in6_addr &a) { return IpUtils::isPublicRoutableIPv6(a); }

@@ -66,12 +66,12 @@ Link Link::fromUserInput(std::string in, size_t queryPartLengthMax)
     if (in.rfind("//", 0) == 0)
         throw InvalidLinkException("missing scheme");
 
-    const auto scheme_pos = in.find("://");
-    if (scheme_pos == std::string::npos ||
-        !isValidScheme(std::string_view(in).substr(0, scheme_pos))) {
+    const auto schemePos = in.find("://");
+    if (schemePos == std::string::npos ||
+        !isValidScheme(std::string_view(in).substr(0, schemePos))) {
         in = fmt::format("http://{}", in);
     } else {
-        std::string scheme = in.substr(0, scheme_pos);
+        std::string scheme = in.substr(0, schemePos);
         if (!(scheme == "http" || scheme == "https"))
             throw InvalidLinkException("unsupported scheme");
     }

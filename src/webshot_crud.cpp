@@ -69,8 +69,8 @@
 
 namespace pg = us::storages::postgres;
 namespace engine = us::engine;
-namespace concurrent = userver::concurrent;
-namespace rcu_ns = userver::rcu;
+namespace concurrent = us::concurrent;
+namespace rcu = us::rcu;
 namespace chrono = std::chrono;
 using namespace v1;
 using Uuid = boost::uuids::uuid;
@@ -203,7 +203,7 @@ public:
         std::chrono::system_clock::time_point expiresAt;
         std::shared_ptr<s3v4::S3V4Client> client;
     };
-    rcu_ns::Variable<S3ClientState> s3State;
+    rcu::Variable<S3ClientState> s3State;
     s3v4::AccessKeyId staticAccessKeyId;
     s3v4::SecretAccessKey staticSecretAccessKey;
     WebshotDenylist &denylist;
@@ -541,7 +541,7 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
     try {
         struct Row {
             Uuid id;
-            pg::TimePointTz created_at;
+            pg::TimePointTz createdAt;
         };
         auto row = readwrite(
                        sql::kInsertWebshot.data(), ctx.id, ctx.link.normalized(), hostRev,
@@ -549,8 +549,8 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
         )
                        .AsSingleRow<Row>(pg::kRowTag);
         static_cast<void>(row.id);
-        return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row.created_at
-        ));
+        return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row.createdAt)
+        );
     } catch (const std::exception &e) {
         try {
             auto snapshot = s3State.Read();
@@ -566,11 +566,11 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 
 void WebshotCrud::Impl::purgeHost(const std::string &host)
 {
-    std::string d_rev(rbegin(host), rend(host));
+    std::string hostRev(rbegin(host), rend(host));
     const int64_t kBatch = 1000;
     while (true) {
         try {
-            auto res = readonly(sql::kSelectIdsByHostOrSubhostsPaged.data(), d_rev, kBatch);
+            auto res = readonly(sql::kSelectIdsByHostOrSubhostsPaged.data(), hostRev, kBatch);
             std::vector<Uuid> ids;
             ids.reserve(res.Size());
             for (auto row : res)

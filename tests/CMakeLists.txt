@@ -2,10 +2,10 @@ set(WEBSHOT_TEST_DB_DSN
     "postgresql://postgres@localhost:15434/postgres"
     CACHE STRING "PostgreSQL DSN used by testsuite (--postgresql)")
 set(WEBSHOT_LLVM_COV_BIN
-    "llvm-cov-19"
+    "llvm-cov"
     CACHE STRING "llvm-cov binary used for coverage reporting")
 set(WEBSHOT_LLVM_PROFDATA_BIN
-    "llvm-profdata-19"
+    "llvm-profdata"
     CACHE STRING "llvm-profdata binary used for coverage reporting")
 
 function(webshot_add_cpp_test target)

@@ -42,27 +42,27 @@ UTEST(LinkFromUserInput, RejectsMissingHostname)
 
 UTEST(LinkFromUserInput, AcceptsQueryAtLimit)
 {
-    std::string url_string = "https://example.com/?";
-    url_string.append(kLimit - 1, 'a');
+    std::string urlString = "https://example.com/?";
+    urlString.append(kLimit - 1, 'a');
     EXPECT_NO_THROW({
-        auto value = normalize(url_string);
+        auto value = normalize(urlString);
         EXPECT_FALSE(value.empty());
     });
 }
 
 UTEST(LinkFromUserInput, RejectsQueryOverLimit)
 {
-    std::string url_string = "https://example.com/?";
-    url_string.append(kLimit + 1, 'a');
-    EXPECT_THROW({ [[maybe_unused]] auto value = normalize(url_string); }, InvalidLinkException);
+    std::string urlString = "https://example.com/?";
+    urlString.append(kLimit + 1, 'a');
+    EXPECT_THROW({ [[maybe_unused]] auto value = normalize(urlString); }, InvalidLinkException);
 }
 
 UTEST(LinkFromUserInput, NormalizesScheme)
 {
-    const auto http_link = normalize("http://example.com/path");
-    const auto https_link = normalize("https://example.com/path");
-    EXPECT_EQ(http_link, https_link);
-    EXPECT_EQ(http_link, std::string{"example.com/path"});
+    const auto httpLink = normalize("http://example.com/path");
+    const auto httpsLink = normalize("https://example.com/path");
+    EXPECT_EQ(httpLink, httpsLink);
+    EXPECT_EQ(httpLink, std::string{"example.com/path"});
 }
 
 UTEST(LinkFromUserInput, RemovesTrailingSlash)
