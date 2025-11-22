@@ -7,6 +7,7 @@
 - Database schemas live in `sql/schema/`.
 - Tooling configs at repo root (`.clang-format`, `.editorconfig`, `.pre-commit-config.yaml`) define formatting and checks.
 - MCP docs: prefer `docs-mcp-server` for library docs — specifically for `ada`, `abseil`, `userver`, `userver-doxygen`, and `browsertrix-crawler` — before web searching.
+- If docs aren’t in `docs-mcp-server`, use Context7 (`/authelia/authelia`, `/nginx/nginx`, etc.) before falling back to generic web search.
 - When querying userver, first use the narrative userver docs; use `userver-doxygen` afterward for exact signatures/templates if needed.
 
 ## Service & Agent Context
