@@ -9,6 +9,7 @@
 #include "include/container_guard.hpp"
 #include "include/link.hpp"
 #include "include/s3_secdist.hpp"
+#include "include/s3_sts_client.hpp"
 #include "include/s3_v4_client.hpp"
 #include "include/server_errors.hpp"
 #include "include/sql.hpp"
@@ -21,6 +22,7 @@
 
 #include <chrono>
 #include <exception>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -36,6 +38,7 @@
 #include <userver/concurrent/background_task_storage.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/engine/semaphore.hpp>
+#include <userver/engine/sleep.hpp>
 #include <userver/engine/subprocess/process_starter.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/engine/task/task_processor_fwd.hpp>
@@ -45,7 +48,9 @@
 #include <userver/fs/blocking/write.hpp>
 #include <userver/fs/read.hpp>
 #include <userver/fs/write.hpp>
+#include <userver/http/common_headers.hpp>
 #include <userver/logging/log.hpp>
+#include <userver/rcu/rcu.hpp>
 #include <userver/storages/postgres/cluster.hpp>
 #include <userver/storages/postgres/io/chrono.hpp>
 #include <userver/storages/postgres/io/row_types.hpp>
@@ -56,6 +61,8 @@
 #include <userver/utils/assert.hpp>
 #include <userver/utils/async.hpp>
 #include <userver/utils/boost_uuid4.hpp>
+#include <userver/utils/datetime.hpp>
+#include <userver/utils/datetime/from_string_saturating.hpp>
 #include <userver/utils/datetime/timepoint_tz.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
@@ -63,6 +70,7 @@
 namespace pg = us::storages::postgres;
 namespace engine = us::engine;
 namespace concurrent = userver::concurrent;
+namespace rcu_ns = userver::rcu;
 namespace chrono = std::chrono;
 using namespace v1;
 using Uuid = boost::uuids::uuid;
@@ -135,6 +143,21 @@ properties:
     crawler-scope-type:
         type: string
         description: 'Scope type passed to the crawler (e.g. page-spa)'
+    s3-credentials-endpoint:
+        type: string
+        description: 'STS endpoint used to obtain temporary S3 credentials'
+    s3-credentials-duration-sec:
+        type: integer
+        minimum: 1
+        description: 'Requested lifetime of temporary S3 credentials in seconds'
+    s3-credentials-refresh-margin-sec:
+        type: integer
+        minimum: 1
+        description: 'How many seconds before expiration to refresh S3 credentials'
+    s3-credentials-refresh-retry-sec:
+        type: integer
+        minimum: 1
+        description: 'Delay between failed S3 credential refresh attempts in seconds'
 )");
 }
 
@@ -168,10 +191,21 @@ public:
     const int64_t purgeJobTimeoutSec;
     const std::string crawlerLang;
     const std::string crawlerScopeType;
+    const std::string s3CredentialsEndpoint;
+    const int64_t s3CredentialsDurationSec;
+    const int64_t s3CredentialsRefreshMarginSec;
+    const int64_t s3CredentialsRefreshRetrySec;
     const WebshotConfig &svcCfg;
     pg::ClusterPtr cluster;
     us::clients::http::Client &httpClient;
-    us::s3api::ClientPtr s3Client;
+    struct [[nodiscard]] S3ClientState {
+        s3v4::S3Credentials creds;
+        std::chrono::system_clock::time_point expiresAt;
+        std::shared_ptr<s3v4::S3V4Client> client;
+    };
+    rcu_ns::Variable<S3ClientState> s3State;
+    s3v4::AccessKeyId staticAccessKeyId;
+    s3v4::SecretAccessKey staticSecretAccessKey;
     WebshotDenylist &denylist;
     engine::CancellableSemaphore crawlSlots;
     engine::TaskProcessor &crawlingTaskProcessor;
@@ -179,12 +213,13 @@ public:
     concurrent::BackgroundTaskStorage backgroundTaskStorage;
 
     [[nodiscard]] dto::UuidWithTimeLink runCrawlJob(Link link, std::vector<std::string> pinnedIps);
-
-    [[nodiscard]] CrawlContext makeCrawlContext(Link link, std::vector<std::string> pinnedIps);
     void runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
     [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
     persistMetadataForContext(const CrawlContext &ctx);
     void purgeHost(const std::string &host);
+    [[nodiscard]] S3ClientState fetchS3ClientStateFromSts() const;
+    void startS3RefreshTask();
+    void runS3RefreshLoop();
     explicit Impl(
         const us::components::ComponentConfig &cfg, const us::components::ComponentContext &ctx
     )
@@ -203,6 +238,10 @@ public:
           purgeJobTimeoutSec(cfg["purge-job-timeout-sec"].As<int64_t>()),
           crawlerLang(cfg["crawler-lang"].As<std::string>()),
           crawlerScopeType(cfg["crawler-scope-type"].As<std::string>()),
+          s3CredentialsEndpoint(cfg["s3-credentials-endpoint"].As<std::string>()),
+          s3CredentialsDurationSec(cfg["s3-credentials-duration-sec"].As<int64_t>()),
+          s3CredentialsRefreshMarginSec(cfg["s3-credentials-refresh-margin-sec"].As<int64_t>()),
+          s3CredentialsRefreshRetrySec(cfg["s3-credentials-refresh-retry-sec"].As<int64_t>()),
           svcCfg(ctx.FindComponent<WebshotConfig>()),
           cluster(ctx.FindComponent<us::components::Postgres>("webshot-meta-db").GetCluster()),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
@@ -217,14 +256,11 @@ public:
             creds.access_key_id && creds.secret_access_key,
             "missing required S3 secdist credentials"
         );
-        s3Client = s3v4::MakeS3ClientV4(
-            httpClient,
-            s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
-            s3v4::S3Credentials{
-                *creds.access_key_id, *creds.secret_access_key, creds.session_token
-            },
-            std::string{}
-        );
+        staticAccessKeyId = *creds.access_key_id;
+        staticSecretAccessKey = *creds.secret_access_key;
+        const auto initialState = fetchS3ClientStateFromSts();
+        s3State.Assign(initialState);
+        startS3RefreshTask();
     }
     template <typename... Ts> [[nodiscard]] auto readonly(Ts &&...args)
     {
@@ -246,6 +282,15 @@ struct [[nodiscard]] CrawlContext {
     std::string keyOnly;
     std::string s3Key;
     std::string location;
+
+    CrawlContext(Link linkIn, std::vector<std::string> pinnedIpsIn, const WebshotConfig &cfg)
+        : link(std::move(linkIn)), pinnedIps(std::move(pinnedIpsIn)),
+          archiveRoot(us::fs::blocking::TempDirectory::Create()),
+          id(us::utils::generators::GenerateBoostUuid()), keyOnly(us::utils::ToString(id)),
+          s3Key(fmt::format("{}/{}", cfg.s3Bucket(), keyOnly)),
+          location(fmt::format("{}/{}", cfg.publicBaseUrl(), keyOnly))
+    {
+    }
 };
 
 [[nodiscard]] dto::UuidWithTimeLink
@@ -264,31 +309,106 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 
     engine::subprocess::ProcessStarter starter(engine::current_task::GetBlockingTaskProcessor());
 
-    CrawlContext ctx = makeCrawlContext(std::move(link), std::move(pinnedIps));
+    CrawlContext ctx(std::move(link), std::move(pinnedIps), svcCfg);
 
     runCrawlerForContext(ctx, starter);
 
     auto createdAt = persistMetadataForContext(ctx);
-    if (!createdAt) {
+    if (!createdAt)
         throw std::runtime_error("failed to persist metadata");
-    }
-
     return dto::UuidWithTimeLink{ctx.id, *createdAt, ctx.link.normalized()};
 }
 
-[[nodiscard]] CrawlContext
-WebshotCrud::Impl::makeCrawlContext(Link link, std::vector<std::string> pinnedIps)
+WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() const
 {
-    CrawlContext ctx{
-        std::move(link), std::move(pinnedIps), us::fs::blocking::TempDirectory::Create(),
-        Uuid{},          std::string{},        std::string{},
-        std::string{}
-    };
-    ctx.id = us::utils::generators::GenerateBoostUuid();
-    ctx.keyOnly = us::utils::ToString(ctx.id);
-    ctx.s3Key = fmt::format("{}/{}", svcCfg.s3Bucket(), ctx.keyOnly);
-    ctx.location = fmt::format("{}/{}", svcCfg.publicBaseUrl(), ctx.keyOnly);
-    return ctx;
+    const auto stsLink = Link::fromUserInput(
+        s3CredentialsEndpoint, static_cast<size_t>(s3CredentialsEndpoint.size())
+    );
+    std::string schemeRaw = std::string(stsLink.url.get_protocol());
+    std::string scheme;
+    if (schemeRaw.empty()) {
+        scheme = "https";
+    } else {
+        if (!schemeRaw.empty() && schemeRaw.back() == ':')
+            schemeRaw.pop_back();
+        if (schemeRaw == "https") {
+            scheme = "https";
+        } else {
+            UINVARIANT(false, "STS endpoint must use https scheme");
+        }
+    }
+    std::string host = stsLink.host();
+    std::string path = std::string(stsLink.url.get_pathname());
+    if (path.empty())
+        path = "/";
+
+    const auto sessionUuid = us::utils::ToString(us::utils::generators::GenerateBoostUuid());
+    const std::string sessionName = fmt::format("webshot-{}", sessionUuid);
+    constexpr std::string_view kRoleArnDescription = "webshot-ephemeral-s3-credentials";
+
+    std::string policyJson = fmt::format(
+        "{{\"Version\":\"2012-10-17\",\"Statement\":{{\"Sid\":\"webshot-access\",\"Effect\":"
+        "\"Allow\",\"Principal\":\"*\",\"Action\":[\"s3:PutObject\",\"s3:DeleteObject\","
+        "\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::{}/*\"}}}}",
+        svcCfg.s3Bucket()
+    );
+
+    const auto sts = FetchStsCredentials(
+        httpClient, s3CredentialsEndpoint, staticAccessKeyId, staticSecretAccessKey,
+        svcCfg.s3Region(), std::string{kRoleArnDescription}, sessionName, policyJson,
+        std::chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
+    );
+
+    S3ClientState state;
+    state.creds = s3v4::S3Credentials{sts.accessKeyId, sts.secretAccessKey, sts.sessionToken};
+    state.expiresAt = sts.expiresAt;
+    state.client = std::make_shared<s3v4::S3V4Client>(
+        httpClient,
+        s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
+        state.creds, std::string{}
+    );
+    return state;
+}
+
+void WebshotCrud::Impl::startS3RefreshTask()
+{
+    backgroundTaskStorage.CriticalAsyncDetach("s3-credentials-refresh", [this]() {
+        try {
+            runS3RefreshLoop();
+        } catch (const std::exception &e) {
+            LOG_ERROR() << fmt::format("S3 credentials refresh loop terminated: {}", e.what());
+        }
+    });
+}
+
+void WebshotCrud::Impl::runS3RefreshLoop()
+{
+    while (!engine::current_task::ShouldCancel()) {
+        auto snapshot = s3State.Read();
+        const auto now = std::chrono::system_clock::now();
+        auto refreshDelay = snapshot->expiresAt - now -
+                            std::chrono::seconds{s3CredentialsRefreshMarginSec};
+        if (refreshDelay < std::chrono::seconds{0})
+            refreshDelay = std::chrono::seconds{0};
+
+        engine::SleepFor(refreshDelay);
+        if (engine::current_task::ShouldCancel())
+            return;
+
+        for (;;) {
+            if (engine::current_task::ShouldCancel())
+                return;
+            try {
+                const auto newState = fetchS3ClientStateFromSts();
+                s3State.Assign(newState);
+                break;
+            } catch (const std::exception &e) {
+                LOG_ERROR(
+                ) << fmt::format("Failed to refresh S3 credentials from STS: {}", e.what());
+                engine::SleepFor(std::chrono::seconds{s3CredentialsRefreshRetrySec});
+            }
+        }
+    }
 }
 
 void WebshotCrud::Impl::runCrawlerForContext(
@@ -389,7 +509,8 @@ void WebshotCrud::Impl::runCrawlerForContext(
     }
 
     try {
-        s3Client->PutObject(
+        auto snapshot = s3State.Read();
+        snapshot->client->PutObject(
             ctx.s3Key, us::fs::blocking::ReadFileContents(pathToArchive), std::nullopt,
             "application/zip", std::nullopt, std::nullopt
         );
@@ -408,7 +529,8 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 
     if (!denylist.isAllowedHost(host)) {
         try {
-            s3Client->DeleteObject(ctx.s3Key);
+            auto snapshot = s3State.Read();
+            snapshot->client->DeleteObject(ctx.s3Key);
         } catch (const std::exception &) {
             LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
         }
@@ -431,7 +553,8 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
         ));
     } catch (const std::exception &e) {
         try {
-            s3Client->DeleteObject(ctx.s3Key);
+            auto snapshot = s3State.Read();
+            snapshot->client->DeleteObject(ctx.s3Key);
         } catch (const std::exception &) {
             LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
         }
@@ -457,7 +580,8 @@ void WebshotCrud::Impl::purgeHost(const std::string &host)
             for (auto &&id : ids) {
                 const auto key = fmt::format("{}/{}", svcCfg.s3Bucket(), us::utils::ToString(id));
                 try {
-                    s3Client->DeleteObject(key);
+                    auto snapshot = s3State.Read();
+                    snapshot->client->DeleteObject(key);
                 } catch (const std::exception &e) {
                     LOG_ERROR() << fmt::format("S3 delete failed for key {}: {}", key, e.what());
                 }

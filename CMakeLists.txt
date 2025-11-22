@@ -16,6 +16,7 @@ set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
 
 set(${PROJECT_NAME}_headers
     src/include/s3_credentials_types.hpp
+    src/include/s3_sts_client.hpp
     src/include/webshot_handler.hpp
     src/include/webshots_by_prefix_handler.hpp
     src/include/webshot_by_id_handler.hpp
@@ -97,7 +98,7 @@ target_link_libraries(${PROJECT_NAME}_objs
                       PUBLIC userver::core userver::postgresql userver::s3api)
 target_sources(
   ${PROJECT_NAME}_objs PRIVATE src/s3/sigv4_signer.cpp src/s3/s3_v4_client.cpp
-                               src/s3/sigv4_signer.hpp)
+                               src/s3/s3_sts_client.cpp src/s3/sigv4_signer.hpp)
 
 include(CTest)
 if(BUILD_TESTING)

@@ -14,7 +14,7 @@ components_manager:
         secdist:
         default-secdist-provider:
             missing-ok: false
-            config: /home/noofva/work/webshot/secrets/secdist.json
+            config: /home/noofva/work/webshot/secrets/secdist_yandex_s3.json
             format: json
         dynamic-config:
             defaults:
@@ -22,9 +22,9 @@ components_manager:
         webshot-config:
             query-part-length-max: 32768
             s3-bucket: webshot
-            s3-endpoint: 'http://localhost:8333'
-            s3-region: 'local'
-            public-base-url: 'http://localhost:8333/webshot'
+            s3-endpoint: 'https://storage.yandexcloud.net/'
+            s3-region: 'ru-central1'
+            public-base-url: 'https://storage.yandexcloud.net/webshot'
             s3-timeout-ms: 30000
         dns-client:
             fs-task-processor: fs-task-processor
@@ -84,6 +84,10 @@ components_manager:
             purge-job-timeout-sec: 300
             crawler-lang: 'en'
             crawler-scope-type: 'page-spa'
+            s3-credentials-endpoint: 'https://sts.yandexcloud.net/'
+            s3-credentials-duration-sec: 3600
+            s3-credentials-refresh-margin-sec: 300
+            s3-credentials-refresh-retry-sec: 60
         webshot-meta-db:
             dbconnection: 'postgresql://postgres@localhost:5432'
             blocking_task_processor: fs-task-processor
