@@ -1,0 +1,24 @@
+issuer: https://mydomain.com/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /tmp/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: workload
+    name: Yandex workload
+    secret: supersecret123
+    redirectURIs: []
+    grantTypes: ["client_credentials"]
+
+enablePasswordDB: true
+staticPasswords:
+  - email: admin@mydomain.com
+    username: admin
+    userID: "1"
+    # bcrypt hash for password: "password"
+    hash: "$2a$10$7EqJtq98hPqEX7fNZaFWoOHiY8jl7pbxVsZNH0QEf.u3bvw./c8.a"
