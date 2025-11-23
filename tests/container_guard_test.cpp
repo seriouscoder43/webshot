@@ -89,10 +89,16 @@ UTEST(ContainerGuard, RemoveCatchesExecThrow)
     auto starter = makeStarter();
 
     ContainerGuard guard(starter, "throw-rm", {"create", "throw-rm"});
-
-    const char *oldPath = std::getenv("PATH");
-    ASSERT_EQ(::setenv("PATH", "/nonexistent", 1), 0);
+    ASSERT_EQ(::setenv("WEBSHOT_FORCE_EXEC_THROW", "1", 1), 0);
     EXPECT_NO_THROW(guard.remove());
-    if (oldPath)
-        ASSERT_EQ(::setenv("PATH", oldPath, 1), 0);
+    ASSERT_EQ(::unsetenv("WEBSHOT_FORCE_EXEC_THROW"), 0);
+}
+
+UTEST(ContainerGuard, RemoveHandlesSignaledProcess)
+{
+    prependCurrentDirToPath();
+    auto starter = makeStarter();
+
+    ContainerGuard guard(starter, "fail-signal", {"create", "fail-signal"});
+    EXPECT_NO_THROW(guard.remove());
 }

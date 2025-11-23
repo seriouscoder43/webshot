@@ -1,42 +1,32 @@
 #include "ip_utils.hpp"
 /**
  * @file
- * @brief Helpers for validating hostnames and public‑routable IP ranges.
+ * @brief Helpers for validating public‑routable IP ranges.
  */
 
 #include <algorithm>
 #include <array>
-#include <string>
 
 #include <arpa/inet.h>
 
 namespace IpUtils {
 
-/** See header for semantics. */
-bool isIpLiteralHostname(std::string_view hostname) noexcept
-{
-    if (hostname.empty())
-        return false;
-    // Bracketed IPv6 literal per RFC 3986
-    if (hostname.front() == '[' && hostname.back() == ']') {
-        const std::string inside(hostname.substr(1, hostname.size() - 2));
-        in6_addr addr6;
-        return inet_pton(AF_INET6, inside.c_str(), &addr6) == 1;
-    }
-    // Plain IPv4 dotted-decimal
-    in_addr addr4;
-    std::string hostStr(hostname);
-    return inet_pton(AF_INET, hostStr.c_str(), &addr4) == 1;
-}
+namespace {
 
 /** Check if an IPv4 is within a CIDR range (arguments in host order). */
-static inline bool inRange(uint32_t ip, uint32_t net, uint32_t mask)
+inline bool inRange(uint32_t ip, uint32_t net, uint32_t mask)
 {
     return (ip & mask) == (net & mask);
 }
 
-bool isPublicRoutableIPv4(uint32_t ipHostOrder) noexcept
+inline uint32_t toHost(const in_addr &addr) { return ::ntohl(addr.s_addr); }
+
+} // namespace
+
+bool isPublicIpv4(const in_addr &addr) noexcept
 {
+    const uint32_t ipHostOrder = toHost(addr);
+
     if (inRange(ipHostOrder, 0x00000000u, 0xFF000000u)) // 0.0.0.0/8
         return false;
     if (inRange(ipHostOrder, 0x0A000000u, 0xFF000000u)) // 10.0.0.0/8
@@ -60,7 +50,7 @@ bool isPublicRoutableIPv4(uint32_t ipHostOrder) noexcept
     return true;
 }
 
-bool isPublicRoutableIPv6(const in6_addr &addr) noexcept
+bool isPublicIpv6(const in6_addr &addr) noexcept
 {
     const unsigned char *v = addr.s6_addr;
 

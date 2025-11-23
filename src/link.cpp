@@ -6,10 +6,11 @@
  * Contains helpers to sanitize user input, enforce scheme/host rules, and
  * produce a stable scheme‑less key for storage and lookups.
  */
-#include "ip_utils.hpp"
-
 #include <cctype>
+#include <string>
 #include <string_view>
+
+#include <arpa/inet.h>
 
 #include <ada.h>
 #include <ada/url_aggregator.h>
@@ -31,6 +32,22 @@ static bool isAsciiAlnum(char c) noexcept
 {
     const unsigned char u = static_cast<unsigned char>(c);
     return u < 0x80 && std::isalnum(u) != 0;
+}
+
+static bool isIpLiteralHostname(std::string_view hostname) noexcept
+{
+    if (hostname.empty())
+        return false;
+    // Bracketed IPv6 literal per RFC 3986
+    if (hostname.front() == '[' && hostname.back() == ']') {
+        const std::string inside(hostname.substr(1, hostname.size() - 2));
+        in6_addr addr6{};
+        return inet_pton(AF_INET6, inside.c_str(), &addr6) == 1;
+    }
+    // Plain IPv4 dotted-decimal
+    in_addr addr4{};
+    std::string hostStr(hostname);
+    return inet_pton(AF_INET, hostStr.c_str(), &addr4) == 1;
 }
 
 /** RFC 3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) */
@@ -84,7 +101,7 @@ Link Link::fromUserInput(std::string in, size_t queryPartLengthMax)
     if (!url->has_hostname() || url->get_hostname().empty())
         throw InvalidLinkException("missing hostname");
 
-    if (IpUtils::isIpLiteralHostname(url->get_hostname()))
+    if (isIpLiteralHostname(url->get_hostname()))
         throw InvalidLinkException("ip address not allowed");
 
     if (!url->has_valid_domain())

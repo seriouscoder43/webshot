@@ -19,7 +19,7 @@ bool IsDeniedHostname(const std::string &host);
 bool HasSpecialTldSuffix(std::string_view host);
 
 /**
- * @brief Resolve a hostname and return public IPv4/IPv6 addresses.
+ * @brief Resolve a hostname and return public IPv4 addresses.
  *
  * Performs DNS resolution and filters out private, link‑local, multicast and
  * other non‑public ranges.

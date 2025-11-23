@@ -26,6 +26,10 @@ int main(int argc, char *argv[])
                 return 1;
             if (arg == "fail-signal") {
                 ::raise(SIGKILL);
+                _exit(137);
+            }
+            if (arg == "fail-throw") {
+                std::abort();
             }
         }
         return 0;
