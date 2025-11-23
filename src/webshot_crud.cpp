@@ -145,7 +145,7 @@ properties:
         description: 'Scope type passed to the crawler (e.g. page-spa)'
     s3-credentials-endpoint:
         type: string
-        description: 'STS endpoint used to obtain temporary S3 credentials'
+        description: 'STS endpoint used to obtain temporary S3 credentials; S3 data endpoint s3-endpoint (in webshot_config) must be http(s)://host[:port] with optional trailing slash and no additional path or query'
     s3-use-sts:
         type: boolean
         description: 'Whether to fetch temporary S3 credentials from STS (true) or use static credentials from secdist (false)'
@@ -322,7 +322,7 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
                               crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
                               crawlerPageExtraDelaySec + crawlerBehaviorTimeoutSec;
     engine::current_task::SetDeadline(
-        engine::Deadline::FromDuration(std::chrono::seconds(totalSeconds))
+        engine::Deadline::FromDuration(chrono::seconds(totalSeconds))
     );
 
     std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
@@ -341,27 +341,6 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 
 WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() const
 {
-    const auto stsLink = Link::fromUserInput(
-        s3CredentialsEndpoint, static_cast<size_t>(s3CredentialsEndpoint.size())
-    );
-    std::string schemeRaw = std::string(stsLink.url.get_protocol());
-    std::string scheme;
-    if (schemeRaw.empty()) {
-        scheme = "https";
-    } else {
-        if (!schemeRaw.empty() && schemeRaw.back() == ':')
-            schemeRaw.pop_back();
-        if (schemeRaw == "https") {
-            scheme = "https";
-        } else {
-            UINVARIANT(false, "STS endpoint must use https scheme");
-        }
-    }
-    std::string host = stsLink.host();
-    std::string path = std::string(stsLink.url.get_pathname());
-    if (path.empty())
-        path = "/";
-
     const auto sessionUuid = us::utils::ToString(us::utils::generators::GenerateBoostUuid());
     const std::string sessionName = fmt::format("webshot-{}", sessionUuid);
     constexpr std::string_view kRoleArnDescription = "webshot-ephemeral-s3-credentials";
@@ -376,7 +355,7 @@ WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() 
     const auto sts = FetchStsCredentials(
         httpClient, s3CredentialsEndpoint, staticAccessKeyId, staticSecretAccessKey,
         svcCfg.s3Region(), std::string{kRoleArnDescription}, sessionName, policyJson,
-        std::chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
+        chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
     );
 
     S3ClientState state;
@@ -405,11 +384,11 @@ void WebshotCrud::Impl::runS3RefreshLoop()
 {
     while (!engine::current_task::ShouldCancel()) {
         auto snapshot = s3State.Read();
-        const auto now = std::chrono::system_clock::now();
+        const auto now = chrono::system_clock::now();
         auto refreshDelay = snapshot->expiresAt - now -
-                            std::chrono::seconds{s3CredentialsRefreshMarginSec};
-        if (refreshDelay < std::chrono::seconds{0})
-            refreshDelay = std::chrono::seconds{0};
+                            chrono::seconds{s3CredentialsRefreshMarginSec};
+        if (refreshDelay < chrono::seconds{0})
+            refreshDelay = chrono::seconds{0};
 
         engine::SleepFor(refreshDelay);
         if (engine::current_task::ShouldCancel())
@@ -426,7 +405,7 @@ void WebshotCrud::Impl::runS3RefreshLoop()
                 LOG_ERROR() << fmt::format(
                     "Failed to refresh S3 credentials from STS: {}", e.what()
                 );
-                engine::SleepFor(std::chrono::seconds{s3CredentialsRefreshRetrySec});
+                engine::SleepFor(chrono::seconds{s3CredentialsRefreshRetrySec});
             }
         }
     }
@@ -794,7 +773,7 @@ void WebshotCrud::disallowAndPurgeHost(std::string host)
     impl->backgroundTaskStorage.AsyncDetach("purge-host-lambda", [implPtr = impl.get(), host]() {
         try {
             engine::current_task::SetDeadline(
-                engine::Deadline::FromDuration(std::chrono::seconds(implPtr->purgeJobTimeoutSec))
+                engine::Deadline::FromDuration(chrono::seconds(implPtr->purgeJobTimeoutSec))
             );
             LOG_INFO() << fmt::format("Starting purge for denylisted host {}", host);
             implPtr->purgeHost(host);

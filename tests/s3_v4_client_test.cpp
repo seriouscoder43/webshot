@@ -174,6 +174,28 @@ UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
     EXPECT_EQ(it->second, std::string{"604800"});
 }
 
+UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
+{
+    auto httpClient = userver::utest::CreateHttpClient();
+    auto cfg = makeConfig();
+    auto creds = makeCreds();
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket");
+
+    const std::time_t soon = std::time(nullptr) + 120;
+    const std::string url = client->GenerateDownloadUrl("folder/file with space.txt", soon, true);
+
+    const auto schemePos = url.find("://");
+    ASSERT_NE(schemePos, std::string::npos);
+    const auto pathStart = url.find('/', schemePos + 3);
+    ASSERT_NE(pathStart, std::string::npos);
+    const auto queryPos = url.find('?', pathStart);
+    const std::string path = url.substr(
+        pathStart, queryPos == std::string::npos ? std::string::npos : queryPos - pathStart
+    );
+
+    EXPECT_EQ(path, std::string{"/examplebucket/folder/file%20with%20space.txt"});
+}
+
 UTEST(S3SigV4Client, VirtualHostRequiresBucket)
 {
     auto httpClient = userver::utest::CreateHttpClient();

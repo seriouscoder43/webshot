@@ -8,6 +8,8 @@
 #include "s3/s3_v4_client.hpp"
 #include "s3/sigv4_signer.hpp"
 
+#include "link.hpp"
+
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -20,6 +22,7 @@
 #include <userver/clients/http/response.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/logging/log.hpp>
+#include <userver/utils/assert.hpp>
 
 namespace s3 = userver::s3api;
 namespace http = userver::clients::http;
@@ -28,35 +31,29 @@ namespace v1::s3v4 {
 
 namespace detail {
 
-/** Simple endpoint parser: returns {scheme, host[:port]}. */
-EndpointParts ParseEndpoint(std::string ep)
+EndpointParts ParseEndpoint(const std::string &ep)
 {
-    EndpointParts out;
-    auto pos = ep.find("://");
-    if (pos != std::string::npos) {
-        out.scheme = ep.substr(0, pos);
-        out.authority = ep.substr(pos + 3);
-    } else {
-        out.scheme = "https";
-        out.authority = std::move(ep);
-    }
-    // strip trailing slash if present
-    while (!out.authority.empty() && out.authority.back() == '/')
-        out.authority.pop_back();
-    return out;
-}
+    const auto link = Link::fromUserInput(ep, ep.size());
+    const auto &url = link.url;
 
-/** Build full URL for path‑style addressing: scheme://authority/req. */
-std::string BuildUrl(const EndpointParts &ep, const std::string &req)
-{
-    std::string url;
-    url.reserve(ep.scheme.size() + 3 + ep.authority.size() + 1 + req.size());
-    url.append(ep.scheme).append("://").append(ep.authority);
-    if (!req.empty()) {
-        url.push_back('/');
-        url.append(req);
-    }
-    return url;
+    UINVARIANT(
+        url.type == ada::scheme::type::HTTP || url.type == ada::scheme::type::HTTPS,
+        "S3 endpoint must be http or https"
+    );
+
+    UINVARIANT(!url.has_search(), "S3 endpoint must not include query");
+    std::string path = std::string(url.get_pathname());
+    if (path.empty())
+        path = "/";
+    UINVARIANT(path == "/", "S3 endpoint path must be root");
+
+    EndpointParts out;
+    out.url = url;
+    out.host = std::string(out.url.get_host());
+    out.hostname = std::string(out.url.get_hostname());
+    out.port = out.url.has_port() ? std::string(out.url.get_port()) : std::string{};
+    out.basePath = "/";
+    return out;
 }
 
 /** Lowercase header keys and add explicit `host` entry. */
@@ -94,7 +91,7 @@ std::string S3V4Client::PutObject(
 ) const
 {
     (void)tags; // not used in current service
-    const std::string req = MakeReq(path);
+    const auto built = MakePathStyleUrl(path);
     http::Headers headers;
     headers[userver::http::headers::kContentType] = std::string(content_type);
     if (content_disposition)
@@ -104,9 +101,9 @@ std::string S3V4Client::PutObject(
             headers["x-amz-meta-" + kv.first] = kv.second;
     }
     const std::string payload_hash = Sha256Hex(data);
-    SignRequest("PUT", req, headers, payload_hash);
+    SignRequest("PUT", built.rawPath, built.host, headers, payload_hash);
 
-    const std::string url = detail::BuildUrl(ep_, req);
+    const std::string url = built.href;
     auto resp = http_.CreateNotSignedRequest()
                     .put(url, std::move(data))
                     .headers(headers)
@@ -118,12 +115,12 @@ std::string S3V4Client::PutObject(
 
 void S3V4Client::DeleteObject(std::string_view path) const
 {
-    const std::string req = MakeReq(path);
+    const auto built = MakePathStyleUrl(path);
     http::Headers headers;
     const std::string payload_hash = Sha256Hex("");
-    SignRequest("DELETE", req, headers, payload_hash);
+    SignRequest("DELETE", built.rawPath, built.host, headers, payload_hash);
 
-    const std::string url = detail::BuildUrl(ep_, req);
+    const std::string url = built.href;
     auto resp = http_.CreateNotSignedRequest()
                     .delete_method(url)
                     .headers(headers)
@@ -136,11 +133,11 @@ void S3V4Client::DeleteObject(std::string_view path) const
 std::optional<s3::Client::HeadersDataResponse>
 S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &request) const
 {
-    const std::string req = MakeReq(path);
+    const auto built = MakePathStyleUrl(path);
     http::Headers headers;
     const std::string payload_hash = Sha256Hex("");
-    SignRequest("HEAD", req, headers, payload_hash);
-    const std::string url = detail::BuildUrl(ep_, req);
+    SignRequest("HEAD", built.rawPath, built.host, headers, payload_hash);
+    const std::string url = built.href;
     auto resp =
         http_.CreateNotSignedRequest().head(url).headers(headers).timeout(cfg_.timeout).perform();
     resp->raise_for_status();
@@ -330,31 +327,83 @@ SigV4Params S3V4Client::MakeSigV4Params(const std::chrono::system_clock::time_po
 }
 
 void S3V4Client::SignRequest(
-    std::string_view method, const std::string &req, http::Headers &headers,
-    const std::string &payload_hash
+    std::string_view method, std::string_view canonicalUri, std::string_view host,
+    http::Headers &headers, const std::string &payload_hash
 ) const
 {
     const auto now = std::chrono::system_clock::now();
     const SigV4Params params = MakeSigV4Params(now);
 
-    auto to_sign = detail::PrepareSignedHeaders(ep_.authority, headers);
-    auto signed_map = SignHeaders(params, method, "/" + req, /*query*/ {}, to_sign, payload_hash);
+    auto to_sign = detail::PrepareSignedHeaders(std::string(host), headers);
+    auto signed_map = SignHeaders(
+        params, method, canonicalUri, /*query*/ {}, to_sign, payload_hash
+    );
     for (const auto &kv : signed_map)
         headers[kv.first] = kv.second;
 }
 
-std::string S3V4Client::MakeReq(std::string_view path) const
+std::string S3V4Client::BuildRawPath(std::string_view path, bool includeBucket) const
 {
-    // If constructed with default bucket, path is key only; otherwise service passes
-    // bucket/key.
-    if (!bucket_.empty()) {
-        std::string req;
-        req.reserve(bucket_.size() + 1 + path.size());
-        req.append(bucket_).push_back('/');
-        req.append(path);
-        return req;
+    std::string raw;
+    raw.reserve(ep_.basePath.size() + bucket_.size() + path.size() + 2);
+
+    raw.append(ep_.basePath);
+    if (raw.empty())
+        raw.push_back('/');
+    if (!raw.empty() && raw.back() != '/')
+        raw.push_back('/');
+
+    if (includeBucket && !bucket_.empty()) {
+        raw.append(bucket_);
+        if (!path.empty())
+            raw.push_back('/');
     }
-    return std::string(path);
+
+    raw.append(path);
+    if (raw.empty() || raw.front() != '/')
+        raw.insert(raw.begin(), '/');
+    return raw;
+}
+
+detail::BuiltUrl S3V4Client::MakePathStyleUrl(
+    std::string_view path, std::optional<std::string_view> protocolOverride
+) const
+{
+    detail::BuiltUrl out;
+    out.rawPath = BuildRawPath(path, /*includeBucket*/ true);
+
+    auto url = ep_.url;
+    if (protocolOverride)
+        UINVARIANT(url.set_protocol(*protocolOverride), "invalid protocol override");
+    UINVARIANT(url.set_pathname(out.rawPath), "failed to set path for S3 request");
+    url.set_search("");
+    url.clear_hash();
+
+    out.host = ep_.host;
+    out.href = std::string(url.get_href());
+    return out;
+}
+
+detail::BuiltUrl
+S3V4Client::MakeVirtualHostUrl(std::string_view path, std::string_view protocol) const
+{
+    detail::BuiltUrl out;
+    out.rawPath = BuildRawPath(path, /*includeBucket*/ false);
+
+    auto url = ep_.url;
+    UINVARIANT(url.set_protocol(protocol), "invalid protocol for S3 presign");
+    UINVARIANT(url.set_hostname(fmt::format("{}.{}", bucket_, ep_.hostname)), "bad hostname");
+    if (!ep_.port.empty())
+        UINVARIANT(url.set_port(ep_.port), "bad port");
+    else
+        url.set_port("");
+    UINVARIANT(url.set_pathname(out.rawPath), "failed to set path for S3 presign");
+    url.set_search("");
+    url.clear_hash();
+
+    out.host = std::string(url.get_host());
+    out.href = std::string(url.get_href());
+    return out;
 }
 
 std::string S3V4Client::CanonicalizeQuery(std::vector<std::pair<std::string, std::string>> q)
@@ -369,7 +418,7 @@ std::string S3V4Client::CanonicalizeQuery(std::vector<std::pair<std::string, std
         return a.first < b.first;
     });
     std::ostringstream oss;
-    for (std::size_t i = 0; i < q.size(); ++i) {
+    for (std::size_t i = 0; i < q.size(); i++) {
         if (i)
             oss << '&';
         oss << q[i].first << '=' << q[i].second;
@@ -386,13 +435,12 @@ std::string S3V4Client::PresignVirtualHost(
     const auto now = std::chrono::system_clock::now();
     const auto ttl = ComputePresignTtl(now, expires_at);
 
-    const std::string host = fmt::format("{}.{}", bucket_, ep_.authority);
-    const std::string req = std::string(path);
+    const auto built = MakeVirtualHostUrl(path, protocol);
 
     const SigV4Params params = MakeSigV4Params(now);
 
     std::vector<std::pair<std::string, std::string>> headers;
-    headers.emplace_back("host", host);
+    headers.emplace_back("host", built.host);
     if (extra_headers) {
         for (const auto &kv : *extra_headers) {
             std::string k;
@@ -428,7 +476,7 @@ std::string S3V4Client::PresignVirtualHost(
         query.emplace_back("X-Amz-Security-Token", params.sessionToken->GetUnderlying());
 
     const auto cr = BuildCanonicalRequest(
-        method, std::string("/").append(req), query, headers, std::string("UNSIGNED-PAYLOAD")
+        method, built.rawPath, query, headers, std::string("UNSIGNED-PAYLOAD")
     );
     const std::string string_to_sign = fmt::format(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}", params.amzDate, scope, Sha256Hex(cr.canonicalRequest)
@@ -436,10 +484,8 @@ std::string S3V4Client::PresignVirtualHost(
     const std::string signature = ComputePresignSignature(params, string_to_sign);
     query.emplace_back("X-Amz-Signature", signature);
 
-    std::string url;
-    url.reserve(16 + host.size() + req.size() + 100);
-    url.append(protocol).append("://").append(host).push_back('/');
-    url.append(req).push_back('?');
+    std::string url = built.href;
+    url.push_back('?');
     url.append(CanonicalizeQuery(std::move(query)));
     return url;
 }
@@ -452,13 +498,12 @@ std::string S3V4Client::PresignPathStyle(
     const auto now = std::chrono::system_clock::now();
     const auto ttl = ComputePresignTtl(now, expires_at);
 
-    const std::string host = ep_.authority;
-    const std::string req = MakeReq(path);
+    const auto built = MakePathStyleUrl(path, protocol);
 
     const SigV4Params params = MakeSigV4Params(now);
 
     std::vector<std::pair<std::string, std::string>> headers;
-    headers.emplace_back("host", host);
+    headers.emplace_back("host", built.host);
     std::sort(headers.begin(), headers.end(), [](const auto &a, const auto &b) {
         return a.first < b.first;
     });
@@ -478,7 +523,7 @@ std::string S3V4Client::PresignPathStyle(
         query.emplace_back("X-Amz-Security-Token", params.sessionToken->GetUnderlying());
 
     const auto cr = BuildCanonicalRequest(
-        method, std::string("/").append(req), query, headers, std::string("UNSIGNED-PAYLOAD")
+        method, built.rawPath, query, headers, std::string("UNSIGNED-PAYLOAD")
     );
     const std::string string_to_sign = fmt::format(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}", params.amzDate, scope, Sha256Hex(cr.canonicalRequest)
@@ -486,10 +531,8 @@ std::string S3V4Client::PresignPathStyle(
     const std::string signature = ComputePresignSignature(params, string_to_sign);
     query.emplace_back("X-Amz-Signature", signature);
 
-    std::string url;
-    url.reserve(16 + host.size() + req.size() + 100);
-    url.append(protocol).append("://").append(host).push_back('/');
-    url.append(req).push_back('?');
+    std::string url = built.href;
+    url.push_back('?');
     url.append(CanonicalizeQuery(std::move(query)));
     return url;
 }

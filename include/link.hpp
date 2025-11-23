@@ -17,6 +17,13 @@ struct InvalidLinkException : public std::runtime_error {
  * @brief Parsed and normalized URL used as an index key.
  *
  * This type encapsulates a normalized representation of a link.
+ *
+ * Invariants after construction via fromUserInput:
+ * - Scheme is http or https (defaulted to http when absent).
+ * - Username/password are cleared; fragment/hash is stripped.
+ * - Host is lower-cased, validated, and trailing dot removed; IP literals are rejected.
+ * - Path/query are normalized; query length is limited by the caller.
+ * - A scheme-less, trailing-slash-trimmed form is stored for lookups.
  */
 struct [[nodiscard]] Link {
     ada::url_aggregator url;

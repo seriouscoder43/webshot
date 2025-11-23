@@ -11,6 +11,7 @@
 
 #include <fmt/format.h>
 
+#include <ada/unicode.h>
 #include <userver/clients/http/client.hpp>
 #include <userver/clients/http/response.hpp>
 #include <userver/http/common_headers.hpp>
@@ -59,24 +60,45 @@ StsCredentials FetchStsCredentials(
 )
 {
     const auto stsLink = Link::fromUserInput(stsEndpoint, static_cast<size_t>(stsEndpoint.size()));
+    UINVARIANT(stsLink.url.type == ada::scheme::type::HTTPS, "STS endpoint must use https scheme");
 
-    std::string schemeRaw = std::string(stsLink.url.get_protocol());
-    std::string scheme;
-    if (schemeRaw.empty()) {
-        scheme = "https";
-    } else {
-        if (!schemeRaw.empty() && schemeRaw.back() == ':')
-            schemeRaw.pop_back();
-        if (schemeRaw == "https") {
-            scheme = "https";
-        } else {
-            throw std::runtime_error("STS endpoint must use https scheme");
-        }
-    }
-    std::string host = stsLink.host();
+    const std::string host = std::string(stsLink.url.get_host());
+
     std::string path = std::string(stsLink.url.get_pathname());
     if (path.empty())
         path = "/";
+
+    std::vector<std::pair<std::string, std::string>> query;
+    if (stsLink.url.has_search()) {
+        std::string search = std::string(stsLink.url.get_search());
+        if (!search.empty() && search.front() == '?')
+            search.erase(search.begin());
+        std::size_t pos = 0;
+        while (pos < search.size()) {
+            const auto amp = search.find('&', pos);
+            const auto eq = search.find('=', pos);
+            if (eq == std::string::npos)
+                break;
+            const std::string keyPart = search.substr(pos, eq - pos);
+            const std::string valPart = search.substr(
+                eq + 1, amp == std::string::npos ? std::string::npos : amp - eq - 1
+            );
+            const auto keyPercent = keyPart.find('%');
+            const auto valPercent = valPart.find('%');
+            const std::string key = ada::unicode::percent_decode(
+                keyPart, keyPercent == std::string::npos ? std::string::npos : keyPercent
+            );
+            const std::string value = ada::unicode::percent_decode(
+                valPart, valPercent == std::string::npos ? std::string::npos : valPercent
+            );
+            query.emplace_back(key, value);
+            if (amp == std::string::npos)
+                break;
+            pos = amp + 1;
+        }
+    }
+
+    const std::string url = std::string(stsLink.url.get_href());
 
     std::string body;
     body.reserve(512);
@@ -109,7 +131,6 @@ StsCredentials FetchStsCredentials(
     headersToSign.emplace_back("host", host);
     headersToSign.emplace_back("content-type", "application/x-www-form-urlencoded");
 
-    const std::vector<std::pair<std::string, std::string>> query;
     const auto signedHeaders = s3v4::SignHeaders(
         params, "POST", path, query, headersToSign, payloadHash
     );
@@ -119,8 +140,6 @@ StsCredentials FetchStsCredentials(
     headers[userver::http::headers::kContentType] = "application/x-www-form-urlencoded";
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
-
-    const std::string url = fmt::format("{}://{}{}", scheme, host, path);
 
     auto resp = httpClient.CreateNotSignedRequest()
                     .post(url, body)

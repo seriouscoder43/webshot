@@ -4,6 +4,9 @@
 #include <optional>
 #include <string>
 
+#include <ada.h>
+#include <ada/url_aggregator.h>
+
 #include <userver/clients/http/client.hpp>
 #include <userver/s3api/clients/s3api.hpp>
 #include <userver/utils/strong_typedef.hpp>
@@ -16,8 +19,17 @@ struct SigV4Params;
 
 namespace detail {
 struct EndpointParts {
-    std::string scheme;    // http or https
-    std::string authority; // host or host:port
+    ada::url_aggregator url;
+    std::string host;     // host header, may include port
+    std::string hostname; // host without port
+    std::string port;     // optional, empty if not set
+    std::string basePath; // leading slash, no trailing slash unless root
+};
+
+struct BuiltUrl {
+    std::string href;    // fully encoded absolute URL without query
+    std::string host;    // host header value
+    std::string rawPath; // unencoded path used for canonicalization (starts with '/')
 };
 } // namespace detail
 
@@ -136,10 +148,15 @@ private:
     [[nodiscard]] SigV4Params
     MakeSigV4Params(const std::chrono::system_clock::time_point &now) const;
     void SignRequest(
-        std::string_view method, const std::string &req, userver::clients::http::Headers &headers,
-        const std::string &payload_hash
+        std::string_view method, std::string_view canonicalUri, std::string_view host,
+        userver::clients::http::Headers &headers, const std::string &payload_hash
     ) const;
-    std::string MakeReq(std::string_view path) const;
+    [[nodiscard]] detail::BuiltUrl MakePathStyleUrl(
+        std::string_view path, std::optional<std::string_view> protocolOverride = std::nullopt
+    ) const;
+    [[nodiscard]] detail::BuiltUrl
+    MakeVirtualHostUrl(std::string_view path, std::string_view protocol) const;
+    [[nodiscard]] std::string BuildRawPath(std::string_view path, bool includeBucket) const;
     std::string PresignVirtualHost(
         std::string_view method, std::string_view path,
         const std::chrono::system_clock::time_point &expires_at, std::string_view protocol,
