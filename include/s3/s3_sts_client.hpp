@@ -1,7 +1,10 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <userver/clients/http/client.hpp>
 
@@ -33,5 +36,21 @@ struct [[nodiscard]] StsCredentials {
     const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
     const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
 );
+
+namespace detail {
+
+using StsExecutor = std::function<std::string(
+    const std::string &url, const std::string &body, const userver::clients::http::Headers &headers,
+    std::chrono::milliseconds timeout
+)>;
+
+[[nodiscard]] StsCredentials fetchStsWithExecutor(
+    const StsExecutor &exec, const std::string &stsEndpoint,
+    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
+    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
+    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+);
+
+} // namespace detail
 
 } // namespace v1

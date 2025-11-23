@@ -1,6 +1,3 @@
-set(WEBSHOT_TEST_DB_DSN
-    "postgresql://postgres@localhost:15434/postgres"
-    CACHE STRING "PostgreSQL DSN used by testsuite (--postgresql)")
 set(WEBSHOT_LLVM_COV_BIN
     "llvm-cov"
     CACHE STRING "llvm-cov binary used for coverage reporting")
@@ -59,6 +56,24 @@ webshot_add_cpp_test(
   ${CMAKE_SOURCE_DIR}/src)
 
 webshot_add_cpp_test(
+  s3_url_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_url_utils_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/s3_url_utils.cpp)
+
+webshot_add_cpp_test(
+  s3_sts_client_test
+  SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/s3_sts_client_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/s3_sts_client.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/sigv4_signer.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/s3_url_utils.cpp
+  ${CMAKE_SOURCE_DIR}/src/link.cpp
+  ${CMAKE_SOURCE_DIR}/src/ip_utils.cpp
+  LIBS
+  userver::core
+  INCLUDE_DIRS
+  ${CMAKE_SOURCE_DIR}/src)
+
+webshot_add_cpp_test(
   webshot_cursor_test SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/webshot_cursor_test.cpp
   ${CMAKE_SOURCE_DIR}/src/webshot_cursor.cpp LIBS ${PROJECT_NAME}-chgen)
@@ -105,6 +120,20 @@ webshot_add_cpp_test(
   error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils_test.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
 
+webshot_add_cpp_test(
+  s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist_test.cpp LIBS
+  userver::core)
+
+webshot_add_cpp_test(s3_refresh_schedule_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/s3_refresh_schedule_test.cpp)
+
+webshot_add_cpp_test(deadline_utils_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils_test.cpp)
+
+webshot_add_cpp_test(
+  handler_simple_server_test SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/handler_simple_server_test.cpp LIBS userver::core)
+
 get_property(WEBSHOT_CPP_TESTS GLOBAL PROPERTY WEBSHOT_CPP_TESTS)
 set(WEBSHOT_COVERAGE_TARGETS ${PROJECT_NAME} ${WEBSHOT_CPP_TESTS})
 set(WEBSHOT_COVERAGE_TARGET_FILES "")
@@ -127,11 +156,12 @@ if(USERVER_FEATURE_TESTSUITE)
     WORKING_DIRECTORY
     ${CMAKE_CURRENT_SOURCE_DIR}
     PYTEST_ARGS
-    --service-config=${CMAKE_SOURCE_DIR}/userver_config.yaml
+    --service-config=${CMAKE_SOURCE_DIR}/config/userver_config.yaml
+    --service-config-vars=${CMAKE_SOURCE_DIR}/config/config_vars.testsuite.yaml
     --service-binary=$<TARGET_FILE:${PROJECT_NAME}>
-    --service-secdist=${CMAKE_SOURCE_DIR}/secrets/secdist.json
+    --service-secdist=${CMAKE_SOURCE_DIR}/secrets/test_secdist.json
     --service-source-dir=${CMAKE_SOURCE_DIR}
-    --postgresql=${WEBSHOT_TEST_DB_DSN})
+    --postgresql=postgresql://postgres@localhost:5432/postgres)
 
   add_custom_target(
     webshot-coverage

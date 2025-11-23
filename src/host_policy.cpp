@@ -10,6 +10,8 @@
 #include <string>
 #include <string_view>
 
+#include <arpa/inet.h>
+
 #include <userver/engine/io/sockaddr.hpp>
 
 namespace us = userver;
@@ -55,33 +57,34 @@ std::vector<std::string> resolvePublic(
     us::clients::dns::Resolver &resolver, const std::string &host, engine::Deadline deadline
 )
 {
-    std::vector<std::string> out;
+    std::vector<std::string> v4, v6;
     try {
         auto addrs = resolver.Resolve(host, deadline);
         for (const auto &sa : addrs) {
             switch (sa.Domain()) {
             case userver::engine::io::AddrDomain::kInet: {
                 const auto *sin = sa.As<struct sockaddr_in>();
-                if (IsPublicV4(sin->sin_addr.s_addr))
-                    out.emplace_back(sa.PrimaryAddressString());
+                if (v4.size() < 5 && IsPublicV4(::ntohl(sin->sin_addr.s_addr)))
+                    v4.emplace_back(sa.PrimaryAddressString());
                 break;
             }
             case userver::engine::io::AddrDomain::kInet6: {
                 const auto *sin6 = sa.As<struct sockaddr_in6>();
-                if (IsPublicV6(sin6->sin6_addr))
-                    out.emplace_back(sa.PrimaryAddressString());
+                if (v6.size() < 5 && IsPublicV6(sin6->sin6_addr))
+                    v6.emplace_back(sa.PrimaryAddressString());
                 break;
             }
             default:
                 break;
             }
-            if (out.size() >= 5)
+            if (v4.size() >= 5 && v6.size() >= 5)
                 break;
         }
     } catch (std::exception &) {
         // return empty to signal failure
     }
-    return out;
+    // docker subnet allows IPv4 only for now
+    return v4;
 }
 
 } // namespace v1::HostPolicy

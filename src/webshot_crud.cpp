@@ -10,6 +10,7 @@
 #include "link.hpp"
 #include "s3/s3_sts_client.hpp"
 #include "s3/s3_v4_client.hpp"
+#include "s3_refresh_utils.hpp"
 #include "s3_secdist.hpp"
 #include "schemas/webshot.hpp"
 #include "server_errors.hpp"
@@ -269,13 +270,13 @@ public:
             startS3RefreshTask();
         } else {
             S3ClientState state;
-            state.creds = s3v4::S3Credentials{
+            state.creds = s3v4::S3Credentials(
                 staticAccessKeyId, staticSecretAccessKey, creds.session_token
-            };
+            );
             state.expiresAt = system_clock::time_point::max();
             state.client = std::make_shared<s3v4::S3V4Client>(
                 httpClient,
-                s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
+                s3v4::S3V4Config(svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false),
                 state.creds, std::string{}
             );
             initialState = std::move(state);
@@ -336,7 +337,7 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
     auto createdAt = persistMetadataForContext(ctx);
     if (!createdAt)
         throw std::runtime_error("failed to persist metadata");
-    return dto::UuidWithTimeLink{ctx.id, *createdAt, ctx.link.normalized()};
+    return {ctx.id, *createdAt, ctx.link.normalized()};
 }
 
 WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() const
@@ -354,16 +355,16 @@ WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() 
 
     const auto sts = fetchStsCredentials(
         httpClient, s3CredentialsEndpoint, staticAccessKeyId, staticSecretAccessKey,
-        svcCfg.s3Region(), std::string{kRoleArnDescription}, sessionName, policyJson,
-        chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
+        svcCfg.s3Region(), std::string(kRoleArnDescription), sessionName, policyJson,
+        chrono::seconds(s3CredentialsDurationSec), svcCfg.s3Timeout()
     );
 
     S3ClientState state;
-    state.creds = s3v4::S3Credentials{sts.accessKeyId, sts.secretAccessKey, sts.sessionToken};
+    state.creds = s3v4::S3Credentials(sts.accessKeyId, sts.secretAccessKey, sts.sessionToken);
     state.expiresAt = sts.expiresAt;
     state.client = std::make_shared<s3v4::S3V4Client>(
         httpClient,
-        s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
+        s3v4::S3V4Config(svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false),
         state.creds, std::string{}
     );
     return state;
@@ -385,10 +386,9 @@ void WebshotCrud::Impl::runS3RefreshLoop()
     while (!engine::current_task::ShouldCancel()) {
         auto snapshot = s3State.Read();
         const auto now = us::utils::datetime::Now();
-        auto refreshDelay = snapshot->expiresAt - now -
-                            chrono::seconds{s3CredentialsRefreshMarginSec};
-        if (refreshDelay < chrono::seconds{0})
-            refreshDelay = chrono::seconds{0};
+        const auto refreshDelay = s3refresh::computeRefreshDelay(
+            now, snapshot->expiresAt, s3CredentialsRefreshMarginSec
+        );
 
         engine::SleepFor(refreshDelay);
         if (engine::current_task::ShouldCancel())
@@ -405,7 +405,7 @@ void WebshotCrud::Impl::runS3RefreshLoop()
                 LOG_ERROR() << fmt::format(
                     "Failed to refresh S3 credentials from STS: {}", e.what()
                 );
-                engine::SleepFor(chrono::seconds{s3CredentialsRefreshRetrySec});
+                engine::SleepFor(chrono::seconds(s3CredentialsRefreshRetrySec));
             }
         }
     }
@@ -654,7 +654,7 @@ WebshotCrud::findWebshotByLinkPage(const Link &link, std::string pageToken)
     if (v1::utils::ssize(items) == impl->webshotsPageMax && !items.empty()) {
         const auto &last = items.back();
         auto tp = last.created_at.GetTimePoint();
-        crud::Cursor cursor{tp, last.uuid};
+        crud::Cursor cursor(tp, last.uuid);
         next = crud::encodeCursor(cursor);
     }
     return {items, next};
@@ -759,7 +759,6 @@ WebshotCrud::findWebshotsByPrefixPage(const std::string &normalizedPrefix, std::
             next = crud::encodePrefixCursor(normalizedPrefix, lastLink);
         }
     }
-
     return {items, next};
 }
 

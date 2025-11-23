@@ -1,0 +1,7 @@
+s3_bucket: webshot
+s3_endpoint: "http://localhost:8333"
+s3_region: "us-east-1"
+public_base_url: "http://localhost:8333/webshot"
+s3_use_sts: false
+pg_webshot_meta_dsn: "postgresql://postgres@localhost:5432/webshot_meta"
+pg_denylist_dsn: "postgresql://postgres@localhost:5432/webshot_denylist"

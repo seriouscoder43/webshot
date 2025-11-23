@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <string>
 
+#include <csignal>
 #include <limits.h>
 #include <unistd.h>
 
@@ -62,4 +63,36 @@ UTEST(ContainerGuard, ExplicitRemoveIsIdempotent)
     ContainerGuard guard(starter, "idempotent-container", {"create", "idempotent-container"});
     guard.remove();
     guard.remove(); // should be a no-op after first call
+}
+
+UTEST(ContainerGuard, RemoveFailureIsSwallowed)
+{
+    prependCurrentDirToPath();
+    auto starter = makeStarter();
+
+    ContainerGuard guard(starter, "fail-rm", {"create", "fail-rm"});
+    EXPECT_NO_THROW(guard.remove());
+}
+
+UTEST(ContainerGuard, RemoveLogsNonExited)
+{
+    prependCurrentDirToPath();
+    auto starter = makeStarter();
+
+    ContainerGuard guard(starter, "fail-signal", {"create", "fail-signal"});
+    EXPECT_NO_THROW(guard.remove());
+}
+
+UTEST(ContainerGuard, RemoveCatchesExecThrow)
+{
+    prependCurrentDirToPath();
+    auto starter = makeStarter();
+
+    ContainerGuard guard(starter, "throw-rm", {"create", "throw-rm"});
+
+    const char *oldPath = std::getenv("PATH");
+    ASSERT_EQ(::setenv("PATH", "/nonexistent", 1), 0);
+    EXPECT_NO_THROW(guard.remove());
+    if (oldPath)
+        ASSERT_EQ(::setenv("PATH", oldPath, 1), 0);
 }

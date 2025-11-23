@@ -54,8 +54,8 @@ StsCredentials::StsCredentials(const std::string &xml)
 {
 }
 
-StsCredentials fetchStsCredentials(
-    http::Client &httpClient, const std::string &stsEndpoint,
+StsCredentials detail::fetchStsWithExecutor(
+    const StsExecutor &exec, const std::string &stsEndpoint,
     const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
     const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
     const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
@@ -115,15 +115,34 @@ StsCredentials fetchStsCredentials(
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
 
-    auto resp = httpClient.CreateNotSignedRequest()
-                    .post(url, body)
-                    .headers(headers)
-                    .timeout(timeout)
-                    .perform();
-    resp->raise_for_status();
-    const std::string xml = resp->body();
-
+    const std::string xml = exec(url, body, headers, timeout);
     return StsCredentials{xml};
+}
+
+StsCredentials fetchStsCredentials(
+    http::Client &httpClient, const std::string &stsEndpoint,
+    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
+    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
+    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+)
+{
+    detail::StsExecutor exec = [&httpClient](
+                                   const std::string &url, const std::string &body,
+                                   const http::Headers &headers, std::chrono::milliseconds timeoutMs
+                               ) {
+        auto resp = httpClient.CreateNotSignedRequest()
+                        .post(url, body)
+                        .headers(headers)
+                        .timeout(timeoutMs)
+                        .perform();
+        resp->raise_for_status();
+        return resp->body();
+    };
+
+    return detail::fetchStsWithExecutor(
+        exec, stsEndpoint, staticAccessKeyId, staticSecretAccessKey, region, roleArn,
+        roleSessionName, policyJson, duration, timeout
+    );
 }
 
 } // namespace v1

@@ -1,57 +1,43 @@
 import pathlib
 
+import psycopg2
 import psycopg2.extras
 import pytest
-
-from testsuite.databases import pgsql as testsuite_pgsql
+from testsuite.databases.pgsql import discover
 
 pytest_plugins = [
-    "testsuite.pytest_plugin",
+    "pytest_userver.plugins.core",
     "pytest_userver.plugins.postgresql",
     "helpers.sql_loader",
-]
-
-USERVER_CONFIG_HOOKS = [
-    "userver_pg_config",
-    "userver_config_s3",
 ]
 
 psycopg2.extras.register_uuid()
 
 
 @pytest.fixture(scope="session")
-def pgsql_local(service_source_dir: pathlib.Path, pgsql_local_create):
-    schema_dir = service_source_dir / "sql" / "schema"
-    databases = testsuite_pgsql.discover.find_schemas("webshot", [schema_dir])
-    return pgsql_local_create(list(databases.values()))
+def pgsql_local(pgsql_local_create, service_source_dir: pathlib.Path):
+    schemas = discover.find_schemas(
+        None,
+        [service_source_dir / "sql" / "schema"],
+    )
+    return pgsql_local_create(list(schemas.values()))
 
 
 @pytest.fixture(scope="session")
 def userver_pg_config(pgsql_local):
-    meta_uri = pgsql_local["webshot_meta_db_schema"].get_uri()
-    deny_uri = pgsql_local["denylist_db_schema"].get_uri()
+    db_uri = {name: conn.get_uri() for name, conn in pgsql_local.items()}
 
-    def _patch(config_yaml, config_vars):
+    def _patch(config_yaml, _config_vars):
         components = config_yaml["components_manager"]["components"]
-
-        meta_cfg = components.get("webshot-meta-db")
-        if meta_cfg and "dbconnection" in meta_cfg:
-            meta_cfg["dbconnection"] = meta_uri
-
-        deny_cfg = components.get("denylist-db")
-        if deny_cfg and "dbconnection" in deny_cfg:
-            deny_cfg["dbconnection"] = deny_uri
-
-    return _patch
-
-
-@pytest.fixture(scope="session")
-def userver_config_s3():
-    def _patch(config_yaml, config_vars):
-        components = config_yaml["components_manager"]["components"]
-        crud_cfg = components.get("webshot-crud")
-        if crud_cfg is not None:
-            crud_cfg["s3-use-sts"] = False
+        overrides = {
+            "webshot-meta-db": "webshot_meta_db_schema",
+            "denylist-db": "denylist_db_schema",
+        }
+        for component_name, dbname in overrides.items():
+            conninfo = db_uri[dbname]
+            component = components[component_name]
+            component["dbconnection"] = conninfo
+            component.pop("dbalias", None)
 
     return _patch
 
@@ -61,3 +47,9 @@ def service_env(service_source_dir: pathlib.Path):
     return {
         "LSAN_OPTIONS": f"suppressions={service_source_dir}/lsan.supp",
     }
+
+
+@pytest.fixture(scope="session")
+def allowed_url_prefixes_extra():
+    # Permit S3 uploads to the local SeaweedFS endpoint during tests.
+    return ["http://localhost:8333/"]

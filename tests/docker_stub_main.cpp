@@ -1,3 +1,4 @@
+#include <csignal>
 #include <string>
 
 int main(int argc, char *argv[])
@@ -19,6 +20,14 @@ int main(int argc, char *argv[])
     }
 
     if (action == "rm") {
+        for (int i = 2; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "fail-rm")
+                return 1;
+            if (arg == "fail-signal") {
+                ::raise(SIGKILL);
+            }
+        }
         return 0;
     }
 

@@ -46,9 +46,16 @@ void ContainerGuard::remove() noexcept
         auto proc = starter->Exec(
             "docker", std::vector<std::string>{"rm", "-f", name}, makeExecOpts()
         );
-        static_cast<void>(proc.Get());
+        auto status = proc.Get();
+        if (!status.IsExited()) {
+            LOG_ERROR() << fmt::format("docker rm for {} did not exit cleanly", name);
+        } else if (status.GetExitCode() != 0) {
+            LOG_ERROR() << fmt::format(
+                "docker rm for {} exited with code {}", name, status.GetExitCode()
+            );
+        }
     } catch (std::exception &) {
-        LOG_INFO() << fmt::format("docker rm for {} failed:", name);
+        LOG_ERROR() << fmt::format("docker rm for {} failed:", name);
     }
     removed = true;
 }

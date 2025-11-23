@@ -21,10 +21,10 @@ components_manager:
                 USERVER_RPS_CCONTROL_ENABLED: true
         webshot-config:
             query-part-length-max: 32768
-            s3-bucket: webshot
-            s3-endpoint: 'https://storage.yandexcloud.net/'
-            s3-region: 'ru-central1'
-            public-base-url: 'https://storage.yandexcloud.net/webshot'
+            s3-bucket: $s3_bucket
+            s3-endpoint: $s3_endpoint
+            s3-region: $s3_region
+            public-base-url: $public_base_url
             s3-timeout-ms: 30000
         dns-client:
             fs-task-processor: fs-task-processor
@@ -84,14 +84,15 @@ components_manager:
             purge-job-timeout-sec: 300
             crawler-lang: 'en'
             crawler-scope-type: 'page-spa'
+            s3-use-sts: $s3_use_sts
             s3-credentials-endpoint: 'https://sts.yandexcloud.net/'
             s3-credentials-duration-sec: 3600
             s3-credentials-refresh-margin-sec: 300
             s3-credentials-refresh-retry-sec: 60
         webshot-meta-db:
-            dbconnection: 'postgresql://postgres@localhost:5432'
+            dbconnection: $pg_webshot_meta_dsn
             blocking_task_processor: fs-task-processor
         denylist-db:
-            dbconnection: 'postgresql://postgres@localhost:5433'
+            dbconnection: $pg_denylist_dsn
             blocking_task_processor: fs-task-processor
         webshot-denylist:

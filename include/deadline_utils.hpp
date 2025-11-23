@@ -8,6 +8,24 @@
 
 namespace v1 {
 
+[[nodiscard]] inline userver::engine::Deadline
+pickEarlierDeadline(userver::engine::Deadline a, userver::engine::Deadline b)
+{
+    const bool aReachable = a.IsReachable();
+    const bool bReachable = b.IsReachable();
+
+    if (aReachable && !bReachable)
+        return a;
+    if (!aReachable && bReachable)
+        return b;
+    if (!aReachable && !bReachable)
+        return a;
+
+    if (a.TimeLeft() <= b.TimeLeft())
+        return a;
+    return b;
+}
+
 [[nodiscard]] inline userver::engine::Deadline computeHandlerDeadline(
     const userver::server::http::HttpRequest &request, std::chrono::milliseconds handlerTimeout
 )
@@ -17,16 +35,7 @@ namespace v1 {
     const auto configDeadline = Deadline::FromTimePoint(request.GetStartTime() + handlerTimeout);
     const auto inheritedDeadline = userver::server::request::GetTaskInheritedDeadline();
 
-    if (!inheritedDeadline.IsReachable())
-        return configDeadline;
-    if (!configDeadline.IsReachable())
-        return inheritedDeadline;
-
-    const auto inheritedLeft = inheritedDeadline.TimeLeft();
-    const auto configLeft = configDeadline.TimeLeft();
-    if (inheritedLeft < configLeft)
-        return inheritedDeadline;
-    return configDeadline;
+    return pickEarlierDeadline(configDeadline, inheritedDeadline);
 }
 
 } // namespace v1
