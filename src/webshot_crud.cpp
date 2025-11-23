@@ -423,8 +423,9 @@ void WebshotCrud::Impl::runS3RefreshLoop()
                 s3State.Assign(newState);
                 break;
             } catch (const std::exception &e) {
-                LOG_ERROR(
-                ) << fmt::format("Failed to refresh S3 credentials from STS: {}", e.what());
+                LOG_ERROR() << fmt::format(
+                    "Failed to refresh S3 credentials from STS: {}", e.what()
+                );
                 engine::SleepFor(std::chrono::seconds{s3CredentialsRefreshRetrySec});
             }
         }
@@ -569,7 +570,8 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
         )
                        .AsSingleRow<Row>(pg::kRowTag);
         static_cast<void>(row.id);
-        return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row.createdAt)
+        return us::utils::datetime::TimePointTz(
+            static_cast<system_clock::time_point>(row.createdAt)
         );
     } catch (const std::exception &e) {
         try {
@@ -578,8 +580,9 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
         } catch (const std::exception &) {
             LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
         }
-        LOG_ERROR(
-        ) << fmt::format("DB insert failed for {}: {}", us::utils::ToString(ctx.id), e.what());
+        LOG_ERROR() << fmt::format(
+            "DB insert failed for {}: {}", us::utils::ToString(ctx.id), e.what()
+        );
         return {};
     }
 }

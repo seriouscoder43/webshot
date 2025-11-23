@@ -52,9 +52,9 @@ properties:
 )");
 }
 
-std::string WebshotsByPrefixHandler::
-    HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
-        const
+std::string WebshotsByPrefixHandler::HandleRequestThrow(
+    const server::http::HttpRequest &request, server::request::RequestContext &
+) const
 {
     using server::http::HttpStatus::kBadRequest;
     using server::http::HttpStatus::kInternalServerError;

@@ -169,36 +169,39 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
 }
 
 // Unused by this service — provide stubs that throw to make it explicit
-std::optional<std::string> S3V4Client::
-    GetObject(std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const
+std::optional<std::string> S3V4Client::GetObject(
+    std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &
+) const
 {
     throw std::runtime_error("GetObject not implemented in SigV4 client for this service");
 }
 
-std::string S3V4Client::
-    TryGetObject(std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const
+std::string S3V4Client::TryGetObject(
+    std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &
+) const
 {
     throw std::runtime_error("TryGetObject not implemented in SigV4 client");
 }
 
-std::optional<std::string> S3V4Client::
-    GetPartialObject(std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const
+std::optional<std::string> S3V4Client::GetPartialObject(
+    std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *,
+    const HeaderDataRequest &
+) const
 {
     throw std::runtime_error("GetPartialObject not implemented in SigV4 client");
 }
 
-std::string S3V4Client::
-    TryGetPartialObject(std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const
+std::string S3V4Client::TryGetPartialObject(
+    std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *,
+    const HeaderDataRequest &
+) const
 {
     throw std::runtime_error("TryGetPartialObject not implemented in SigV4 client");
 }
 
-std::string S3V4Client::
-    CopyObject(std::string_view, std::string_view, std::string_view, const std::optional<Meta> &)
+std::string S3V4Client::CopyObject(
+    std::string_view, std::string_view, std::string_view, const std::optional<Meta> &
+)
 {
     throw std::runtime_error("CopyObject not implemented in SigV4 client");
 }
@@ -229,9 +232,9 @@ void S3V4Client::UpdateConfig(s3::ConnectionCfg &&) {}
 std::string_view S3V4Client::GetBucketName() const { return bucket_; }
 
 // Multipart upload API stubs (not used by this service)
-userver::s3api::multipart_upload::InitiateMultipartUploadResult
-S3V4Client::CreateMultipartUpload(const userver::s3api::multipart_upload::
-                                      CreateMultipartUploadRequest &) const
+userver::s3api::multipart_upload::InitiateMultipartUploadResult S3V4Client::CreateMultipartUpload(
+    const userver::s3api::multipart_upload::CreateMultipartUploadRequest &
+) const
 {
     throw std::runtime_error("CreateMultipartUpload not implemented in SigV4 client");
 }
@@ -242,15 +245,16 @@ S3V4Client::UploadPart(const userver::s3api::multipart_upload::UploadPartRequest
     throw std::runtime_error("UploadPart not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::CompleteMultipartUploadResult
-S3V4Client::CompleteMultipartUpload(const userver::s3api::multipart_upload::
-                                        CompleteMultipartUploadRequest &) const
+userver::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::CompleteMultipartUpload(
+    const userver::s3api::multipart_upload::CompleteMultipartUploadRequest &
+) const
 {
     throw std::runtime_error("CompleteMultipartUpload not implemented in SigV4 client");
 }
 
-void S3V4Client::AbortMultipartUpload(const userver::s3api::multipart_upload::
-                                          AbortMultipartUploadRequest &) const
+void S3V4Client::AbortMultipartUpload(
+    const userver::s3api::multipart_upload::AbortMultipartUploadRequest &
+) const
 {
     throw std::runtime_error("AbortMultipartUpload not implemented in SigV4 client");
 }
@@ -261,9 +265,9 @@ S3V4Client::ListParts(const userver::s3api::multipart_upload::ListPartsRequest &
     throw std::runtime_error("ListParts not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::ListMultipartUploadsResult
-S3V4Client::ListMultipartUploads(const userver::s3api::multipart_upload::ListMultipartUploadsRequest
-                                     &) const
+userver::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMultipartUploads(
+    const userver::s3api::multipart_upload::ListMultipartUploadsRequest &
+) const
 {
     throw std::runtime_error("ListMultipartUploads not implemented in SigV4 client");
 }

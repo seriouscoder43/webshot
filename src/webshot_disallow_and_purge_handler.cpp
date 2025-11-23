@@ -48,9 +48,9 @@ properties:
 )");
 }
 
-std::string WebshotDisallowAndPurgeHandler::
-    HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
-        const
+std::string WebshotDisallowAndPurgeHandler::HandleRequestThrow(
+    const server::http::HttpRequest &request, server::request::RequestContext &
+) const
 {
     using server::http::HttpStatus::kAccepted;
     using server::http::HttpStatus::kBadRequest;

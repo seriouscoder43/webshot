@@ -65,9 +65,9 @@ properties:
 )");
 }
 
-std::string WebshotHandler::
-    HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
-        const
+std::string WebshotHandler::HandleRequestThrow(
+    const server::http::HttpRequest &request, server::request::RequestContext &
+) const
 {
     using server::http::HttpMethod::kPost;
     using server::http::HttpStatus::kBadRequest;

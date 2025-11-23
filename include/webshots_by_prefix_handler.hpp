@@ -28,9 +28,9 @@ public:
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
     [[nodiscard]]
-    std::string
-    HandleRequestThrow(const server::http::HttpRequest &request, server::request::RequestContext &)
-        const final;
+    std::string HandleRequestThrow(
+        const server::http::HttpRequest &request, server::request::RequestContext &
+    ) const final;
 
 private:
     WebshotCrud &crud;

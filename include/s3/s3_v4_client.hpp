@@ -65,27 +65,31 @@ public:
     std::optional<HeadersDataResponse>
     GetObjectHead(std::string_view path, const HeaderDataRequest &request) const override;
 
-    std::optional<std::string>
-    GetObject(std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const override;
-    std::string
-    TryGetObject(std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const override;
-    std::optional<std::string>
-    GetPartialObject(std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const override;
-    std::string
-    TryGetPartialObject(std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &)
-        const override;
-    std::string
-    CopyObject(std::string_view, std::string_view, std::string_view, const std::optional<Meta> &)
-        override;
+    std::optional<std::string> GetObject(
+        std::string_view, std::optional<std::string>, HeadersDataResponse *,
+        const HeaderDataRequest &
+    ) const override;
+    std::string TryGetObject(
+        std::string_view, std::optional<std::string>, HeadersDataResponse *,
+        const HeaderDataRequest &
+    ) const override;
+    std::optional<std::string> GetPartialObject(
+        std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *,
+        const HeaderDataRequest &
+    ) const override;
+    std::string TryGetPartialObject(
+        std::string_view, std::string_view, std::optional<std::string>, HeadersDataResponse *,
+        const HeaderDataRequest &
+    ) const override;
+    std::string CopyObject(
+        std::string_view, std::string_view, std::string_view, const std::optional<Meta> &
+    ) override;
     std::string
     CopyObject(std::string_view, std::string_view, const std::optional<Meta> &) override;
     std::optional<std::string>
     ListBucketContents(std::string_view, int, std::string, std::string) const override;
-    std::vector<userver::s3api::ObjectMeta> ListBucketContentsParsed(std::string_view
-    ) const override;
+    std::vector<userver::s3api::ObjectMeta>
+        ListBucketContentsParsed(std::string_view) const override;
     std::vector<std::string> ListBucketDirectories(std::string_view) const override;
     void UpdateConfig(userver::s3api::ConnectionCfg &&) override;
     std::string_view GetBucketName() const override;
@@ -129,8 +133,8 @@ private:
         const std::chrono::system_clock::time_point &now,
         const std::chrono::system_clock::time_point &expires_at
     );
-    [[nodiscard]] SigV4Params MakeSigV4Params(const std::chrono::system_clock::time_point &now
-    ) const;
+    [[nodiscard]] SigV4Params
+    MakeSigV4Params(const std::chrono::system_clock::time_point &now) const;
     void SignRequest(
         std::string_view method, const std::string &req, userver::clients::http::Headers &headers,
         const std::string &payload_hash
