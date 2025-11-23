@@ -29,6 +29,8 @@
 - Classes: PascalCase (for example, `WebshotCrud`).
 - Functions and variables: lowerCamelCase.
 - Constants: `kName` form.
+- Default parameters in function declarations or definitions are forbidden.
+- Pay close attention to `using namespace` directives and namespace aliases (`namespace x = y;`); avoid wide-scope usage and follow existing patterns in this codebase.
 - Prefer `{}` instead of `std::nullopt` in return statements and obvious initialization sites when it clearly compiles.
 - Use `size_t`, `int64_t` (not `std::size_t` or `std::int64_t`).
 - Filenames in snake_case (for example, `ip_utils.cpp`, `webshot_handler.hpp`).
