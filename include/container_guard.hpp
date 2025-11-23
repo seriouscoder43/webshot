@@ -40,7 +40,7 @@ public:
     void remove() noexcept;
 
 private:
-    engine::subprocess::ProcessStarter *starter_ = nullptr;
-    std::string name_;
-    bool removed_;
+    engine::subprocess::ProcessStarter *starter = nullptr;
+    std::string name;
+    bool removed;
 };

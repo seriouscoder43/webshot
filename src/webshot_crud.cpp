@@ -352,7 +352,7 @@ WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() 
         svcCfg.s3Bucket()
     );
 
-    const auto sts = FetchStsCredentials(
+    const auto sts = fetchStsCredentials(
         httpClient, s3CredentialsEndpoint, staticAccessKeyId, staticSecretAccessKey,
         svcCfg.s3Region(), std::string{kRoleArnDescription}, sessionName, policyJson,
         chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()

@@ -27,23 +27,23 @@ public:
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
     /** @return Maximum allowed length of URL query part. */
-    [[nodiscard]] size_t queryPartLengthMax() const noexcept { return queryPartLengthMax_; }
+    [[nodiscard]] size_t queryPartLengthMax() const noexcept { return queryPartLengthMaxValue; }
 
     /** @name S3 parameters */
     ///@{
-    [[nodiscard]] const std::string &s3Bucket() const noexcept { return s3Bucket_; }
-    [[nodiscard]] const std::string &s3Endpoint() const noexcept { return s3Endpoint_; }
-    [[nodiscard]] const std::string &s3Region() const noexcept { return s3Region_; }
-    [[nodiscard]] const std::string &publicBaseUrl() const noexcept { return publicBaseUrl_; }
-    [[nodiscard]] std::chrono::milliseconds s3Timeout() const noexcept { return s3Timeout_; }
+    [[nodiscard]] const std::string &s3Bucket() const noexcept { return s3BucketName; }
+    [[nodiscard]] const std::string &s3Endpoint() const noexcept { return s3EndpointUrl; }
+    [[nodiscard]] const std::string &s3Region() const noexcept { return s3RegionName; }
+    [[nodiscard]] const std::string &publicBaseUrl() const noexcept { return publicBaseUrlValue; }
+    [[nodiscard]] std::chrono::milliseconds s3Timeout() const noexcept { return s3TimeoutDuration; }
     ///@}
 
 private:
-    size_t queryPartLengthMax_;
-    std::string s3Bucket_;
-    std::string s3Endpoint_;
-    std::string s3Region_;
-    std::string publicBaseUrl_;
-    std::chrono::milliseconds s3Timeout_{10000};
+    size_t queryPartLengthMaxValue;
+    std::string s3BucketName;
+    std::string s3EndpointUrl;
+    std::string s3RegionName;
+    std::string publicBaseUrlValue;
+    std::chrono::milliseconds s3TimeoutDuration;
 };
 } // namespace v1

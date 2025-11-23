@@ -23,16 +23,16 @@ static inline ExecOptions makeExecOpts()
 }
 
 ContainerGuard::ContainerGuard(
-    engine::subprocess::ProcessStarter &starter, std::string name,
+    engine::subprocess::ProcessStarter &starterRef, std::string containerName,
     const std::vector<std::string> &createArgs
 )
-    : starter_(&starter), name_(std::move(name)), removed_(false)
+    : starter(&starterRef), name(std::move(containerName)), removed(false)
 {
-    auto proc = starter_->Exec("docker", createArgs, makeExecOpts());
+    auto proc = starter->Exec("docker", createArgs, makeExecOpts());
     auto status = proc.Get();
     if (!status.IsExited() || status.GetExitCode() != 0) {
-        removed_ = true;
-        throw std::runtime_error(fmt::format("docker create failed for {}", name_));
+        removed = true;
+        throw std::runtime_error(fmt::format("docker create failed for {}", name));
     }
 }
 
@@ -40,15 +40,15 @@ ContainerGuard::~ContainerGuard() { remove(); }
 
 void ContainerGuard::remove() noexcept
 {
-    if (removed_ || name_.empty() || starter_ == nullptr)
+    if (removed || name.empty() || starter == nullptr)
         return;
     try {
-        auto proc = starter_->Exec(
-            "docker", std::vector<std::string>{"rm", "-f", name_}, makeExecOpts()
+        auto proc = starter->Exec(
+            "docker", std::vector<std::string>{"rm", "-f", name}, makeExecOpts()
         );
         static_cast<void>(proc.Get());
     } catch (std::exception &) {
-        LOG_INFO() << fmt::format("docker rm for {} failed:", name_);
+        LOG_INFO() << fmt::format("docker rm for {} failed:", name);
     }
-    removed_ = true;
+    removed = true;
 }
