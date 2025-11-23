@@ -12,11 +12,11 @@ namespace us = userver;
 namespace v1::HostPolicy {
 
 /** @return true if `host` has no dots. */
-bool IsBareName(const std::string &host);
+bool isBareName(const std::string &host);
 /** @return true for names explicitly blocked regardless of resolution. */
-bool IsDeniedHostname(const std::string &host);
+bool isDeniedHostname(const std::string &host);
 /** @return true if the name ends with a reserved/special TLD like `.local`. */
-bool HasSpecialTldSuffix(std::string_view host);
+bool hasSpecialTldSuffix(std::string_view host);
 
 /**
  * @brief Resolve a hostname and return public IPv4 addresses.

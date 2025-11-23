@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 project(webshot CXX)
 
+# Ensure userver codegen target is created only once even with multiple
+# generators (SQL, chaotic, testsuite). Pre-initialize the global property that
+# guards userver-codegen creation.
+set_property(GLOBAL PROPERTY userver_codegen_targets "initialized")
+
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   message(
     FATAL_ERROR
@@ -18,6 +23,16 @@ option(WEBSHOT_ENABLE_LLVM_SYMBOLIZER
 set(WEBSHOT_LLVM_SYMBOLIZER_BIN
     "llvm-symbolizer-21"
     CACHE STRING "llvm-symbolizer binary used for sanitizer stack traces")
+
+option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
+
+# Resolve to an absolute path when possible so ASan can actually exec it.
+if(WEBSHOT_ENABLE_LLVM_SYMBOLIZER)
+  find_program(
+    WEBSHOT_LLVM_SYMBOLIZER_BIN
+    NAMES ${WEBSHOT_LLVM_SYMBOLIZER_BIN} llvm-symbolizer-21 llvm-symbolizer
+    DOC "Resolved llvm-symbolizer binary for sanitizer stacks")
+endif()
 
 option(WEBSHOT_USE_MOLD "Use mold linker if available" ON)
 if(WEBSHOT_USE_MOLD)
@@ -137,6 +152,19 @@ target_sources(
           src/s3/s3_sts_client.cpp src/s3/s3_url_utils.cpp
           include/s3/sigv4_signer.hpp include/s3/s3_url_utils.hpp)
 
+userver_add_sql_library(
+  ${PROJECT_NAME}_sql
+  NAMESPACE
+  webshot
+  SOURCE_DIR
+  sql/queries
+  OUTPUT_DIR
+  ${CMAKE_CURRENT_BINARY_DIR}
+  SQL_FILES
+  *.sql)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE ${PROJECT_NAME}_sql)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_sql)
+
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
@@ -148,20 +176,6 @@ if(USE_SANITIZERS)
   # target_compile_options(${TARGET} PRIVATE "-fsanitize=undefined,thread")
   # target_link_options(${TARGET} PRIVATE "-fsanitize=undefined,thread")
 endif()
-
-file(GLOB SQL_QUERY_FILES ${CMAKE_CURRENT_SOURCE_DIR}/sql/queries/*.sql)
-add_custom_command(
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp
-  COMMAND
-    python3 ${CMAKE_CURRENT_SOURCE_DIR}/sql/gen_sql_header.py --input-dir
-    ${CMAKE_CURRENT_SOURCE_DIR}/sql/queries --output
-    ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/sql/gen_sql_header.py ${SQL_QUERY_FILES}
-  COMMENT "Generating SQL header from sql/queries"
-  VERBATIM)
-add_custom_target(sql_gen DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/src/sql_gen.hpp)
-add_dependencies(${PROJECT_NAME}_objs sql_gen)
-add_dependencies(${PROJECT_NAME} sql_gen)
 
 file(GLOB_RECURSE SCHEMAS ${CMAKE_CURRENT_SOURCE_DIR}/schemas/*.yaml)
 userver_target_generate_chaotic(

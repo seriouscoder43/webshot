@@ -18,14 +18,14 @@ namespace us = userver;
 namespace engine = us::engine;
 namespace v1::HostPolicy {
 
-bool IsBareName(const std::string &host) { return host.find('.') == std::string::npos; }
+bool isBareName(const std::string &host) { return host.find('.') == std::string::npos; }
 
-bool IsDeniedHostname(const std::string &host)
+bool isDeniedHostname(const std::string &host)
 {
     return (host == "localhost" || host == "host.docker.internal");
 }
 
-bool HasSpecialTldSuffix(std::string_view host)
+bool hasSpecialTldSuffix(std::string_view host)
 {
     static const std::array<std::string_view, 5> kTlds{
         ".local", ".home.arpa", ".test", ".invalid", ".example"

@@ -93,8 +93,8 @@ std::string WebshotHandler::HandleRequestThrow(
             try {
                 auto parsed = Link::fromUserInput(req.link, config.queryPartLengthMax());
                 std::string host = parsed.host();
-                if (HostPolicy::IsBareName(host) || HostPolicy::IsDeniedHostname(host) ||
-                    HostPolicy::HasSpecialTldSuffix(host))
+                if (HostPolicy::isBareName(host) || HostPolicy::isDeniedHostname(host) ||
+                    HostPolicy::hasSpecialTldSuffix(host))
                     throw InvalidLinkException("forbidden host");
                 auto pubs = HostPolicy::resolvePublic(resolver, host, finalDeadline);
                 if (pubs.empty())

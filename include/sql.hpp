@@ -1,3 +1,5 @@
 #pragma once
 
-#include "sql_gen.hpp"
+#include <webshot/sql_queries.hpp>
+
+namespace sql = webshot::sql;

@@ -54,7 +54,7 @@ bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
 {
     try {
         return impl->cluster
-                   ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist.data(), host)
+                   ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist, host)
                    .Size() == 0;
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("denylist check failed: {}", e.what());
@@ -66,7 +66,7 @@ void WebshotDenylist::insertHost(const std::string &host, const std::string &rea
 {
     try {
         static_cast<void>(impl->cluster->Execute(
-            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost.data(), host, reason
+            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, host, reason
         ));
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("denylist insert failed for {}: {}", host, e.what());

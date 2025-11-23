@@ -544,8 +544,7 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
             pg::TimePointTz createdAt;
         };
         auto row = readwrite(
-                       sql::kInsertWebshot.data(), ctx.id, ctx.link.normalized(), hostRev,
-                       ctx.location
+                       sql::kInsertWebshot, ctx.id, ctx.link.normalized(), hostRev, ctx.location
         )
                        .AsSingleRow<Row>(pg::kRowTag);
         static_cast<void>(row.id);
@@ -572,7 +571,7 @@ void WebshotCrud::Impl::purgeHost(const std::string &host)
     const int64_t kBatch = 1000;
     while (true) {
         try {
-            auto res = readonly(sql::kSelectIdsByHostOrSubhostsPaged.data(), hostRev, kBatch);
+            auto res = readonly(sql::kSelectIdsByHostOrSubhostsPaged, hostRev, kBatch);
             std::vector<Uuid> ids;
             ids.reserve(res.Size());
             for (auto row : res)
@@ -588,7 +587,7 @@ void WebshotCrud::Impl::purgeHost(const std::string &host)
                     LOG_ERROR() << fmt::format("S3 delete failed for key {}: {}", key, e.what());
                 }
             }
-            static_cast<void>(readwrite(sql::kDeleteWebshotsByIds.data(), ids));
+            static_cast<void>(readwrite(sql::kDeleteWebshotsByIds, ids));
         } catch (const std::exception &e) {
             LOG_ERROR() << fmt::format("denylist purge failed for {}: {}", host, e.what());
             break;
@@ -610,7 +609,7 @@ dto::UuidWithTimeLink WebshotCrud::createWebshot(Link link, std::vector<std::str
 std::optional<Webshot> WebshotCrud::findWebshot(Uuid uuid)
 {
     const auto location =
-        impl->readonly(sql::kSelectWebshot.data(), uuid).AsOptionalSingleRow<std::string>();
+        impl->readonly(sql::kSelectWebshot, uuid).AsOptionalSingleRow<std::string>();
     if (!location) {
         LOG_INFO() << fmt::format("UUID not found: {}", us::utils::ToString(uuid));
         return {};
@@ -630,14 +629,14 @@ WebshotCrud::findWebshotByLinkPage(const Link &link, std::string pageToken)
     std::vector<Row> dbRows;
     const auto &norm = link.normalized();
     if (pageToken.empty()) {
-        dbRows = impl->readonly(sql::kSelectWebshotByLinkFirst.data(), norm, impl->webshotsPageMax)
+        dbRows = impl->readonly(sql::kSelectWebshotByLinkFirst, norm, impl->webshotsPageMax)
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
     } else {
         auto cur = crud::decodeCursor(pageToken);
         if (!cur)
             throw errors::InvalidPageTokenException("invalid page_token");
         dbRows = impl->readonly(
-                         sql::kSelectWebshotByLinkNext.data(), norm, impl->webshotsPageMax,
+                         sql::kSelectWebshotByLinkNext, norm, impl->webshotsPageMax,
                          pg::TimePointTz(cur->createdAt), cur->id
         )
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
@@ -677,14 +676,12 @@ WebshotCrud::findWebshotsByPrefixPage(const std::string &normalizedPrefix, std::
     }
 
     auto selectLinksFirst = [&](int64_t limit) {
-        return impl->readonly(sql::kSelectDistinctLinksByPrefixFirst.data(), lower, upperOpt, limit)
+        return impl->readonly(sql::kSelectDistinctLinksByPrefixFirst, lower, upperOpt, limit)
             .AsContainer<std::vector<std::string>>();
     };
     auto selectLinksNext = [&](const std::string &fromLink, int64_t limit) {
         return impl
-            ->readonly(
-                sql::kSelectDistinctLinksByPrefixNext.data(), lower, upperOpt, fromLink, limit
-            )
+            ->readonly(sql::kSelectDistinctLinksByPrefixNext, lower, upperOpt, fromLink, limit)
             .AsContainer<std::vector<std::string>>();
     };
 
@@ -721,12 +718,12 @@ WebshotCrud::findWebshotsByPrefixPage(const std::string &normalizedPrefix, std::
         if (idx == 0 && cur && cur->createdAt && cur->id) {
             return impl
                 ->readonly(
-                    sql::kSelectWebshotByLinkNext.data(), link, impl->webshotsPerLinkMax,
+                    sql::kSelectWebshotByLinkNext, link, impl->webshotsPerLinkMax,
                     pg::TimePointTz(*cur->createdAt), *cur->id
                 )
                 .AsContainer<std::vector<Row>>(pg::kRowTag);
         }
-        return impl->readonly(sql::kSelectWebshotByLinkFirst.data(), link, impl->webshotsPerLinkMax)
+        return impl->readonly(sql::kSelectWebshotByLinkFirst, link, impl->webshotsPerLinkMax)
             .AsContainer<std::vector<Row>>(pg::kRowTag);
     };
 
