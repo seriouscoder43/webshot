@@ -146,6 +146,9 @@ properties:
     s3-credentials-endpoint:
         type: string
         description: 'STS endpoint used to obtain temporary S3 credentials'
+    s3-use-sts:
+        type: boolean
+        description: 'Whether to fetch temporary S3 credentials from STS (true) or use static credentials from secdist (false)'
     s3-credentials-duration-sec:
         type: integer
         minimum: 1
@@ -191,6 +194,7 @@ public:
     const int64_t purgeJobTimeoutSec;
     const std::string crawlerLang;
     const std::string crawlerScopeType;
+    const bool s3UseSts;
     const std::string s3CredentialsEndpoint;
     const int64_t s3CredentialsDurationSec;
     const int64_t s3CredentialsRefreshMarginSec;
@@ -238,6 +242,7 @@ public:
           purgeJobTimeoutSec(cfg["purge-job-timeout-sec"].As<int64_t>()),
           crawlerLang(cfg["crawler-lang"].As<std::string>()),
           crawlerScopeType(cfg["crawler-scope-type"].As<std::string>()),
+          s3UseSts(cfg["s3-use-sts"].As<bool>(true)),
           s3CredentialsEndpoint(cfg["s3-credentials-endpoint"].As<std::string>()),
           s3CredentialsDurationSec(cfg["s3-credentials-duration-sec"].As<int64_t>()),
           s3CredentialsRefreshMarginSec(cfg["s3-credentials-refresh-margin-sec"].As<int64_t>()),
@@ -258,9 +263,24 @@ public:
         );
         staticAccessKeyId = *creds.access_key_id;
         staticSecretAccessKey = *creds.secret_access_key;
-        const auto initialState = fetchS3ClientStateFromSts();
+        S3ClientState initialState;
+        if (s3UseSts) {
+            initialState = fetchS3ClientStateFromSts();
+            startS3RefreshTask();
+        } else {
+            S3ClientState state;
+            state.creds = s3v4::S3Credentials{
+                staticAccessKeyId, staticSecretAccessKey, creds.session_token
+            };
+            state.expiresAt = std::chrono::system_clock::time_point::max();
+            state.client = std::make_shared<s3v4::S3V4Client>(
+                httpClient,
+                s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
+                state.creds, std::string{}
+            );
+            initialState = std::move(state);
+        }
         s3State.Assign(initialState);
-        startS3RefreshTask();
     }
     template <typename... Ts> [[nodiscard]] auto readonly(Ts &&...args)
     {
