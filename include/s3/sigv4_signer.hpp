@@ -5,7 +5,10 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+
+#include <userver/clients/http/client.hpp>
 
 #include "s3_credentials_types.hpp"
 
@@ -30,21 +33,44 @@ struct [[nodiscard]] SigV4Params {
     std::optional<SessionToken> sessionToken;
     std::string amzDate; // YYYYMMDDTHHMMSSZ
     std::string date;    // YYYYMMDD
+
+    SigV4Params() = default;
+    SigV4Params(
+        std::string region_, std::string service_, const AccessKeyId &accessKeyId_,
+        const SecretAccessKey &secretAccessKey_, std::optional<SessionToken> sessionToken_,
+        const std::chrono::system_clock::time_point &now
+    );
 };
 
 // Utilities
+[[nodiscard]] std::string buildScope(const SigV4Params &params);
+[[nodiscard]] std::string
+computeSignature(const SigV4Params &params, std::string_view string_to_sign);
 /** @return AMZ date stamp for the given time point (UTC). */
-[[nodiscard]] std::string ToAmzDateUtc(std::chrono::system_clock::time_point tp);
+[[nodiscard]] std::string toAmzDateUtc(std::chrono::system_clock::time_point tp);
 /** @return Date stamp (YYYYMMDD) for the given time point (UTC). */
-[[nodiscard]] std::string ToDateStampUtc(std::chrono::system_clock::time_point tp);
+[[nodiscard]] std::string toDateStampUtc(std::chrono::system_clock::time_point tp);
 /** @return SHA-256 digest in hex of the input. */
-[[nodiscard]] std::string Sha256Hex(std::string_view data);
+[[nodiscard]] std::string sha256Hex(std::string_view data);
 
 /** RFC3986 percent‑encoding for AWS canonicalization. */
-[[nodiscard]] std::string PercentEncode(std::string_view s, bool encodeSlash);
+[[nodiscard]] std::string percentEncode(std::string_view s, bool encodeSlash);
+
+/** Encode, sort, and join query parameters per SigV4 canonical rules. */
+[[nodiscard]] std::string
+canonicalizeQuery(const std::vector<std::pair<std::string, std::string>> &decoded);
+
+/** Lowercase, insert host, and sort headers to be signed. */
+[[nodiscard]] std::vector<std::pair<std::string, std::string>>
+prepareSignedHeaders(std::string host, const userver::clients::http::Headers &extra);
+
+/** Join header names (already lowercase/sorted) with semicolons. */
+[[nodiscard]] std::string buildSignedHeaders(
+    const std::vector<std::pair<std::string, std::string>> &headersLowercaseTrimmedSorted
+);
 
 /** Build the canonical request string used by SigV4. */
-[[nodiscard]] CanonicalRequestParts BuildCanonicalRequest(
+[[nodiscard]] CanonicalRequestParts buildCanonicalRequest(
     std::string_view method, std::string_view canonicalUri,
     const std::vector<std::pair<std::string, std::string>>
         &query, // already key/value, will encode/sort
@@ -57,7 +83,7 @@ struct [[nodiscard]] SigV4Params {
  *
  * Returns the `authorization` header and auxiliary `x-amz-*` headers.
  */
-[[nodiscard]] std::unordered_map<std::string, std::string> SignHeaders(
+[[nodiscard]] std::unordered_map<std::string, std::string> signHeaders(
     const SigV4Params &p, std::string_view method, std::string_view canonicalUri,
     const std::vector<std::pair<std::string, std::string>> &query,
     // input headers to be signed: key must be lowercase and trimmed; host must be present

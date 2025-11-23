@@ -27,7 +27,7 @@ struct [[nodiscard]] StsCredentials {
  *
  * The endpoint must use https. A prebuilt policy JSON is passed verbatim.
  */
-[[nodiscard]] StsCredentials FetchStsCredentials(
+[[nodiscard]] StsCredentials fetchStsCredentials(
     userver::clients::http::Client &httpClient, const std::string &stsEndpoint,
     const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
     const std::string &region, const std::string &roleArn, const std::string &roleSessionName,

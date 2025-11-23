@@ -10,23 +10,23 @@
 #include "s3/sigv4_signer.hpp"
 
 using v1::s3v4::AccessKeyId;
-using v1::s3v4::BuildCanonicalRequest;
+using v1::s3v4::buildCanonicalRequest;
 using v1::s3v4::CanonicalRequestParts;
-using v1::s3v4::PercentEncode;
+using v1::s3v4::percentEncode;
 using v1::s3v4::S3Credentials;
 using v1::s3v4::S3V4Client;
 using v1::s3v4::S3V4Config;
 using v1::s3v4::SecretAccessKey;
-using v1::s3v4::SignHeaders;
+using v1::s3v4::signHeaders;
 using v1::s3v4::SigV4Params;
 
 UTEST(S3SigV4, PercentEncodeBasicCharacters)
 {
-    EXPECT_EQ(PercentEncode("abcXYZ-_.~", false), std::string{"abcXYZ-_.~"});
-    EXPECT_EQ(PercentEncode(" ", true), std::string{"%20"});
-    EXPECT_EQ(PercentEncode("!", true), std::string{"%21"});
-    EXPECT_EQ(PercentEncode("/", true), std::string{"%2F"});
-    EXPECT_EQ(PercentEncode("/", false), std::string{"/"});
+    EXPECT_EQ(percentEncode("abcXYZ-_.~", false), std::string{"abcXYZ-_.~"});
+    EXPECT_EQ(percentEncode(" ", true), std::string{"%20"});
+    EXPECT_EQ(percentEncode("!", true), std::string{"%21"});
+    EXPECT_EQ(percentEncode("/", true), std::string{"%2F"});
+    EXPECT_EQ(percentEncode("/", false), std::string{"/"});
 }
 
 UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
@@ -39,7 +39,7 @@ UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("host", "examplebucket.s3.amazonaws.com");
 
-    CanonicalRequestParts parts = BuildCanonicalRequest(
+    CanonicalRequestParts parts = buildCanonicalRequest(
         "GET", "/", query, headers, "UNSIGNED-PAYLOAD"
     );
 
@@ -73,7 +73,7 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
     const std::string payloadHash =
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-    const auto signedHeaders = SignHeaders(
+    const auto signedHeaders = signHeaders(
         params, "GET", "/test.txt", /*query*/ {}, headers, payloadHash
     );
 

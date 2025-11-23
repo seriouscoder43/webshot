@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <sstream>
 
 #include <cctz/time_zone.h>
@@ -59,28 +60,80 @@ std::string JoinSignedHeaders(const std::vector<std::pair<std::string, std::stri
     return oss.str();
 }
 
+std::string canonicalizeQueryImpl(const std::vector<std::pair<std::string, std::string>> &query)
+{
+    std::vector<std::pair<std::string, std::string>> q = query;
+    for (auto &kv : q) {
+        kv.first = percentEncode(kv.first, /*encodeSlash*/ true);
+        kv.second = percentEncode(kv.second, /*encodeSlash*/ true);
+    }
+    std::sort(q.begin(), q.end(), [](const auto &a, const auto &b) {
+        if (a.first == b.first)
+            return a.second < b.second;
+        return a.first < b.first;
+    });
+    std::ostringstream canon_query;
+    for (size_t i = 0; i < q.size(); ++i) {
+        if (i)
+            canon_query << '&';
+        canon_query << q[i].first << '=' << q[i].second;
+    }
+    return canon_query.str();
+}
+
 } // namespace
 
-std::string ToAmzDateUtc(std::chrono::system_clock::time_point tp)
+SigV4Params::SigV4Params(
+    std::string region_, std::string service_, const AccessKeyId &accessKeyId_,
+    const SecretAccessKey &secretAccessKey_, std::optional<SessionToken> sessionToken_,
+    const std::chrono::system_clock::time_point &now
+)
+    : region(std::move(region_)), service(std::move(service_)), accessKeyId(accessKeyId_),
+      secretAccessKey(secretAccessKey_), sessionToken(std::move(sessionToken_)),
+      amzDate(toAmzDateUtc(now)), date(toDateStampUtc(now))
+{
+}
+
+std::string buildScope(const SigV4Params &params)
+{
+    return fmt::format("{}/{}/{}/aws4_request", params.date, params.region, params.service);
+}
+
+std::string computeSignature(const SigV4Params &params, std::string_view string_to_sign)
+{
+    namespace US = USERVER_NAMESPACE::crypto::hash;
+    const std::string kSecret = fmt::format("AWS4{}", params.secretAccessKey.GetUnderlying());
+    const std::string kDate = US::HmacSha256(kSecret, params.date, US::OutputEncoding::kBinary);
+    const std::string kRegion = US::HmacSha256(kDate, params.region, US::OutputEncoding::kBinary);
+    const std::string kService = US::HmacSha256(
+        kRegion, params.service, US::OutputEncoding::kBinary
+    );
+    const std::string kSigning = US::HmacSha256(
+        kService, "aws4_request", US::OutputEncoding::kBinary
+    );
+    return US::HmacSha256(kSigning, string_to_sign, US::OutputEncoding::kHex);
+}
+
+std::string toAmzDateUtc(std::chrono::system_clock::time_point tp)
 {
     const auto tz = cctz::utc_time_zone();
     return cctz::format("%Y%m%dT%H%M%SZ", tp, tz);
 }
 
-std::string ToDateStampUtc(std::chrono::system_clock::time_point tp)
+std::string toDateStampUtc(std::chrono::system_clock::time_point tp)
 {
     const auto tz = cctz::utc_time_zone();
     return cctz::format("%Y%m%d", tp, tz);
 }
 
-std::string Sha256Hex(std::string_view data)
+std::string sha256Hex(std::string_view data)
 {
     return USERVER_NAMESPACE::crypto::hash::Sha256(
         data, USERVER_NAMESPACE::crypto::hash::OutputEncoding::kHex
     );
 }
 
-std::string PercentEncode(std::string_view s, bool encodeSlash)
+std::string percentEncode(std::string_view s, bool encodeSlash)
 {
     std::string out;
     out.reserve(s.size() * 3);
@@ -98,7 +151,7 @@ std::string PercentEncode(std::string_view s, bool encodeSlash)
     return out;
 }
 
-CanonicalRequestParts BuildCanonicalRequest(
+CanonicalRequestParts buildCanonicalRequest(
     std::string_view method, std::string_view canonicalUri,
     const std::vector<std::pair<std::string, std::string>> &query,
     const std::vector<std::pair<std::string, std::string>> &headersLowercaseTrimmedSorted,
@@ -106,24 +159,9 @@ CanonicalRequestParts BuildCanonicalRequest(
 )
 {
     // Canonical URI must be URI-encoded with slash preserved
-    const std::string canon_uri = PercentEncode(canonicalUri, /*encodeSlash*/ false);
+    const std::string canon_uri = percentEncode(canonicalUri, /*encodeSlash*/ false);
 
-    std::vector<std::pair<std::string, std::string>> q = query;
-    for (auto &kv : q) {
-        kv.first = PercentEncode(kv.first, /*encodeSlash*/ true);
-        kv.second = PercentEncode(kv.second, /*encodeSlash*/ true);
-    }
-    std::sort(q.begin(), q.end(), [](const auto &a, const auto &b) {
-        if (a.first == b.first)
-            return a.second < b.second;
-        return a.first < b.first;
-    });
-    std::ostringstream canon_query;
-    for (std::size_t i = 0; i < q.size(); ++i) {
-        if (i)
-            canon_query << '&';
-        canon_query << q[i].first << '=' << q[i].second;
-    }
+    const std::string canon_query = canonicalizeQueryImpl(query);
 
     std::ostringstream canon_headers;
     for (const auto &kv : headersLowercaseTrimmedSorted) {
@@ -134,7 +172,7 @@ CanonicalRequestParts BuildCanonicalRequest(
     std::ostringstream oss;
     oss << method << "\n"
         << canon_uri << "\n"
-        << canon_query.str() << "\n"
+        << canon_query << "\n"
         << canon_headers.str() << "\n"
         << signed_headers << "\n"
         << payloadSha256Hex;
@@ -142,7 +180,36 @@ CanonicalRequestParts BuildCanonicalRequest(
     return {oss.str(), signed_headers};
 }
 
-std::unordered_map<std::string, std::string> SignHeaders(
+std::string canonicalizeQuery(const std::vector<std::pair<std::string, std::string>> &decoded)
+{
+    return canonicalizeQueryImpl(decoded);
+}
+
+std::vector<std::pair<std::string, std::string>>
+prepareSignedHeaders(std::string host, const userver::clients::http::Headers &extra)
+{
+    std::vector<std::pair<std::string, std::string>> v;
+    v.reserve(extra.size() + 1);
+    v.emplace_back("host", std::move(host));
+    for (const auto &kv : extra) {
+        std::string keyLower;
+        keyLower.reserve(kv.first.size());
+        for (char c : kv.first)
+            keyLower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        v.emplace_back(std::move(keyLower), kv.second);
+    }
+    std::sort(v.begin(), v.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+    return v;
+}
+
+std::string buildSignedHeaders(
+    const std::vector<std::pair<std::string, std::string>> &headersLowercaseTrimmedSorted
+)
+{
+    return JoinSignedHeaders(headersLowercaseTrimmedSorted);
+}
+
+std::unordered_map<std::string, std::string> signHeaders(
     const SigV4Params &p, std::string_view method, std::string_view canonicalUri,
     const std::vector<std::pair<std::string, std::string>> &query,
     const std::vector<std::pair<std::string, std::string>> &headersLowerTrimmed,
@@ -163,24 +230,14 @@ std::unordered_map<std::string, std::string> SignHeaders(
         return a.first < b.first;
     });
 
-    const auto cr = BuildCanonicalRequest(method, canonicalUri, query, headers, payloadSha256Hex);
+    const auto cr = buildCanonicalRequest(method, canonicalUri, query, headers, payloadSha256Hex);
 
-    const std::string scope = fmt::format("{}/{}/{}/aws4_request", p.date, p.region, p.service);
+    const std::string scope = buildScope(p);
     const std::string string_to_sign = fmt::format(
-        "AWS4-HMAC-SHA256\n{}\n{}\n{}", p.amzDate, scope, Sha256Hex(cr.canonicalRequest)
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}", p.amzDate, scope, sha256Hex(cr.canonicalRequest)
     );
 
-    namespace US = USERVER_NAMESPACE::crypto::hash;
-    const std::string kSecret = fmt::format("AWS4{}", p.secretAccessKey.GetUnderlying());
-    const std::string kDate = US::HmacSha256(kSecret, p.date, US::OutputEncoding::kBinary);
-    const std::string kRegion = US::HmacSha256(kDate, p.region, US::OutputEncoding::kBinary);
-    const std::string kService = US::HmacSha256(kRegion, p.service, US::OutputEncoding::kBinary);
-    const std::string kSigning = US::HmacSha256(
-        kService, "aws4_request", US::OutputEncoding::kBinary
-    );
-    const std::string signature = US::HmacSha256(
-        kSigning, string_to_sign, US::OutputEncoding::kHex
-    );
+    const std::string signature = computeSignature(p, string_to_sign);
 
     const std::string credential = fmt::format("{}/{}", p.accessKeyId.GetUnderlying(), scope);
     std::string authorization = fmt::format(

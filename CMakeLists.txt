@@ -134,7 +134,8 @@ target_link_libraries(${PROJECT_NAME}_objs
 target_sources(
   ${PROJECT_NAME}_objs
   PRIVATE src/s3/sigv4_signer.cpp src/s3/s3_v4_client.cpp
-          src/s3/s3_sts_client.cpp include/s3/sigv4_signer.hpp)
+          src/s3/s3_sts_client.cpp src/s3/s3_url_utils.cpp
+          include/s3/sigv4_signer.hpp include/s3/s3_url_utils.hpp)
 
 include(CTest)
 if(BUILD_TESTING)

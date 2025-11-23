@@ -3,6 +3,8 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <ada.h>
 #include <ada/url_aggregator.h>
@@ -137,40 +139,42 @@ public:
     ) const override;
 
 private:
-    static std::string CanonicalizeQuery(std::vector<std::pair<std::string, std::string>> q);
-    static std::string
-    ComputePresignSignature(const SigV4Params &params, const std::string &string_to_sign);
-
-    static std::chrono::seconds ComputePresignTtl(
+    static std::chrono::seconds computePresignTtl(
         const std::chrono::system_clock::time_point &now,
         const std::chrono::system_clock::time_point &expires_at
     );
     [[nodiscard]] SigV4Params
-    MakeSigV4Params(const std::chrono::system_clock::time_point &now) const;
-    void SignRequest(
+    makeSigV4Params(const std::chrono::system_clock::time_point &now) const;
+    void signRequest(
         std::string_view method, std::string_view canonicalUri, std::string_view host,
         userver::clients::http::Headers &headers, const std::string &payload_hash
     ) const;
     [[nodiscard]] detail::BuiltUrl
-    MakePathStyleUrl(std::string_view path, std::optional<std::string_view> protocolOverride) const;
+    makePathStyleUrl(std::string_view path, std::optional<std::string_view> protocolOverride) const;
     [[nodiscard]] detail::BuiltUrl
-    MakeVirtualHostUrl(std::string_view path, std::string_view protocol) const;
-    [[nodiscard]] std::string BuildRawPath(std::string_view path, bool includeBucket) const;
-    std::string PresignVirtualHost(
+    makeVirtualHostUrl(std::string_view path, std::string_view protocol) const;
+    [[nodiscard]] std::string buildRawPath(std::string_view path, bool includeBucket) const;
+    std::string presignVirtualHost(
         std::string_view method, std::string_view path,
         const std::chrono::system_clock::time_point &expires_at, std::string_view protocol,
         std::optional<userver::clients::http::Headers> extra_headers
     ) const;
-    std::string PresignPathStyle(
+    std::string presignPathStyle(
         std::string_view method, std::string_view path,
         const std::chrono::system_clock::time_point &expires_at, std::string_view protocol
     ) const;
+    std::string buildPresignedUrl(
+        std::string_view method, const detail::BuiltUrl &built,
+        const std::chrono::system_clock::time_point &now,
+        const std::chrono::system_clock::time_point &expires_at, const SigV4Params &params,
+        const std::vector<std::pair<std::string, std::string>> &headers
+    ) const;
 
-    userver::clients::http::Client &http_;
-    S3V4Config cfg_;
-    S3Credentials creds_;
-    std::string bucket_;
-    detail::EndpointParts ep_;
+    userver::clients::http::Client &httpClient;
+    S3V4Config config;
+    S3Credentials creds;
+    std::string bucketName;
+    detail::EndpointParts endpoint;
 };
 
 } // namespace v1::s3v4
