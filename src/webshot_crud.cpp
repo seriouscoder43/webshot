@@ -204,7 +204,7 @@ public:
     us::clients::http::Client &httpClient;
     struct [[nodiscard]] S3ClientState {
         s3v4::S3Credentials creds;
-        std::chrono::system_clock::time_point expiresAt;
+        system_clock::time_point expiresAt;
         std::shared_ptr<s3v4::S3V4Client> client;
     };
     rcu::Variable<S3ClientState> s3State;
@@ -272,7 +272,7 @@ public:
             state.creds = s3v4::S3Credentials{
                 staticAccessKeyId, staticSecretAccessKey, creds.session_token
             };
-            state.expiresAt = std::chrono::system_clock::time_point::max();
+            state.expiresAt = system_clock::time_point::max();
             state.client = std::make_shared<s3v4::S3V4Client>(
                 httpClient,
                 s3v4::S3V4Config{svcCfg.s3Endpoint(), svcCfg.s3Region(), svcCfg.s3Timeout(), false},
