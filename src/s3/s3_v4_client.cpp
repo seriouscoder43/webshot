@@ -92,7 +92,7 @@ std::string S3V4Client::PutObject(
 ) const
 {
     (void)tags; // not used in current service
-    const auto built = MakePathStyleUrl(path);
+    const auto built = MakePathStyleUrl(path, {});
     http::Headers headers;
     headers[userver::http::headers::kContentType] = std::string(content_type);
     if (content_disposition)
@@ -116,7 +116,7 @@ std::string S3V4Client::PutObject(
 
 void S3V4Client::DeleteObject(std::string_view path) const
 {
-    const auto built = MakePathStyleUrl(path);
+    const auto built = MakePathStyleUrl(path, {});
     http::Headers headers;
     const std::string payload_hash = Sha256Hex("");
     SignRequest("DELETE", built.rawPath, built.host, headers, payload_hash);
@@ -134,7 +134,7 @@ void S3V4Client::DeleteObject(std::string_view path) const
 std::optional<s3::Client::HeadersDataResponse>
 S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &request) const
 {
-    const auto built = MakePathStyleUrl(path);
+    const auto built = MakePathStyleUrl(path, {});
     http::Headers headers;
     const std::string payload_hash = Sha256Hex("");
     SignRequest("HEAD", built.rawPath, built.host, headers, payload_hash);

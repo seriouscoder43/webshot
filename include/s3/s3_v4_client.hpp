@@ -151,9 +151,8 @@ private:
         std::string_view method, std::string_view canonicalUri, std::string_view host,
         userver::clients::http::Headers &headers, const std::string &payload_hash
     ) const;
-    [[nodiscard]] detail::BuiltUrl MakePathStyleUrl(
-        std::string_view path, std::optional<std::string_view> protocolOverride = std::nullopt
-    ) const;
+    [[nodiscard]] detail::BuiltUrl
+    MakePathStyleUrl(std::string_view path, std::optional<std::string_view> protocolOverride) const;
     [[nodiscard]] detail::BuiltUrl
     MakeVirtualHostUrl(std::string_view path, std::string_view protocol) const;
     [[nodiscard]] std::string BuildRawPath(std::string_view path, bool includeBucket) const;
