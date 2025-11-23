@@ -27,8 +27,7 @@ function(webshot_add_cpp_test target)
                       ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
   apply_defaults(${target})
   add_test(NAME ${target} COMMAND ${target})
-  set(test_env "LSAN_OPTIONS=detect_leaks=0")
-  list(APPEND test_env "PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{PATH}")
+  set(test_env "PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{PATH}")
   set_tests_properties(${target} PROPERTIES ENVIRONMENT "${test_env}")
 
   if(WEBSHOT_ENABLE_COVERAGE)
@@ -173,4 +172,32 @@ if(USERVER_FEATURE_TESTSUITE)
     USES_TERMINAL VERBATIM)
 
   add_dependencies(webshot-coverage ${PROJECT_NAME} docker ${WEBSHOT_CPP_TESTS})
+endif()
+
+get_property(
+  WEBSHOT_ALL_TESTS
+  DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  PROPERTY TESTS)
+if(WEBSHOT_ALL_TESTS)
+  foreach(t ${WEBSHOT_ALL_TESTS})
+    set_property(
+      TEST ${t}
+      APPEND
+      PROPERTY ENVIRONMENT
+               "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan.supp")
+    if(WEBSHOT_ENABLE_LLVM_SYMBOLIZER AND WEBSHOT_LLVM_SYMBOLIZER_BIN)
+      set_property(
+        TEST ${t}
+        APPEND
+        PROPERTY ENVIRONMENT
+                 "ASAN_SYMBOLIZER_PATH=${WEBSHOT_LLVM_SYMBOLIZER_BIN}")
+      set_property(
+        TEST ${t}
+        APPEND
+        PROPERTY
+          ENVIRONMENT
+          "ASAN_OPTIONS=symbolize=1:external_symbolizer_path=${WEBSHOT_LLVM_SYMBOLIZER_BIN}"
+      )
+    endif()
+  endforeach()
 endif()
