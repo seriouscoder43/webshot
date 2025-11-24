@@ -93,7 +93,7 @@ services:
             - -filer
             - -ip.bind=0.0.0.0
             - -dir=/data
-            - -volume.max=2
+            - -volume.max=8
             - -master.volumeSizeLimitMB=32
             - -metricsPort=9324
             - -s3.config=/etc/seaweedfs/s3_config.json
