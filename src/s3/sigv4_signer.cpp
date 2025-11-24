@@ -52,7 +52,7 @@ std::string TrimSpaces(const std::string &s)
 std::string JoinSignedHeaders(const std::vector<std::pair<std::string, std::string>> &headers)
 {
     std::ostringstream oss;
-    for (std::size_t i = 0; i < headers.size(); ++i) {
+    for (std::size_t i = 0; i < headers.size(); i++) {
         if (i)
             oss << ';';
         oss << headers[i].first;
@@ -73,7 +73,7 @@ std::string canonicalizeQueryImpl(const std::vector<std::pair<std::string, std::
         return a.first < b.first;
     });
     std::ostringstream canon_query;
-    for (size_t i = 0; i < q.size(); ++i) {
+    for (size_t i = 0; i < q.size(); i++) {
         if (i)
             canon_query << '&';
         canon_query << q[i].first << '=' << q[i].second;

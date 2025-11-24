@@ -10,7 +10,7 @@ int main(int argc, char *argv[])
 
     if (action == "create") {
         bool fail = false;
-        for (int i = 2; i < argc; ++i) {
+        for (int i = 2; i < argc; i++) {
             if (std::string(argv[i]) == "fail") {
                 fail = true;
                 break;
@@ -20,7 +20,7 @@ int main(int argc, char *argv[])
     }
 
     if (action == "rm") {
-        for (int i = 2; i < argc; ++i) {
+        for (int i = 2; i < argc; i++) {
             const std::string arg = argv[i];
             if (arg == "fail-rm")
                 return 1;

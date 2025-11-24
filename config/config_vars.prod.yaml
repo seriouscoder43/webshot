@@ -3,5 +3,9 @@ s3_endpoint: "https://storage.yandexcloud.net/"
 s3_region: "ru-central1"
 public_base_url: "https://storage.yandexcloud.net/webshot"
 s3_use_sts: true
+s3-credentials-endpoint: 'https://sts.yandexcloud.net/'
+s3-credentials-duration-sec: 3600
+s3-credentials-refresh-margin-sec: 300
+s3-credentials-refresh-retry-sec: 60
 pg_webshot_meta_dsn: "postgresql://postgres@localhost:5432"
 pg_denylist_dsn: "postgresql://postgres@localhost:5433"

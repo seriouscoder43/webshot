@@ -13,6 +13,7 @@
 #include <userver/logging/log.hpp>
 #include <userver/storages/postgres/cluster.hpp>
 #include <userver/storages/postgres/component.hpp>
+#include <userver/utils/assert.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
@@ -69,8 +70,8 @@ void WebshotDenylist::insertHost(const std::string &host, const std::string &rea
             pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, host, reason
         ));
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("denylist insert failed for {}: {}", host, e.what());
-        throw;
+        LOG_CRITICAL() << fmt::format("denylist insert failed for {}: {}", host, e.what());
+        us::utils::AbortWithStacktrace("denylist insert failed");
     }
 }
 

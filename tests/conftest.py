@@ -8,6 +8,7 @@ from testsuite.databases.pgsql import discover
 pytest_plugins = [
     "pytest_userver.plugins.core",
     "pytest_userver.plugins.postgresql",
+    "pytest_userver.plugins.config",
     "helpers.sql_loader",
 ]
 
@@ -40,6 +41,11 @@ def userver_pg_config(pgsql_local):
             component.pop("dbalias", None)
 
     return _patch
+
+
+@pytest.fixture(scope="session")
+def service_secdist_path(service_source_dir: pathlib.Path) -> pathlib.Path:
+    return service_source_dir / "secrets" / "test_secdist.json"
 
 
 @pytest.fixture(scope="session")

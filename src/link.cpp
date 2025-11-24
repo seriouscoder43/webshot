@@ -55,7 +55,7 @@ static bool isValidScheme(std::string_view sv) noexcept
 {
     if (sv.empty() || !isAsciiAlpha(sv.front()))
         return false;
-    for (size_t i = 1; i < sv.size(); ++i) {
+    for (size_t i = 1; i < sv.size(); i++) {
         const char c = sv[i];
         if (!(isAsciiAlnum(c) || c == '+' || c == '-' || c == '.'))
             return false;
