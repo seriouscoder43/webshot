@@ -37,6 +37,8 @@
 - Filenames in snake_case (for example, `ip_utils.cpp`, `webshot_handler.hpp`).
 - Declarations must exactly match definitions (names and signatures).
 - Avoid duplicate code; prefer reusable helpers.
+- Prefer postfix arithmetic (`++`, `--`) by default.
+- Never set default values in code for component config options; require them in static config or config_vars.
 - Do not introduce identifiers, filenames, configuration keys, environment variables, database objects, Docker labels, or documentation terms containing the words "application", "app", or "system".
 - Class members must not use a trailing underscore naming style; use regular lowerCamelCase for member variables.
 - Never call `std::chrono::system_clock::now()`; use `userver::utils::datetime::Now()` instead.
