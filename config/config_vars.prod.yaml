@@ -9,3 +9,4 @@ s3-credentials-refresh-margin-sec: 300
 s3-credentials-refresh-retry-sec: 60
 pg_webshot_meta_dsn: "postgresql://postgres@localhost:5432"
 pg_denylist_dsn: "postgresql://postgres@localhost:5433"
+crawler_size_limit_mib: 50

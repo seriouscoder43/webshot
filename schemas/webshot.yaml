@@ -115,6 +115,17 @@ paths:
                   value:
                     error:
                       message: host in denylist
+        '413':
+          description: Capture exceeded configured archive size limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                too_large:
+                  value:
+                    error:
+                      message: capture exceeded archive size limit
         '500':
           description: Internal server error.
           content:

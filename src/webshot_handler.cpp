@@ -103,6 +103,17 @@ std::string WebshotHandler::HandleRequestThrow(
                     return httpu::respondError(response, kForbidden, "host in denylist");
                 auto webshot = crud.createWebshot(std::move(parsed), std::move(pubs));
                 return httpu::respondJson(response, kCreated, webshot);
+            } catch (const errors::CrawlerSizeLimitException &e) {
+                LOG_INFO() << fmt::format("Crawler size limit hit for {}: {}", req.link, e.what());
+                return httpu::respondError(
+                    response, server::http::HttpStatus::kPayloadTooLarge,
+                    "capture exceeded archive size limit"
+                );
+            } catch (const errors::CrawlerFailedException &e) {
+                LOG_ERROR() << fmt::format("Crawler failed for {}: {}", req.link, e.what());
+                return httpu::respondError(
+                    response, kInternalServerError, "internal crawler error"
+                );
             } catch (const InvalidLinkException &e) {
                 return httpu::respondError(response, kBadRequest, e.what());
             }

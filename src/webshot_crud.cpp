@@ -74,6 +74,12 @@ namespace engine = us::engine;
 namespace concurrent = us::concurrent;
 namespace rcu = us::rcu;
 namespace chrono = std::chrono;
+namespace {
+constexpr int kCrawlerExitSuccess = 0;
+constexpr int kCrawlerExitSizeLimit = 14;
+constexpr int kCrawlerExitTimeLimit = 15;
+constexpr int kCrawlerExitDiskUtilization = 16;
+} // namespace
 using namespace v1;
 using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
@@ -167,6 +173,10 @@ properties:
         type: integer
         minimum: 1
         description: 'Number of objects to delete per purge batch'
+    crawler-size-limit-mib:
+        type: integer
+        minimum: 0
+        description: 'Per-capture WARC size limit in MiB; 0 disables size limiting'
 )");
 }
 
@@ -199,6 +209,7 @@ public:
     const int64_t crawlerOverheadTimeoutSec;
     const std::string crawlerLang;
     const std::string crawlerScopeType;
+    const int64_t crawlerSizeLimitMiB;
     const bool s3UseSts;
     const std::string s3CredentialsEndpoint;
     const int64_t s3CredentialsDurationSec;
@@ -250,6 +261,7 @@ public:
           crawlerOverheadTimeoutSec(cfg["crawler-overhead-timeout-sec"].As<int64_t>()),
           crawlerLang(cfg["crawler-lang"].As<std::string>()),
           crawlerScopeType(cfg["crawler-scope-type"].As<std::string>()),
+          crawlerSizeLimitMiB(cfg["crawler-size-limit-mib"].As<int64_t>()),
           s3UseSts(cfg["s3-use-sts"].As<bool>()),
           s3CredentialsEndpoint(cfg["s3-credentials-endpoint"].As<std::string>()),
           s3CredentialsDurationSec(cfg["s3-credentials-duration-sec"].As<int64_t>()),
@@ -350,7 +362,7 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 
     auto createdAt = persistMetadataForContext(ctx);
     if (!createdAt)
-        throw std::runtime_error("failed to persist metadata");
+        throw errors::CrawlerFailedException("failed to persist metadata");
     return {ctx.id, *createdAt, ctx.link.normalized()};
 }
 
@@ -502,7 +514,11 @@ void WebshotCrud::Impl::runCrawlerForContext(
          "--url",
          ctx.link.httpUrl()}
     );
-
+    if (crawlerSizeLimitMiB > 0) {
+        const int64_t sizeLimitBytes = crawlerSizeLimitMiB * 1024 * 1024;
+        createArgs.push_back("--sizeLimit");
+        createArgs.push_back(fmt::format("{}", sizeLimitBytes));
+    }
     ContainerGuard ctrGuard(starter, cname, createArgs);
 
     auto startProc = starter.Exec(
@@ -510,12 +526,37 @@ void WebshotCrud::Impl::runCrawlerForContext(
         engine::subprocess::ExecOptions{.use_path = true}
     );
     auto status = startProc.Get();
-    if (!status.IsExited() || status.GetExitCode() != 0) {
+    if (!status.IsExited()) {
         const auto msg = fmt::format(
-            "Failed to crawl {}, child process failed", ctx.link.httpUrl()
+            "Failed to crawl {}, child process did not exit cleanly", ctx.link.httpUrl()
         );
         LOG_INFO() << msg;
-        throw std::runtime_error(msg);
+        throw errors::CrawlerFailedException(msg);
+    }
+    const auto code = status.GetExitCode();
+    if (code != kCrawlerExitSuccess) {
+        std::string reason = "crawler failed";
+        switch (code) {
+        case kCrawlerExitSizeLimit:
+            reason = "crawler hit Browsertrix sizeLimit (max WARC size)";
+            break;
+        case kCrawlerExitTimeLimit:
+            reason = "crawler hit Browsertrix timeLimit (max crawl duration)";
+            break;
+        case kCrawlerExitDiskUtilization:
+            reason = "crawler hit Browsertrix diskUtilization limit";
+            break;
+        default:
+            break;
+        }
+        const auto msg = fmt::format(
+            "Failed to crawl {} (exit code {}: {})", ctx.link.httpUrl(), code, reason
+        );
+        LOG_INFO() << msg;
+        if (code == kCrawlerExitSizeLimit) {
+            throw errors::CrawlerSizeLimitException(msg);
+        }
+        throw errors::CrawlerFailedException(msg);
     }
     // do eagerly
     ctrGuard.remove();
@@ -527,7 +568,7 @@ void WebshotCrud::Impl::runCrawlerForContext(
     if (!us::fs::FileExists(engine::current_task::GetBlockingTaskProcessor(), pathToArchive)) {
         const auto msg = fmt::format("Failed to crawl {}, no WACZ", ctx.link.httpUrl());
         LOG_INFO() << msg;
-        throw std::runtime_error(msg);
+        throw errors::CrawlerFailedException(msg);
     }
 
     try {

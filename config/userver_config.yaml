@@ -89,6 +89,7 @@ components_manager:
             crawler-overhead-timeout-sec: 45
             crawler-lang: 'en'
             crawler-scope-type: 'page-spa'
+            crawler-size-limit-mib: $crawler_size_limit_mib
             s3-credentials-endpoint: $s3-credentials-endpoint
             s3-credentials-endpoint#fallback: 'https://sts.example.com/'
             s3-use-sts: $s3_use_sts
