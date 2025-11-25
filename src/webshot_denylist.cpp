@@ -6,6 +6,7 @@
 #include "sql.hpp"
 
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -36,7 +37,7 @@ struct WebshotDenylist::Impl {
     explicit Impl(
         const us::components::ComponentConfig &, const us::components::ComponentContext &context
     )
-        : cluster(context.FindComponent<us::components::Postgres>("denylist-db").GetCluster())
+        : cluster(context.FindComponent<us::components::Postgres>("shared-state-db").GetCluster())
     {
     }
     pg::ClusterPtr cluster;
@@ -53,9 +54,20 @@ WebshotDenylist::~WebshotDenylist() = default;
 
 bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
 {
+    std::string hostRev(rbegin(host), rend(host));
+    std::vector<std::string> prefixes;
+    prefixes.push_back(hostRev);
+    auto pos = hostRev.rfind('.');
+    while (pos != std::string::npos) {
+        prefixes.push_back(hostRev.substr(0, pos));
+        if (pos == 0)
+            break;
+        pos = hostRev.rfind('.', pos - 1);
+    }
+
     try {
         return impl->cluster
-                   ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist, host)
+                   ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist, prefixes)
                    .Size() == 0;
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("denylist check failed: {}", e.what());
@@ -65,9 +77,10 @@ bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
 
 void WebshotDenylist::insertHost(const std::string &host, const std::string &reason)
 {
+    std::string hostRev(rbegin(host), rend(host));
     try {
         static_cast<void>(impl->cluster->Execute(
-            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, host, reason
+            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, host, hostRev, reason
         ));
     } catch (const std::exception &e) {
         LOG_CRITICAL() << fmt::format("denylist insert failed for {}: {}", host, e.what());

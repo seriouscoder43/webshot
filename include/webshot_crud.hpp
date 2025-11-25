@@ -44,8 +44,20 @@ public:
      */
     [[nodiscard]] dto::UuidWithTimeLink
     createWebshot(Link link, std::vector<std::string> pinnedIps);
+
+    /**
+     * @brief Enqueue a crawl job for the given link and return its job descriptor.
+     *
+     * Assigns a UUID that will also be used as the capture id once the job
+     * succeeds. Job execution is scheduled asynchronously; callers should poll
+     * job status via getCrawlJob().
+     */
+    [[nodiscard]] dto::WebshotJob createWebshotJob(Link link, std::vector<std::string> pinnedIps);
     /** @brief Look up a capture by id. */
     [[nodiscard]] std::optional<Webshot> findWebshot(Uuid uuid);
+
+    /** @brief Look up a crawl job by id. */
+    [[nodiscard]] std::optional<dto::WebshotJob> findCrawlJob(Uuid uuid);
 
     /** @brief All capture ids for a link (newest first). */
     [[nodiscard]] std::vector<dto::UuidWithTime> findWebshotByLink(const Link &link);

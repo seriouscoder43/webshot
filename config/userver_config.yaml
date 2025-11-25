@@ -61,6 +61,12 @@ components_manager:
             task_processor: main-task-processor
             request-timeout-ms: 10000
             max_request_size: *max-data-per-request
+        webshot-job-handler:
+            path: /v1/webshot/jobs/{uuid}
+            method: GET
+            task_processor: main-task-processor
+            request-timeout-ms: 5000
+            max_request_size: *max-data-per-request
         webshot-disallow-and-purge:
             path: /v1/disallow-and-purge
             method: POST
@@ -81,13 +87,13 @@ components_manager:
             crawl-concurrency: *blocking_num_workers
             crawler-image: 'webrecorder/browsertrix-crawler'
             crawler-workers: 1
-            crawler-page-load-timeout-sec: 10
-            crawler-post-load-delay-sec: 1
-            crawler-net-idle-wait-sec: 0
-            crawler-page-extra-delay-sec: 3
-            crawler-behavior-timeout-sec: 1
-            crawler-container-timeout-sec: 15
-            crawler-overhead-timeout-sec: 45
+            crawler-page-load-timeout-sec: $crawler-page-load-timeout-sec
+            crawler-post-load-delay-sec: $crawler-post-load-delay-sec
+            crawler-net-idle-wait-sec: $crawler-net-idle-wait-sec
+            crawler-page-extra-delay-sec: $crawler-page-extra-delay-sec
+            crawler-behavior-timeout-sec: $crawler-behavior-timeout-sec
+            crawler-container-timeout-sec: $crawler-container-timeout-sec
+            crawler-overhead-timeout-sec: $crawler-overhead-timeout-sec
             crawler-lang: 'en'
             crawler-scope-type: 'page-spa'
             crawler-size-limit-mib: $crawler_size_limit_mib
@@ -102,10 +108,10 @@ components_manager:
             s3-credentials-refresh-retry-sec#fallback: 60
             purge-job-timeout-sec: 300
             purge-delete-batch-size: 1000
-        webshot-meta-db:
+        capture-meta-db:
             dbconnection: $pg_webshot_meta_dsn
             blocking_task_processor: fs-task-processor
-        denylist-db:
+        shared-state-db:
             dbconnection: $pg_denylist_dsn
             blocking_task_processor: fs-task-processor
         webshot-denylist:

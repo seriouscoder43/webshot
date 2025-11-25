@@ -20,6 +20,7 @@
 #include <userver/server/http/http_request.hpp>
 #include <userver/server/http/http_response.hpp>
 #include <userver/server/http/http_status.hpp>
+#include <userver/utils/assert.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 using namespace v1;
@@ -82,7 +83,7 @@ std::string WebshotDisallowAndPurgeHandler::HandleRequestThrow(
         response.SetStatus(kAccepted);
         return {};
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("failed for {}: {}", link.host(), e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error");
+        LOG_CRITICAL() << fmt::format("failed for {}: {}", link.host(), e.what());
+        us::utils::AbortWithStacktrace("disallowing host failed");
     }
 }

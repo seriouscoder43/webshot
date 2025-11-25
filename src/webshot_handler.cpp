@@ -70,8 +70,8 @@ std::string WebshotHandler::HandleRequestThrow(
 ) const
 {
     using server::http::HttpMethod::kPost;
+    using server::http::HttpStatus::kAccepted;
     using server::http::HttpStatus::kBadRequest;
-    using server::http::HttpStatus::kCreated;
     using server::http::HttpStatus::kForbidden;
     using server::http::HttpStatus::kInternalServerError;
     using server::http::HttpStatus::kOk;
@@ -101,19 +101,8 @@ std::string WebshotHandler::HandleRequestThrow(
                     throw InvalidLinkException("forbidden host");
                 if (!denylist.isAllowedHost(host))
                     return httpu::respondError(response, kForbidden, "host in denylist");
-                auto webshot = crud.createWebshot(std::move(parsed), std::move(pubs));
-                return httpu::respondJson(response, kCreated, webshot);
-            } catch (const errors::CrawlerSizeLimitException &e) {
-                LOG_INFO() << fmt::format("Crawler size limit hit for {}: {}", req.link, e.what());
-                return httpu::respondError(
-                    response, server::http::HttpStatus::kPayloadTooLarge,
-                    "capture exceeded archive size limit"
-                );
-            } catch (const errors::CrawlerFailedException &e) {
-                LOG_ERROR() << fmt::format("Crawler failed for {}: {}", req.link, e.what());
-                return httpu::respondError(
-                    response, kInternalServerError, "internal crawler error"
-                );
+                auto job = crud.createWebshotJob(std::move(parsed), std::move(pubs));
+                return httpu::respondJson(response, kAccepted, job);
             } catch (const InvalidLinkException &e) {
                 return httpu::respondError(response, kBadRequest, e.what());
             }

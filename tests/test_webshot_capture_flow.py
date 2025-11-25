@@ -29,10 +29,25 @@ async def test_capture_and_query_example_com(service_client, pgsql):
 
     # Create capture
     resp = await service_client.post("/v1/webshot", json={"link": link})
-    assert resp.status == 201
-    body = resp.json()
-    uuid_str = body["uuid"]
-    normalized_link = body["link"]
+    assert resp.status == 202
+    job_body = resp.json()
+    uuid_str = job_body["uuid"]
+    normalized_link = job_body["link"]
+
+    # Wait for job completion (allow up to ~60s)
+    for _ in range(120):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{uuid_str}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            assert job["result"]["uuid"] == uuid_str
+            normalized_link = job["result"]["link"]
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("job did not complete in time")
 
     # Resolve by id (redirect)
     resp = await service_client.get(f"/v1/webshot/{uuid_str}", allow_redirects=False)
@@ -52,8 +67,7 @@ async def test_capture_and_query_example_com(service_client, pgsql):
     assert resp.status == 200
     prefix_items = resp.json()["items"]
     assert any(
-        item["uuid"] == uuid_str and item["link"] == normalized_link
-        for item in prefix_items
+        item["uuid"] == uuid_str and item["link"] == normalized_link for item in prefix_items
     )
 
     # Verify DB row
@@ -78,7 +92,19 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
 
     # Ensure at least one capture exists before purge
     resp = await service_client.post("/v1/webshot", json={"link": link})
-    assert resp.status == 201
+    assert resp.status == 202
+    first_job_id = resp.json()["uuid"]
+    for _ in range(60):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{first_job_id}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"initial job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("initial job did not complete")
 
     # Disallow and purge
     resp = await service_client.post("/v1/disallow-and-purge", params={"host": link})

@@ -224,6 +224,7 @@ public:
     const int64_t purgeDeleteBatchSize;
     const WebshotConfig &svcCfg;
     pg::ClusterPtr cluster;
+    pg::ClusterPtr sharedCluster;
     us::clients::http::Client &httpClient;
     struct [[nodiscard]] S3ClientState {
         s3v4::S3Credentials creds;
@@ -240,8 +241,15 @@ public:
     // must die first
     us::utils::PeriodicTask s3RefreshTask;
     concurrent::BackgroundTaskStorage purgeBackground;
+    concurrent::BackgroundTaskStorage crawlBackground;
 
-    [[nodiscard]] dto::UuidWithTimeLink runCrawlJob(Link link, std::vector<std::string> pinnedIps);
+    [[nodiscard]] dto::UuidWithTimeLink
+    runCrawlJob(Uuid id, Link link, std::vector<std::string> pinnedIps);
+    [[nodiscard]] us::utils::datetime::TimePointTz insertJob(Uuid id, const std::string &link);
+    void markJobRunning(Uuid id);
+    void markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt);
+    void markJobFailed(Uuid id, const std::string &errorCategory, const std::string &errorMessage);
+    [[nodiscard]] std::optional<dto::WebshotJob> loadJob(Uuid id);
     void runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
     [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
     persistMetadataForContext(const CrawlContext &ctx);
@@ -276,13 +284,17 @@ public:
           purgeJobTimeoutSec(cfg["purge-job-timeout-sec"].As<int64_t>()),
           purgeDeleteBatchSize(cfg["purge-delete-batch-size"].As<int64_t>()),
           svcCfg(ctx.FindComponent<WebshotConfig>()),
-          cluster(ctx.FindComponent<us::components::Postgres>("webshot-meta-db").GetCluster()),
+          cluster(ctx.FindComponent<us::components::Postgres>("capture-meta-db").GetCluster()),
+          sharedCluster(
+              ctx.FindComponent<us::components::Postgres>("shared-state-db").GetCluster()
+          ),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           denylist(ctx.FindComponent<WebshotDenylist>()),
           crawlSlots(cfg["crawl-concurrency"].As<size_t>()),
           purgeTaskProcessor(ctx.GetTaskProcessor("purge-task-processor")),
           credsRefreshTaskProcessor(ctx.GetTaskProcessor("creds-refresh-task-processor")),
-          s3RefreshTask(), purgeBackground(purgeTaskProcessor)
+          s3RefreshTask(), purgeBackground(purgeTaskProcessor),
+          crawlBackground(ctx.GetTaskProcessor("main-task-processor"))
     {
         const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
                                                  crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
@@ -332,6 +344,18 @@ public:
     {
         return cluster->Execute(pg::ClusterHostType::kMaster, std::forward<Ts>(args)...);
     }
+
+    template <typename... Ts> [[nodiscard]] auto sharedReadonly(Ts &&...args)
+    {
+        return sharedCluster->Execute(
+            pg::ClusterHostType::kSlaveOrMaster, std::forward<Ts>(args)...
+        );
+    }
+
+    template <typename... Ts> [[nodiscard]] auto sharedReadwrite(Ts &&...args)
+    {
+        return sharedCluster->Execute(pg::ClusterHostType::kMaster, std::forward<Ts>(args)...);
+    }
 };
 
 /** Lightweight context shared across steps of a single crawl job. */
@@ -344,18 +368,19 @@ struct [[nodiscard]] CrawlContext {
     std::string s3Key;
     std::string location;
 
-    CrawlContext(Link linkIn, std::vector<std::string> pinnedIpsIn, const WebshotConfig &cfg)
+    CrawlContext(
+        Uuid idIn, Link linkIn, std::vector<std::string> pinnedIpsIn, const WebshotConfig &cfg
+    )
         : link(std::move(linkIn)), pinnedIps(std::move(pinnedIpsIn)),
-          archiveRoot(us::fs::blocking::TempDirectory::Create()),
-          id(us::utils::generators::GenerateBoostUuid()), keyOnly(us::utils::ToString(id)),
-          s3Key(fmt::format("{}/{}", cfg.s3Bucket(), keyOnly)),
+          archiveRoot(us::fs::blocking::TempDirectory::Create()), id(idIn),
+          keyOnly(us::utils::ToString(id)), s3Key(fmt::format("{}/{}", cfg.s3Bucket(), keyOnly)),
           location(fmt::format("{}/{}", cfg.publicBaseUrl(), keyOnly))
     {
     }
 };
 
 [[nodiscard]] dto::UuidWithTimeLink
-WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
+WebshotCrud::Impl::runCrawlJob(Uuid id, Link link, std::vector<std::string> pinnedIps)
 {
     UINVARIANT(!pinnedIps.empty(), "can't crawl with no IPs");
 
@@ -368,7 +393,7 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 
     engine::subprocess::ProcessStarter starter(engine::current_task::GetBlockingTaskProcessor());
 
-    CrawlContext ctx(std::move(link), std::move(pinnedIps), svcCfg);
+    CrawlContext ctx(id, std::move(link), std::move(pinnedIps), svcCfg);
 
     runCrawlerForContext(ctx, starter);
 
@@ -376,6 +401,91 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
     if (!createdAt)
         throw errors::CrawlerFailedException("failed to persist metadata");
     return {ctx.id, *createdAt, ctx.link.normalized()};
+}
+
+us::utils::datetime::TimePointTz WebshotCrud::Impl::insertJob(Uuid id, const std::string &link)
+{
+    struct Row {
+        pg::TimePointTz createdAt;
+    };
+    auto row = sharedReadwrite(sql::kInsertCrawlJob, id, link).AsSingleRow<Row>(pg::kRowTag);
+    return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row.createdAt));
+}
+
+void WebshotCrud::Impl::markJobRunning(Uuid id)
+{
+    static_cast<void>(sharedReadwrite(sql::kUpdateCrawlJobRunning, id));
+}
+
+void WebshotCrud::Impl::markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt)
+{
+    static_cast<void>(sharedReadwrite(
+        sql::kUpdateCrawlJobSucceeded, id, pg::TimePointTz(createdAt.GetTimePoint())
+    ));
+}
+
+void WebshotCrud::Impl::markJobFailed(
+    Uuid id, const std::string &errorCategory, const std::string &errorMessage
+)
+{
+    static_cast<void>(sharedReadwrite(sql::kUpdateCrawlJobFailed, id, errorCategory, errorMessage));
+}
+
+std::optional<dto::WebshotJob> WebshotCrud::Impl::loadJob(Uuid id)
+{
+    struct Row {
+        Uuid uuid;
+        std::string link;
+        std::string status;
+        std::optional<std::string> errorCategory;
+        std::optional<std::string> errorMessage;
+        pg::TimePointTz createdAt;
+        std::optional<pg::TimePointTz> startedAt;
+        std::optional<pg::TimePointTz> finishedAt;
+        std::optional<pg::TimePointTz> resultCreatedAt;
+    };
+    auto rowOpt = sharedReadonly(sql::kSelectCrawlJob, id).AsOptionalSingleRow<Row>(pg::kRowTag);
+    if (!rowOpt)
+        return {};
+
+    dto::WebshotJob job;
+    job.uuid = rowOpt->uuid;
+    job.link = rowOpt->link;
+    if (rowOpt->status == "pending") {
+        job.status = dto::WebshotJob::Status::kPending;
+    } else if (rowOpt->status == "running") {
+        job.status = dto::WebshotJob::Status::kRunning;
+    } else if (rowOpt->status == "succeeded") {
+        job.status = dto::WebshotJob::Status::kSucceeded;
+    } else {
+        job.status = dto::WebshotJob::Status::kFailed;
+    }
+    job.created_at = us::utils::datetime::TimePointTz(
+        static_cast<system_clock::time_point>(rowOpt->createdAt)
+    );
+    if (rowOpt->startedAt) {
+        job.started_at = us::utils::datetime::TimePointTz(
+            static_cast<system_clock::time_point>(*rowOpt->startedAt)
+        );
+    }
+    if (rowOpt->finishedAt) {
+        job.finished_at = us::utils::datetime::TimePointTz(
+            static_cast<system_clock::time_point>(*rowOpt->finishedAt)
+        );
+    }
+    if (rowOpt->resultCreatedAt) {
+        job.result_created_at = us::utils::datetime::TimePointTz(
+            static_cast<system_clock::time_point>(*rowOpt->resultCreatedAt)
+        );
+    }
+    if (job.status == dto::WebshotJob::Status::kFailed && rowOpt->errorMessage) {
+        dto::ErrorEnvelope::Error err{*rowOpt->errorMessage};
+        job.error = dto::ErrorEnvelope{err};
+    }
+    if (job.status == dto::WebshotJob::Status::kSucceeded && job.result_created_at) {
+        job.result = dto::UuidWithTimeLink(job.uuid, *job.result_created_at, job.link);
+    }
+    return job;
 }
 
 WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() const
@@ -680,12 +790,49 @@ void WebshotCrud::Impl::purgeHost(const std::string &host)
 dto::UuidWithTimeLink WebshotCrud::createWebshot(Link link, std::vector<std::string> pinnedIps)
 {
     auto *implPtr = impl.get();
+    auto id = us::utils::generators::GenerateBoostUuid();
     return us::utils::Async(
                "create-webshot",
-               [implPtr, link = std::move(link), pinned = std::move(pinnedIps)]() {
-                   return implPtr->runCrawlJob(link, pinned);
+               [implPtr, id, link = std::move(link), pinned = std::move(pinnedIps)]() {
+                   return implPtr->runCrawlJob(id, link, pinned);
                }
     ).Get();
+}
+
+dto::WebshotJob WebshotCrud::createWebshotJob(Link link, std::vector<std::string> pinnedIps)
+{
+    auto *implPtr = impl.get();
+    auto id = us::utils::generators::GenerateBoostUuid();
+    const auto normalizedLink = link.normalized();
+    auto createdAt = implPtr->insertJob(id, normalizedLink);
+
+    implPtr->crawlBackground.AsyncDetach(
+        "crawl-job", [implPtr, id, link = std::move(link), pinned = std::move(pinnedIps)]() {
+            try {
+                implPtr->markJobRunning(id);
+                auto result = implPtr->runCrawlJob(id, link, pinned);
+                implPtr->markJobSucceeded(id, result.created_at);
+            } catch (const errors::CrawlerSizeLimitException &e) {
+                implPtr->markJobFailed(id, "size_limit", "capture exceeded archive size limit");
+            } catch (const errors::CrawlerFailedException &e) {
+                implPtr->markJobFailed(id, "crawler_failed", "internal crawler error");
+            } catch (const std::exception &e) {
+                implPtr->markJobFailed(id, "internal_server_error", "internal server error");
+            }
+        }
+    );
+
+    dto::WebshotJob job;
+    job.uuid = id;
+    job.link = normalizedLink;
+    job.status = dto::WebshotJob::Status::kPending;
+    job.created_at = createdAt;
+    job.started_at = {};
+    job.finished_at = {};
+    job.result_created_at = {};
+    job.result = {};
+    job.error = {};
+    return job;
 }
 
 std::optional<Webshot> WebshotCrud::findWebshot(Uuid uuid)
@@ -698,6 +845,8 @@ std::optional<Webshot> WebshotCrud::findWebshot(Uuid uuid)
     }
     return {{*location}};
 }
+
+std::optional<dto::WebshotJob> WebshotCrud::findCrawlJob(Uuid uuid) { return impl->loadJob(uuid); }
 
 dto::PagedFindWebshotByUrlResponse
 WebshotCrud::findWebshotByLinkPage(const Link &link, std::string pageToken)

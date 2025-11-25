@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <string_view>
 
-#include <userver/clients/dns/resolver.hpp>
 #include <userver/server/handlers/http_handler_base.hpp>
 #include <userver/yaml_config/schema.hpp>
 
@@ -11,21 +10,15 @@ namespace us = userver;
 namespace server = us::server;
 
 namespace v1 {
-class WebshotConfig;
-class WebshotDenylist;
 class WebshotCrud;
 
 /**
- * @brief HTTP handler for creating and listing captures for an exact URL.
- *
- * Supports:
- * - POST to enqueue a capture job for the provided link.
- * - GET to list captures for the exact normalized `link` query parameter.
+ * @brief HTTP handler for polling crawl job status by UUID.
  */
-class [[nodiscard]] WebshotHandler : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] WebshotJobHandler : public server::handlers::HttpHandlerBase {
 public:
-    static constexpr std::string_view kName = "webshot-handler";
-    explicit WebshotHandler(
+    static constexpr std::string_view kName = "webshot-job-handler";
+    explicit WebshotJobHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
@@ -39,9 +32,6 @@ public:
 
 private:
     WebshotCrud &crud;
-    const WebshotConfig &config;
-    userver::clients::dns::Resolver &resolver;
-    WebshotDenylist &denylist;
     const int64_t requestTimeoutMs;
 };
 }; // namespace v1

@@ -65,8 +65,12 @@ paths:
 
     post:
       operationId: createWebshot
-      summary: Capture a webshot and return its metadata
-      description: Performs capture of the provided URL and, on success, returns a JSON descriptor of the stored artifact.
+      summary: Enqueue a capture job and return its status
+      description: |
+        Enqueues a background capture job for the provided URL and returns an initial
+        job descriptor. The returned UUID is the same identifier that will be used
+        for the stored capture once the job succeeds. Clients should poll
+        `/v1/webshot/jobs/{uuid}` to observe completion.
       requestBody:
         required: true
         content:
@@ -83,12 +87,12 @@ paths:
                 value:
                   link: example.org/path?q=1
       responses:
-        '201':
-          description: Capture completed; JSON descriptor of the stored WACZ file.
+        '202':
+          description: Capture job enqueued; job descriptor returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UuidWithTimeLink'
+                $ref: '#/components/schemas/WebshotJob'
         '400':
           description: Invalid JSON or URL supplied.
           content:
@@ -115,17 +119,6 @@ paths:
                   value:
                     error:
                       message: host in denylist
-        '413':
-          description: Capture exceeded configured archive size limit.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                too_large:
-                  value:
-                    error:
-                      message: capture exceeded archive size limit
         '500':
           description: Internal server error.
           content:
@@ -184,6 +177,54 @@ paths:
                   value:
                     error:
                       message: invalid page_token
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /v1/webshot/jobs/{uuid}:
+    get:
+      operationId: getWebshotJob
+      summary: Get capture job status by UUID
+      parameters:
+        - in: path
+          name: uuid
+          required: true
+          description: UUIDv4 of the capture job (and eventual capture).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job found; current status returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebshotJob'
+        '400':
+          description: Bad request (missing or invalid UUID path parameter).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                invalid_uuid:
+                  value:
+                    error:
+                      message: "invalid uuid"
+        '404':
+          description: Job not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                not_found:
+                  value:
+                    error:
+                      message: job not found
         '500':
           description: Internal server error.
           content:
@@ -378,6 +419,47 @@ components:
         uuid: 123e4567-e89b-12d3-a456-426614174000
         created_at: 2025-11-11T12:34:56+00:00
         link: example.com/a
+
+    WebshotJob:
+      type: object
+      additionalProperties: false
+      required: [uuid, link, status, created_at]
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        link:
+          type: string
+          description: Normalized scheme-less link
+        status:
+          type: string
+          description: Current job status
+          enum: [pending, running, succeeded, failed]
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        result_created_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: created_at of the stored capture, when succeeded
+        result:
+          $ref: '#/components/schemas/UuidWithTimeLink'
+        error:
+          $ref: '#/components/schemas/ErrorEnvelope'
+      example:
+        uuid: 123e4567-e89b-12d3-a456-426614174000
+        link: example.com/a
+        status: pending
+        created_at: 2025-11-11T12:34:56+00:00
 
     PagedFindWebshotByPrefixResponse:
       type: object

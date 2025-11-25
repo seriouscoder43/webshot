@@ -68,6 +68,7 @@ set(${PROJECT_NAME}_headers
     include/s3/s3_sts_client.hpp
     include/s3/s3_v4_client.hpp
     include/webshot_handler.hpp
+    include/webshot_job_handler.hpp
     include/webshots_by_prefix_handler.hpp
     include/webshot_by_id_handler.hpp
     include/webshot_disallow_and_purge_handler.hpp
@@ -85,6 +86,7 @@ set(${PROJECT_NAME}_headers
 add_library(
   ${PROJECT_NAME}_objs OBJECT
   src/webshot_handler.cpp
+  src/webshot_job_handler.cpp
   src/webshots_by_prefix_handler.cpp
   src/webshot_by_id_handler.cpp
   src/webshot_disallow_and_purge_handler.cpp

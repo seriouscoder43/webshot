@@ -11,4 +11,4 @@ plan.md
 security.md
 secrets/
 format.sh
-.python_version
+.python-version

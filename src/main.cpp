@@ -8,6 +8,7 @@
 #include "webshot_denylist.hpp"
 #include "webshot_disallow_and_purge_handler.hpp"
 #include "webshot_handler.hpp"
+#include "webshot_job_handler.hpp"
 #include "webshots_by_prefix_handler.hpp"
 
 #include <userver/clients/dns/component.hpp>
@@ -29,14 +30,15 @@ int main(int argc, char *argv[])
                               .Append<us::components::TestsuiteSupport>()
                               .Append<us::components::Secdist>()
                               .Append<us::components::DefaultSecdistProvider>()
-                              .Append<us::components::Postgres>("webshot-meta-db")
-                              .Append<us::components::Postgres>("denylist-db")
+                              .Append<us::components::Postgres>("capture-meta-db")
+                              .Append<us::components::Postgres>("shared-state-db")
                               .Append<us::congestion_control::Component>()
                               .Append<v1::WebshotDenylist>()
                               .Append<v1::WebshotConfig>()
                               .Append<v1::WebshotCrud>()
                               .Append<v1::WebshotsByPrefixHandler>()
                               .Append<v1::WebshotHandler>()
+                              .Append<v1::WebshotJobHandler>()
                               .Append<v1::WebshotDisallowAndPurgeHandler>()
                               .Append<v1::WebshotById>();
     return us::utils::DaemonMain(argc, argv, component_list);

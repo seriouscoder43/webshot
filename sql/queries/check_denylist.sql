@@ -1,6 +1,5 @@
+-- $1: text[] of host_rev prefixes (exact host_rev then parent prefixes)
 select 1
 from host_denylist
-where $1 = host or $1 like ('%.' || host)
-order by length(host) desc
+where host_rev = any($1)
 limit 1
-

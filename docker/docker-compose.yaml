@@ -1,8 +1,8 @@
 ---
 services:
-    webshot-meta-db:
+    capture-meta-db:
         image: postgres:15.10-bookworm
-        container_name: webshotmetadb
+        container_name: capturemetadb
         dns: ["172.17.0.1"]
         environment:
             POSTGRES_HOST_AUTH_METHOD: trust
@@ -12,9 +12,9 @@ services:
             - type: bind
               source: ../sql/schema/webshot_meta_db_schema.sql
               target: /docker-entrypoint-initdb.d/webshot_meta_db_schema.sql
-    webshot-denylist-db:
+    shared-state-db:
         image: postgres:15.10-bookworm
-        container_name: webshotdenylistdb
+        container_name: sharedstatedb
         dns: ["172.17.0.1"]
         environment:
             POSTGRES_HOST_AUTH_METHOD: trust
