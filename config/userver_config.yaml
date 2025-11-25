@@ -86,6 +86,7 @@ components_manager:
             crawler-net-idle-wait-sec: 0
             crawler-page-extra-delay-sec: 3
             crawler-behavior-timeout-sec: 1
+            crawler-container-timeout-sec: 15
             crawler-overhead-timeout-sec: 45
             crawler-lang: 'en'
             crawler-scope-type: 'page-spa'

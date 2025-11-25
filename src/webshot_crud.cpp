@@ -137,6 +137,10 @@ properties:
         type: integer
         minimum: 1
         description: 'Behavior script timeout in seconds'
+    crawler-container-timeout-sec:
+        type: integer
+        minimum: 1
+        description: 'Max lifetime of the crawler container (passed as Browsertrix --timeLimit) in seconds'
     crawler-overhead-timeout-sec:
         type: integer
         minimum: 1
@@ -206,6 +210,7 @@ public:
     const int64_t crawlerNetIdleWaitSec;
     const int64_t crawlerPageExtraDelaySec;
     const int64_t crawlerBehaviorTimeoutSec;
+    const int64_t crawlerContainerTimeoutSec;
     const int64_t crawlerOverheadTimeoutSec;
     const std::string crawlerLang;
     const std::string crawlerScopeType;
@@ -258,6 +263,7 @@ public:
           crawlerNetIdleWaitSec(cfg["crawler-net-idle-wait-sec"].As<int64_t>()),
           crawlerPageExtraDelaySec(cfg["crawler-page-extra-delay-sec"].As<int64_t>()),
           crawlerBehaviorTimeoutSec(cfg["crawler-behavior-timeout-sec"].As<int64_t>()),
+          crawlerContainerTimeoutSec(cfg["crawler-container-timeout-sec"].As<int64_t>()),
           crawlerOverheadTimeoutSec(cfg["crawler-overhead-timeout-sec"].As<int64_t>()),
           crawlerLang(cfg["crawler-lang"].As<std::string>()),
           crawlerScopeType(cfg["crawler-scope-type"].As<std::string>()),
@@ -278,6 +284,14 @@ public:
           credsRefreshTaskProcessor(ctx.GetTaskProcessor("creds-refresh-task-processor")),
           s3RefreshTask(), purgeBackground(purgeTaskProcessor)
     {
+        const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
+                                                 crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
+                                                 crawlerPageExtraDelaySec +
+                                                 crawlerBehaviorTimeoutSec;
+        UINVARIANT(
+            crawlerStageTotalTimeoutSec <= crawlerContainerTimeoutSec,
+            "crawler-container-timeout-sec must be >= sum of crawler stage timeouts"
+        );
         UINVARIANT(
             s3CredentialsDurationSec > s3CredentialsRefreshMarginSec,
             "s3-credentials-duration-sec must be greater than s3-credentials-refresh-margin-sec"
@@ -345,11 +359,9 @@ WebshotCrud::Impl::runCrawlJob(Link link, std::vector<std::string> pinnedIps)
 {
     UINVARIANT(!pinnedIps.empty(), "can't crawl with no IPs");
 
-    const auto totalSeconds = crawlerOverheadTimeoutSec + crawlerPageLoadTimeoutSec +
-                              crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
-                              crawlerPageExtraDelaySec + crawlerBehaviorTimeoutSec;
+    const auto totalCrawlTimeLimitSec = crawlerOverheadTimeoutSec + crawlerContainerTimeoutSec;
     engine::current_task::SetDeadline(
-        engine::Deadline::FromDuration(chrono::seconds(totalSeconds))
+        engine::Deadline::FromDuration(chrono::seconds(totalCrawlTimeLimitSec))
     );
 
     std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
@@ -497,6 +509,8 @@ void WebshotCrud::Impl::runCrawlerForContext(
          fmt::format("{}", crawlerPageExtraDelaySec),
          "--behaviorTimeout",
          fmt::format("{}", crawlerBehaviorTimeoutSec),
+         "--timeLimit",
+         fmt::format("{}", crawlerContainerTimeoutSec),
          "--waitUntil",
          "load",
          "--blockAds",
@@ -519,6 +533,10 @@ void WebshotCrud::Impl::runCrawlerForContext(
         createArgs.push_back("--sizeLimit");
         createArgs.push_back(fmt::format("{}", sizeLimitBytes));
     }
+
+    LOG_INFO() << fmt::format(
+        "Starting crawl for {} with timeLimit={}s", ctx.link.httpUrl(), crawlerContainerTimeoutSec
+    );
     ContainerGuard ctrGuard(starter, cname, createArgs);
 
     auto startProc = starter.Exec(
