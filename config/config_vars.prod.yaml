@@ -10,3 +10,10 @@ s3-credentials-refresh-retry-sec: 60
 pg_webshot_meta_dsn: "postgresql://postgres@localhost:5432"
 pg_denylist_dsn: "postgresql://postgres@localhost:5433"
 crawler_size_limit_mib: 50
+crawler-page-load-timeout-sec: 10
+crawler-post-load-delay-sec: 1
+crawler-net-idle-wait-sec: 0
+crawler-page-extra-delay-sec: 3
+crawler-behavior-timeout-sec: 1
+crawler-container-timeout-sec: 15
+crawler-overhead-timeout-sec: 45
