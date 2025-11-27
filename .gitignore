@@ -12,3 +12,6 @@ security.md
 secrets/
 format.sh
 .python-version
+CMakeUserPresets.json
+*conan*.sh
+design.md

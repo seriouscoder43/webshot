@@ -134,6 +134,15 @@ if(WEBSHOT_ENABLE_COVERAGE)
 endif()
 
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
+# When using Conan, CMAKE_FIND_PACKAGE_PREFER_CONFIG is enabled and the system
+# c-ares package provides only c-ares::cares. userver::core, however, links
+# against a target named c-ares. Provide a compatibility alias so that userver's
+# imported targets resolve to the correct library instead of a raw -lc-ares
+# linker flag.
+if(NOT TARGET c-ares AND TARGET c-ares::cares)
+  add_library(c-ares INTERFACE IMPORTED)
+  target_link_libraries(c-ares INTERFACE c-ares::cares)
+endif()
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)
