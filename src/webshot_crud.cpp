@@ -895,16 +895,15 @@ WebshotCrud::findWebshotsByPrefixPage(const std::string &normalizedPrefix, std::
 {
     namespace crud = v1::crud;
 
-    const auto lower = normalizedPrefix;
-    const auto upperOpt = crud::upperExclusiveBound(normalizedPrefix);
-    const auto linksPerPage = impl->webshotsLinksPerPageMax;
-
     std::optional<crud::PrefixCursor> cur;
     if (!pageToken.empty()) {
         cur = crud::decodePrefixCursor(pageToken);
         if (!cur || cur->prefix != normalizedPrefix)
             throw errors::InvalidPageTokenException("invalid page_token");
     }
+    const auto lower = normalizedPrefix;
+    const auto upperOpt = crud::upperExclusiveBound(normalizedPrefix);
+    const auto linksPerPage = impl->webshotsLinksPerPageMax;
 
     auto selectLinksFirst = [&](int64_t limit) {
         return impl->readonly(sql::kSelectDistinctLinksByPrefixFirst, lower, upperOpt, limit)
