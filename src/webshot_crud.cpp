@@ -174,6 +174,18 @@ properties:
         type: integer
         minimum: 1
         description: 'Delay between failed S3 credential refresh attempts in seconds'
+    link-cooldown-sec:
+        type: integer
+        minimum: 0
+        description: 'Per-link minimum interval between capture jobs in seconds; 0 disables cooldown'
+    crawl-job-retention-sec:
+        type: integer
+        minimum: 1
+        description: 'Retention window for crawl_job rows in seconds'
+    crawl-job-cleanup-interval-sec:
+        type: integer
+        minimum: 1
+        description: 'Interval between crawl_job cleanup passes in seconds'
     purge-job-timeout-sec:
         type: integer
         minimum: 1
@@ -220,6 +232,9 @@ public:
     const String crawlerLang;
     const String crawlerScopeType;
     const int64_t crawlerSizeLimitMiB;
+    const int64_t linkCooldownSec;
+    const int64_t crawlJobRetentionSec;
+    const int64_t crawlJobCleanupIntervalSec;
     const bool s3UseSts;
     const String s3CredentialsEndpoint;
     const int64_t s3CredentialsDurationSec;
@@ -245,12 +260,14 @@ public:
     engine::TaskProcessor &credsRefreshTaskProcessor;
     // must die first
     us::utils::PeriodicTask s3RefreshTask;
+    us::utils::PeriodicTask crawlJobCleanupTask;
     concurrent::BackgroundTaskStorage purgeBackground;
     concurrent::BackgroundTaskStorage crawlBackground;
 
     [[nodiscard]] dto::UuidWithTimeLink
     runCrawlJob(Uuid id, Link link, std::vector<String> pinnedIps);
     [[nodiscard]] us::utils::datetime::TimePointTz insertJob(Uuid id, String link);
+    [[nodiscard]] std::optional<dto::WebshotJob> findLatestJobForLink(const String &link);
     void markJobRunning(Uuid id);
     void markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt);
     void markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
@@ -262,6 +279,8 @@ public:
     [[nodiscard]] S3ClientState fetchS3ClientStateFromSts() const;
     void startS3RefreshTask();
     void refreshS3CredentialsTask();
+    void startCrawlJobCleanupTask();
+    void cleanupOldJobs();
     explicit Impl(
         const us::components::ComponentConfig &cfg, const us::components::ComponentContext &ctx
     )
@@ -281,6 +300,9 @@ public:
           crawlerLang(String::fromBytesThrow(cfg["crawler-lang"].As<std::string>())),
           crawlerScopeType(String::fromBytesThrow(cfg["crawler-scope-type"].As<std::string>())),
           crawlerSizeLimitMiB(cfg["crawler-size-limit-mib"].As<int64_t>()),
+          linkCooldownSec(cfg["link-cooldown-sec"].As<int64_t>()),
+          crawlJobRetentionSec(cfg["crawl-job-retention-sec"].As<int64_t>()),
+          crawlJobCleanupIntervalSec(cfg["crawl-job-cleanup-interval-sec"].As<int64_t>()),
           s3UseSts(cfg["s3-use-sts"].As<bool>()),
           s3CredentialsEndpoint(
               String::fromBytesThrow(cfg["s3-credentials-endpoint"].As<std::string>())
@@ -300,7 +322,7 @@ public:
           crawlSlots(cfg["crawl-concurrency"].As<size_t>()),
           purgeTaskProcessor(ctx.GetTaskProcessor("purge-task-processor")),
           credsRefreshTaskProcessor(ctx.GetTaskProcessor("creds-refresh-task-processor")),
-          s3RefreshTask(), purgeBackground(purgeTaskProcessor),
+          s3RefreshTask(), crawlJobCleanupTask(), purgeBackground(purgeTaskProcessor),
           crawlBackground(ctx.GetTaskProcessor("main-task-processor"))
     {
         const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
@@ -314,6 +336,10 @@ public:
         UINVARIANT(
             s3CredentialsDurationSec > s3CredentialsRefreshMarginSec,
             "s3-credentials-duration-sec must be greater than s3-credentials-refresh-margin-sec"
+        );
+        UINVARIANT(crawlJobRetentionSec > 0, "crawl-job-retention-sec must be positive");
+        UINVARIANT(
+            crawlJobCleanupIntervalSec > 0, "crawl-job-cleanup-interval-sec must be positive"
         );
         const auto &secdist = ctx.FindComponent<us::components::Secdist>().Get();
         const auto &creds = secdist.Get<S3CredentialsSecdist>();
@@ -340,6 +366,7 @@ public:
             initialState = std::move(state);
         }
         s3State.Assign(initialState);
+        startCrawlJobCleanupTask();
     }
     template <typename... Ts> [[nodiscard]] auto readonly(Ts &&...args)
     {
@@ -520,6 +547,14 @@ WebshotCrud::Impl::S3ClientState WebshotCrud::Impl::fetchS3ClientStateFromSts() 
     return state;
 }
 
+std::optional<dto::WebshotJob> WebshotCrud::Impl::findLatestJobForLink(const String &link)
+{
+    auto idOpt = sharedReadonly(sql::kSelectLatestCrawlJobByLink, link).AsOptionalSingleRow<Uuid>();
+    if (!idOpt)
+        return {};
+    return loadJob(*idOpt);
+}
+
 void WebshotCrud::Impl::startS3RefreshTask()
 {
     auto snapshot = s3State.Read();
@@ -566,6 +601,35 @@ void WebshotCrud::Impl::refreshS3CredentialsTask()
             LOG_ERROR() << fmt::format("Failed to refresh S3 credentials from STS: {}", e.what());
             engine::SleepFor(chrono::seconds(s3CredentialsRefreshRetrySec));
         }
+    }
+}
+
+void WebshotCrud::Impl::startCrawlJobCleanupTask()
+{
+    auto interval = chrono::duration_cast<chrono::milliseconds>(
+        chrono::seconds(crawlJobCleanupIntervalSec)
+    );
+    us::utils::PeriodicTask::Settings settings(interval, chrono::milliseconds(0));
+    settings.task_processor = &purgeTaskProcessor;
+
+    crawlJobCleanupTask.Start("crawl-job-cleanup", settings, [this]() {
+        try {
+            cleanupOldJobs();
+        } catch (const std::exception &e) {
+            LOG_ERROR() << fmt::format("Crawl job cleanup task failed: {}", e.what());
+        }
+    });
+}
+
+void WebshotCrud::Impl::cleanupOldJobs()
+{
+    const auto now = us::utils::datetime::Now();
+    const auto cutoff = now - chrono::seconds(crawlJobRetentionSec);
+    try {
+        static_cast<void>(sharedReadwrite(sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)));
+    } catch (const std::exception &e) {
+        LOG_ERROR() << fmt::format("Failed to delete old crawl jobs: {}", e.what());
+        throw;
     }
 }
 
@@ -797,8 +861,20 @@ dto::UuidWithTimeLink WebshotCrud::createWebshot(Link link, std::vector<String> 
 dto::WebshotJob WebshotCrud::createWebshotJob(Link link, std::vector<String> pinnedIps)
 {
     auto *implPtr = impl.get();
-    auto id = us::utils::generators::GenerateBoostUuid();
     const auto normalizedLink = link.normalized();
+
+    if (implPtr->linkCooldownSec > 0) {
+        auto latestJob = implPtr->findLatestJobForLink(normalizedLink);
+        if (latestJob) {
+            const auto now = us::utils::datetime::Now();
+            const auto lastCreated = latestJob->created_at.GetTimePoint();
+            const auto deadline = lastCreated + chrono::seconds(implPtr->linkCooldownSec);
+            if (now < deadline)
+                return *latestJob;
+        }
+    }
+
+    auto id = us::utils::generators::GenerateBoostUuid();
     auto createdAt = implPtr->insertJob(id, normalizedLink);
     implPtr->crawlBackground.AsyncDetach(
         "crawl-job", [implPtr, id, link = std::move(link), pinned = std::move(pinnedIps)]() {
