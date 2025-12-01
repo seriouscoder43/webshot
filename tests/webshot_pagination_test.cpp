@@ -4,6 +4,7 @@
 
 #include <userver/utest/utest.hpp>
 
+#include "text.hpp"
 #include "webshot_pagination.hpp"
 
 using v1::crud::Clock;
@@ -11,6 +12,7 @@ using v1::crud::Cursor;
 using v1::crud::decodeCursor;
 using v1::crud::encodeCursor;
 using v1::crud::timePointToMicros;
+using namespace text::literals;
 
 UTEST(WebshotPagination, CursorRoundTrip)
 {
@@ -28,6 +30,6 @@ UTEST(WebshotPagination, CursorRoundTrip)
 
 UTEST(WebshotPagination, DecodeCursorInvalidReturnsNullopt)
 {
-    const auto decoded = decodeCursor("invalid-token");
+    const auto decoded = decodeCursor("invalid-token"_t);
     EXPECT_FALSE(decoded);
 }

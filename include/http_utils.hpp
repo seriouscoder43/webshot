@@ -1,7 +1,10 @@
 #pragma once
-
-#include <string>
-#include <string_view>
+/**
+ * @file
+ * @brief Helpers for producing JSON HTTP responses.
+ */
+#include "error_utils.hpp"
+#include "text.hpp"
 
 #include <userver/formats/json.hpp>
 #include <userver/formats/json/value.hpp>
@@ -10,12 +13,6 @@
 #include <userver/server/http/http_response.hpp>
 #include <userver/server/http/http_status.hpp>
 
-#include "error_utils.hpp"
-
-/**
- * @file
- * @brief Helpers for producing JSON HTTP responses.
- */
 namespace v1::httpu {
 namespace json = userver::formats::json;
 namespace http = userver::server::http;
@@ -53,8 +50,15 @@ respondJson(http::HttpResponse &resp, http::HttpStatus status, json::Value body)
  * @brief Write a JSON error envelope with a human‑readable message.
  */
 [[nodiscard]] inline std::string
-respondError(http::HttpResponse &resp, http::HttpStatus status, std::string_view message)
+respondError(http::HttpResponse &resp, http::HttpStatus status, String message)
 {
     return respondJson(resp, status, v1::errors::makeError(message));
+}
+
+[[nodiscard]] inline std::string respondParamError(
+    http::HttpResponse &resp, http::HttpStatus status, String paramName, String message
+)
+{
+    return respondJson(resp, status, v1::errors::makeParamError(paramName, message));
 }
 } // namespace v1::httpu

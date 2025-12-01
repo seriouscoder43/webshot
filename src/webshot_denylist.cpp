@@ -3,7 +3,9 @@
  * @file
  * @brief Host denylist checks and persistence backed by Postgres.
  */
-#include "sql.hpp"
+#include <webshot/sql_queries.hpp>
+
+#include "text_postgres_formatter.hpp"
 
 #include <string>
 #include <vector>
@@ -20,6 +22,7 @@
 
 namespace us = userver;
 namespace pg = us::storages::postgres;
+namespace sql = webshot::sql;
 
 namespace v1 {
 
@@ -52,9 +55,9 @@ WebshotDenylist::WebshotDenylist(
 
 WebshotDenylist::~WebshotDenylist() = default;
 
-bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
+bool WebshotDenylist::isAllowedHost(const String &host) noexcept
 {
-    std::string hostRev(rbegin(host), rend(host));
+    auto hostRev = std::string(host.reversed().view());
     std::vector<std::string> prefixes;
     prefixes.push_back(hostRev);
     auto pos = hostRev.rfind('.');
@@ -64,7 +67,6 @@ bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
             break;
         pos = hostRev.rfind('.', pos - 1);
     }
-
     try {
         return impl->cluster
                    ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist, prefixes)
@@ -75,9 +77,9 @@ bool WebshotDenylist::isAllowedHost(const std::string &host) noexcept
     }
 }
 
-void WebshotDenylist::insertHost(const std::string &host, const std::string &reason)
+void WebshotDenylist::insertHost(const String &host, const String &reason)
 {
-    std::string hostRev(rbegin(host), rend(host));
+    auto hostRev = host.reversed();
     try {
         static_cast<void>(impl->cluster->Execute(
             pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, host, hostRev, reason

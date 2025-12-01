@@ -1,5 +1,8 @@
 #pragma once
 
+#include "s3_credentials_types.hpp"
+#include "text.hpp"
+
 #include <chrono>
 #include <optional>
 #include <string>
@@ -13,8 +16,6 @@
 #include <userver/s3api/clients/s3api.hpp>
 #include <userver/utils/strong_typedef.hpp>
 
-#include "s3_credentials_types.hpp"
-
 namespace v1::s3v4 {
 
 struct SigV4Params;
@@ -22,16 +23,16 @@ struct SigV4Params;
 namespace detail {
 struct EndpointParts {
     ada::url_aggregator url;
-    std::string host;     // host header, may include port
-    std::string hostname; // host without port
-    std::string port;     // optional, empty if not set
-    std::string basePath; // leading slash, no trailing slash unless root
+    String host;     // host header, may include port
+    String hostname; // host without port
+    String port;     // optional, empty if not set
+    String basePath; // leading slash, no trailing slash unless root
 };
 
 struct BuiltUrl {
-    std::string href;    // fully encoded absolute URL without query
-    std::string host;    // host header value
-    std::string rawPath; // unencoded path used for canonicalization (starts with '/')
+    String href;    // fully encoded absolute URL without query
+    String host;    // host header value
+    String rawPath; // unencoded path used for canonicalization (starts with '/')
 };
 } // namespace detail
 
@@ -39,8 +40,8 @@ struct BuiltUrl {
  * @brief Connection parameters for a minimal SigV4 S3 client.
  */
 struct [[nodiscard]] S3V4Config {
-    std::string endpoint; // e.g. http://localhost:8333 or s3.amazonaws.com
-    std::string region;   // e.g. us-east-1, local, etc.
+    String endpoint; // e.g. http://localhost:8333 or s3.amazonaws.com
+    String region;   // e.g. us-east-1, local, etc.
     std::chrono::milliseconds timeout;
     bool virtualHosted = false; // not used in v1; path-style addressing by default
 };
@@ -65,7 +66,7 @@ class [[nodiscard]] S3V4Client final : public userver::s3api::Client {
 public:
     S3V4Client(
         userver::clients::http::Client &http, S3V4Config cfg, S3Credentials creds,
-        std::string defaultBucket
+        String defaultBucket
     );
 
     std::string PutObject(
@@ -146,34 +147,32 @@ private:
     [[nodiscard]] SigV4Params
     makeSigV4Params(const std::chrono::system_clock::time_point &now) const;
     void signRequest(
-        std::string_view method, std::string_view canonicalUri, std::string_view host,
-        userver::clients::http::Headers &headers, const std::string &payload_hash
+        String method, String canonicalUri, String host, userver::clients::http::Headers &headers,
+        const String &payload_hash
     ) const;
     [[nodiscard]] detail::BuiltUrl
-    makePathStyleUrl(std::string_view path, std::optional<std::string_view> protocolOverride) const;
-    [[nodiscard]] detail::BuiltUrl
-    makeVirtualHostUrl(std::string_view path, std::string_view protocol) const;
-    [[nodiscard]] std::string buildRawPath(std::string_view path, bool includeBucket) const;
-    std::string presignVirtualHost(
-        std::string_view method, std::string_view path,
-        const std::chrono::system_clock::time_point &expires_at, std::string_view protocol,
-        std::optional<userver::clients::http::Headers> extra_headers
+    makePathStyleUrl(String path, std::optional<String> protocolOverride) const;
+    [[nodiscard]] detail::BuiltUrl makeVirtualHostUrl(String path, String protocol) const;
+    [[nodiscard]] String buildRawPath(String path, bool includeBucket) const;
+    String presignVirtualHost(
+        String method, String path, const std::chrono::system_clock::time_point &expires_at,
+        String protocol, std::optional<userver::clients::http::Headers> extra_headers
     ) const;
-    std::string presignPathStyle(
-        std::string_view method, std::string_view path,
-        const std::chrono::system_clock::time_point &expires_at, std::string_view protocol
+    String presignPathStyle(
+        String method, String path, const std::chrono::system_clock::time_point &expires_at,
+        String protocol
     ) const;
-    std::string buildPresignedUrl(
-        std::string_view method, const detail::BuiltUrl &built,
+    String buildPresignedUrl(
+        String method, const detail::BuiltUrl &built,
         const std::chrono::system_clock::time_point &now,
         const std::chrono::system_clock::time_point &expires_at, const SigV4Params &params,
-        const std::vector<std::pair<std::string, std::string>> &headers
+        const std::vector<std::pair<String, String>> &headers
     ) const;
 
     userver::clients::http::Client &httpClient;
     S3V4Config config;
     S3Credentials creds;
-    std::string bucketName;
+    String bucketName;
     detail::EndpointParts endpoint;
 };
 

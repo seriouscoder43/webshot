@@ -8,6 +8,7 @@
 
 #include "s3/s3_v4_client.hpp"
 #include "s3/sigv4_signer.hpp"
+#include "text.hpp"
 
 using v1::s3v4::AccessKeyId;
 using v1::s3v4::buildCanonicalRequest;
@@ -19,14 +20,15 @@ using v1::s3v4::S3V4Config;
 using v1::s3v4::SecretAccessKey;
 using v1::s3v4::signHeaders;
 using v1::s3v4::SigV4Params;
+using namespace text::literals;
 
 UTEST(S3SigV4, PercentEncodeBasicCharacters)
 {
-    EXPECT_EQ(percentEncode("abcXYZ-_.~", false), std::string{"abcXYZ-_.~"});
-    EXPECT_EQ(percentEncode(" ", true), std::string{"%20"});
-    EXPECT_EQ(percentEncode("!", true), std::string{"%21"});
-    EXPECT_EQ(percentEncode("/", true), std::string{"%2F"});
-    EXPECT_EQ(percentEncode("/", false), std::string{"/"});
+    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, false).view(), std::string{"abcXYZ-_.~"});
+    EXPECT_EQ(percentEncode(" "_t, true).view(), std::string{"%20"});
+    EXPECT_EQ(percentEncode("!"_t, true).view(), std::string{"%21"});
+    EXPECT_EQ(percentEncode("/"_t, true).view(), std::string{"%2F"});
+    EXPECT_EQ(percentEncode("/"_t, false).view(), std::string{"/"});
 }
 
 UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
@@ -61,8 +63,8 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
     SigV4Params params;
     params.region = "us-east-1";
     params.service = "s3";
-    params.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"};
-    params.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"};
+    params.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
+    params.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
     params.amzDate = "20130524T000000Z";
     params.date = "20130524";
 
@@ -72,9 +74,13 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
 
     const std::string payloadHash =
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    std::vector<std::pair<String, String>> headersText;
+    headersText.emplace_back("host"_t, "examplebucket.s3.amazonaws.com"_t);
+    headersText.emplace_back("range"_t, "bytes=0-9"_t);
 
     const auto signedHeaders = signHeaders(
-        params, "GET", "/test.txt", /*query*/ {}, headers, payloadHash
+        params, "GET"_t, "/test.txt"_t, /*query*/ {}, headersText,
+        String::fromBytesThrow(payloadHash)
     );
 
     auto itDate = signedHeaders.find("x-amz-date");
@@ -126,8 +132,8 @@ std::map<std::string, std::string> parseQuery(const std::string &url)
 S3V4Config makeConfig()
 {
     S3V4Config cfg;
-    cfg.endpoint = "https://examplebucket.s3.amazonaws.com";
-    cfg.region = "us-east-1";
+    cfg.endpoint = "https://examplebucket.s3.amazonaws.com"_t;
+    cfg.region = "us-east-1"_t;
     cfg.timeout = std::chrono::milliseconds(1000);
     cfg.virtualHosted = false;
     return cfg;
@@ -136,8 +142,8 @@ S3V4Config makeConfig()
 S3Credentials makeCreds()
 {
     S3Credentials creds;
-    creds.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"};
-    creds.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"};
+    creds.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
+    creds.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
     return creds;
 }
 
@@ -148,7 +154,7 @@ UTEST(S3SigV4Client, PresignPathStyleClampsShortTtl)
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
     const std::time_t expired = std::time(nullptr) - 3600;
     const std::string url = client->GenerateDownloadUrl("test.txt", expired, true);
@@ -164,7 +170,7 @@ UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
     const std::time_t farFuture = std::time(nullptr) + 14 * 24 * 60 * 60;
     const std::string url = client->GenerateDownloadUrl("test.txt", farFuture, true);
@@ -180,7 +186,7 @@ UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
     const std::time_t soon = std::time(nullptr) + 120;
     const std::string url = client->GenerateDownloadUrl("folder/file with space.txt", soon, true);
@@ -202,7 +208,7 @@ UTEST(S3SigV4Client, VirtualHostRequiresBucket)
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, std::string{});
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, String());
 
     const auto expiresAt = userver::utils::datetime::Now() + std::chrono::seconds(60);
     EXPECT_THROW(
@@ -215,9 +221,9 @@ UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)
 {
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
-    cfg.endpoint = "s3.example.com";
+    cfg.endpoint = "s3.example.com"_t;
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
     const auto expiresAt = userver::utils::datetime::Now() + std::chrono::seconds(60);
     const std::string url = client->GenerateDownloadUrlVirtualHostAddressing(
@@ -239,31 +245,26 @@ UTEST(S3SigV4Client, UnsupportedOperationsThrow)
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
     using S3Client = userver::s3api::Client;
     S3Client::HeadersDataResponse headersResponse;
     S3Client::HeaderDataRequest headerRequest;
 
+    EXPECT_THROW(client->GetObject("key", {}, &headersResponse, headerRequest), std::runtime_error);
     EXPECT_THROW(
-        client->GetObject("key", std::nullopt, &headersResponse, headerRequest), std::runtime_error
+        client->TryGetObject("key", {}, &headersResponse, headerRequest), std::runtime_error
     );
     EXPECT_THROW(
-        client->TryGetObject("key", std::nullopt, &headersResponse, headerRequest),
+        client->GetPartialObject("key", "bytes=0-1", {}, &headersResponse, headerRequest),
         std::runtime_error
     );
     EXPECT_THROW(
-        client->GetPartialObject("key", "bytes=0-1", std::nullopt, &headersResponse, headerRequest),
+        client->TryGetPartialObject("key", "bytes=0-1", {}, &headersResponse, headerRequest),
         std::runtime_error
     );
-    EXPECT_THROW(
-        client->TryGetPartialObject(
-            "key", "bytes=0-1", std::nullopt, &headersResponse, headerRequest
-        ),
-        std::runtime_error
-    );
-    EXPECT_THROW(client->CopyObject("src", "dst", std::nullopt), std::runtime_error);
-    EXPECT_THROW(client->CopyObject("bucket", "src", "dst", std::nullopt), std::runtime_error);
+    EXPECT_THROW(client->CopyObject("src", "dst", {}), std::runtime_error);
+    EXPECT_THROW(client->CopyObject("bucket", "src", "dst", {}), std::runtime_error);
     EXPECT_THROW(client->ListBucketContents("bucket", 1, "", ""), std::runtime_error);
     EXPECT_THROW(client->ListBucketContentsParsed("bucket"), std::runtime_error);
     EXPECT_THROW(client->ListBucketDirectories("bucket"), std::runtime_error);
@@ -277,9 +278,9 @@ UTEST(S3SigV4Client, UploadPresignIncludesContentType)
 {
     auto httpClient = userver::utest::CreateHttpClient();
     auto cfg = makeConfig();
-    cfg.endpoint = "s3.internal";
+    cfg.endpoint = "s3.internal"_t;
     auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name");
+    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
     const auto expiresAt = userver::utils::datetime::Now() + std::chrono::seconds(120);
     const std::string url = client->GenerateUploadUrlVirtualHostAddressing(

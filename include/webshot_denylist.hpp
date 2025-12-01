@@ -1,6 +1,7 @@
 #pragma once
+#include "text.hpp"
+
 #include <memory>
-#include <string>
 
 #include <userver/components/component_base.hpp>
 #include <userver/yaml_config/schema.hpp>
@@ -25,9 +26,9 @@ public:
     ~WebshotDenylist();
 
     /** @brief Returns true if the host is not deny‑listed. */
-    [[nodiscard]] bool isAllowedHost(const std::string &host) noexcept;
+    [[nodiscard]] bool isAllowedHost(const String &host) noexcept;
     /** @brief Insert a host into the denylist (noop if already present). */
-    void insertHost(const std::string &host, const std::string &reason);
+    void insertHost(const String &host, const String &reason);
     static userver::yaml_config::Schema GetStaticConfigSchema();
 
 private:

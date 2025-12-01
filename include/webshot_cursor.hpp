@@ -7,14 +7,16 @@
  * Provides microsecond conversions for time points and generic helpers to
  * encode/decode DTOs into Base64-url JSON tokens used as pagination cursors.
  */
+#include "text.hpp"
 
 #include <chrono>
 #include <exception>
 #include <optional>
-#include <string>
 
 #include <userver/crypto/base64.hpp>
 #include <userver/formats/json.hpp>
+
+namespace us = userver;
 
 namespace v1::crud {
 
@@ -42,14 +44,14 @@ using Clock = std::chrono::system_clock;
  * @param token Base64-url encoded JSON document.
  * @return Parsed DTO value, or empty optional on malformed input.
  */
-template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const std::string &token)
+template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const String &token)
 {
     try {
-        const auto decoded = userver::crypto::base64::Base64UrlDecode(token);
-        const auto val = userver::formats::json::FromString(decoded);
+        const auto decoded = us::crypto::base64::Base64UrlDecode(token.view());
+        const auto val = us::formats::json::FromString(decoded);
         return val.As<Dto>();
     } catch (const std::exception &) {
-        return std::nullopt;
+        return {};
     }
 }
 
@@ -58,11 +60,13 @@ template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const std::
  *
  * Tokens are emitted without padding so they can be used safely in URLs.
  */
-template <typename Dto> [[nodiscard]] std::string encodeToken(const Dto &dto)
+template <typename Dto> [[nodiscard]] String encodeToken(const Dto &dto)
 {
-    return userver::crypto::base64::Base64UrlEncode(
-        userver::formats::json::ToString(userver::formats::json::ValueBuilder(dto).ExtractValue()),
-        userver::crypto::base64::Pad::kWithout
+    return *String::fromBytes(
+        us::crypto::base64::Base64UrlEncode(
+            us::formats::json::ToString(us::formats::json::ValueBuilder(dto).ExtractValue()),
+            us::crypto::base64::Pad::kWithout
+        )
     );
 }
 

@@ -5,6 +5,7 @@
  */
 #include "deadline_utils.hpp"
 #include "link.hpp"
+#include "text.hpp"
 #include "webshot_config.hpp"
 #include "webshot_crud.hpp"
 
@@ -27,6 +28,7 @@
 namespace us = userver;
 
 using namespace v1;
+using namespace text::literals;
 namespace engine = userver::engine;
 
 WebshotsByPrefixHandler::WebshotsByPrefixHandler(
@@ -67,26 +69,38 @@ std::string WebshotsByPrefixHandler::HandleRequestThrow(
         auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
         engine::current_task::SetDeadline(finalDeadline);
 
-        const std::string prefixArg = request.GetArg("prefix");
-        if (prefixArg.empty())
-            return httpu::respondError(response, kBadRequest, "missing parameter: prefix");
-        std::string normalizedPrefix;
+        const std::string arg = request.GetArg("prefix");
+        if (arg.empty())
+            return httpu::respondParamError(
+                response, kBadRequest, "prefix"_t, "missing parameter"_t
+            );
+        auto prefix = String::fromBytes(arg);
+        if (!prefix)
+            return httpu::respondParamError(
+                response, kBadRequest, "prefix"_t, "invalid parameter"_t
+            );
+        String normalizedPrefix;
         try {
-            normalizedPrefix =
-                Link::fromUserInput(prefixArg, cfg.queryPartLengthMax()).normalized();
+            normalizedPrefix = Link::fromText(*prefix, cfg.queryPartLengthMax()).normalized();
         } catch (const InvalidLinkException &e) {
-            return httpu::respondError(response, kBadRequest, e.what());
+            return httpu::respondError(response, kBadRequest, *String::fromBytes(e.what()));
         }
-        const auto token = request.GetArg("page_token");
-
+        const std::string tokenArg = request.GetArg("page_token");
+        const auto token = String::fromBytes(tokenArg);
+        if (!token)
+            return httpu::respondParamError(
+                response, kBadRequest, "page_token"_t, "invalid parameter"_t
+            );
         try {
-            auto page = crud.findWebshotsByPrefixPage(normalizedPrefix, token);
+            auto page = crud.findWebshotsByPrefixPage(normalizedPrefix, *token);
             return httpu::respondJson(response, kOk, page);
         } catch (const errors::InvalidPageTokenException &) {
-            return httpu::respondError(response, kBadRequest, "invalid page_token");
+            return httpu::respondParamError(
+                response, kBadRequest, "page_token"_t, "invalid page_token"_t
+            );
         }
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("Unhandled error: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error");
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

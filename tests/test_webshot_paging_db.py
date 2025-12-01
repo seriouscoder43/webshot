@@ -1,10 +1,17 @@
+import pathlib
 import uuid
+
+from helpers.sql_loader import _adapt_positional_to_psycopg
+
+_SQL_QUERIES_DIR = pathlib.Path(__file__).resolve().parents[1] / "sql" / "queries"
+INSERT_WEBSHOT_SQL = _adapt_positional_to_psycopg(
+    (_SQL_QUERIES_DIR / "insert_webshot.sql").read_text()
+)
 
 
 async def test_list_webshots_orders_by_created_at(
     service_client,
     pgsql,
-    insert_webshot_sql,
 ):
     """Insert rows via pgsql and verify ordering for /v1/webshot."""
 
@@ -18,11 +25,11 @@ async def test_list_webshots_orders_by_created_at(
     cur = db.cursor()
     try:
         cur.execute(
-            insert_webshot_sql,
+            INSERT_WEBSHOT_SQL,
             (newer_id, "example.com/a", host_rev, f"http://example.com/{newer_id}"),
         )
         cur.execute(
-            insert_webshot_sql,
+            INSERT_WEBSHOT_SQL,
             (older_id, "example.com/a", host_rev, f"http://example.com/{older_id}"),
         )
     finally:
@@ -42,7 +49,6 @@ async def test_list_webshots_orders_by_created_at(
 async def test_list_webshots_prefix_sees_inserted_links(
     service_client,
     pgsql,
-    insert_webshot_sql,
 ):
     """Insert two links sharing a prefix and list by prefix."""
 
@@ -53,7 +59,7 @@ async def test_list_webshots_prefix_sees_inserted_links(
     cur = db.cursor()
     try:
         cur.execute(
-            insert_webshot_sql,
+            INSERT_WEBSHOT_SQL,
             (
                 uuid.uuid4(),
                 "example.com/prefix/a",
@@ -62,7 +68,7 @@ async def test_list_webshots_prefix_sees_inserted_links(
             ),
         )
         cur.execute(
-            insert_webshot_sql,
+            INSERT_WEBSHOT_SQL,
             (
                 uuid.uuid4(),
                 "example.com/prefix/b",
@@ -87,7 +93,6 @@ async def test_list_webshots_prefix_sees_inserted_links(
 async def test_list_webshots_paged_two_pages(
     service_client,
     pgsql,
-    insert_webshot_sql,
 ):
     """Verify /v1/webshot uses page_token to paginate link results."""
 
@@ -102,7 +107,7 @@ async def test_list_webshots_paged_two_pages(
         # Three rows for the same link; created_at uses default now().
         for webshot_id in ids:
             cur.execute(
-                insert_webshot_sql,
+                INSERT_WEBSHOT_SQL,
                 (
                     webshot_id,
                     "example.com/a",

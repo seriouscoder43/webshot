@@ -1,6 +1,7 @@
 #pragma once
 
-#include <string>
+#include "text.hpp"
+
 #include <vector>
 
 #include <userver/engine/subprocess/process_starter.hpp>
@@ -24,8 +25,8 @@ public:
      * @throws std::runtime_error if creation fails.
      */
     ContainerGuard(
-        engine::subprocess::ProcessStarter &starter, std::string name,
-        const std::vector<std::string> &createArgs
+        engine::subprocess::ProcessStarter &starter, String name,
+        const std::vector<String> &createArgs
     );
     ~ContainerGuard();
 
@@ -41,6 +42,6 @@ public:
 
 private:
     engine::subprocess::ProcessStarter *starter = nullptr;
-    std::string name;
+    String name;
     bool removed;
 };

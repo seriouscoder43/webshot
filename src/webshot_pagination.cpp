@@ -9,18 +9,18 @@
 
 namespace v1::crud {
 
-[[nodiscard]] std::string encodeCursor(const Cursor &cursor)
+[[nodiscard]] String encodeCursor(const Cursor &cursor)
 {
     const auto micros = timePointToMicros(cursor.createdAt);
     dto::PaginationCursor cur(micros, cursor.id);
     return encodeToken(cur);
 }
 
-[[nodiscard]] std::optional<Cursor> decodeCursor(const std::string &token)
+[[nodiscard]] std::optional<Cursor> decodeCursor(const String &token)
 {
     const auto dtoOpt = decodeToken<dto::PaginationCursor>(token);
     if (!dtoOpt)
-        return std::nullopt;
+        return {};
     const auto &cur = *dtoOpt;
     Cursor out;
     out.createdAt = microsToTimePoint(cur.t);

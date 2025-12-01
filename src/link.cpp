@@ -6,6 +6,8 @@
  * Contains helpers to sanitize user input, enforce scheme/host rules, and
  * produce a stable scheme‑less key for storage and lookups.
  */
+#include "text.hpp"
+
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -63,27 +65,22 @@ static bool isValidScheme(std::string_view sv) noexcept
     return true;
 }
 
-/** Build a scheme‑less canonical form for indexing. */
-static std::string buildSchemeLess(const ada::url_aggregator &url)
+std::string_view serializeHref(const ada::url_aggregator &url)
 {
-    auto copy = url;
-    copy.set_protocol("http");
-    auto href = std::string(copy.get_href().substr(7));
-    if (!href.empty() && href.back() == '/')
-        href.pop_back();
-    return href;
+    auto href = url.get_href();
+    return href.back() == '/' ? href.substr(0, href.size() - 1) : href;
 }
 
 } // namespace
 
 namespace v1 {
 
-Link Link::fromUserInput(std::string in, size_t queryPartLengthMax)
+Link Link::fromText(const String &text, size_t queryPartLengthMax)
 {
+    std::string in(text.view());
     absl::StripAsciiWhitespace(&in);
     if (in.rfind("//", 0) == 0)
         throw InvalidLinkException("missing scheme");
-
     const auto schemePos = in.find("://");
     if (schemePos == std::string::npos ||
         !isValidScheme(std::string_view(in).substr(0, schemePos))) {
@@ -112,21 +109,37 @@ Link Link::fromUserInput(std::string in, size_t queryPartLengthMax)
     url->set_username("");
     url->set_password("");
     url->clear_hash();
+
     if (auto hostname = url->get_hostname(); !hostname.empty() && hostname.back() == '.')
         url->set_hostname(std::string(begin(hostname), end(hostname) - 1));
 
     Link out;
     out.url = std::move(*url);
-    out.schemeLess = buildSchemeLess(out.url);
     return out;
 }
 
-std::string Link::host() const { return std::string(url.get_hostname()); }
+String Link::host() const { return String::fromBytesThrow(url.get_hostname()); }
 
-std::string Link::httpUrl() const { return std::string("http://") + schemeLess; }
+String Link::httpUrl() const
+{
+    auto copy = url;
+    copy.set_protocol("http");
+    return String::fromBytesThrow(serializeHref(copy));
+}
 
-std::string Link::httpsUrl() const { return std::string("https://") + schemeLess; }
+String Link::httpsUrl() const
+{
+    auto copy = url;
+    copy.set_protocol("https");
+    return String::fromBytesThrow(serializeHref(copy));
+}
 
-std::string Link::normalized() const { return schemeLess; }
+String Link::normalized() const
+{
+    auto copy = url;
+    copy.set_protocol("http");
+    constexpr std::string_view kHttpPrefix = "http://";
+    return String::fromBytesThrow(serializeHref(copy).substr(kHttpPrefix.size()));
+}
 
 } // namespace v1

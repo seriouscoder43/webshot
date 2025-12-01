@@ -1,9 +1,12 @@
+INVALID_PAGE_TOKEN_MSG = "page_token: invalid page_token"
+
+
 async def test_list_webshots_missing_link(service_client):
     response = await service_client.get("/v1/webshot")
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "missing parameter: link"
+    assert body["error"]["message"] == "link: missing parameter"
 
 
 async def test_list_webshots_invalid_page_token(service_client):
@@ -14,7 +17,7 @@ async def test_list_webshots_invalid_page_token(service_client):
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "invalid page_token"
+    assert body["error"]["message"] == INVALID_PAGE_TOKEN_MSG
 
 
 async def test_list_webshots_empty_result(service_client):
@@ -35,7 +38,7 @@ async def test_list_webshots_prefix_missing_prefix(service_client):
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "missing parameter: prefix"
+    assert body["error"]["message"] == "prefix: missing parameter"
 
 
 async def test_list_webshots_prefix_invalid_page_token(service_client):
@@ -46,7 +49,7 @@ async def test_list_webshots_prefix_invalid_page_token(service_client):
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "invalid page_token"
+    assert body["error"]["message"] == INVALID_PAGE_TOKEN_MSG
 
 
 async def test_list_webshots_prefix_empty_result(service_client):
@@ -66,7 +69,7 @@ async def test_disallow_and_purge_missing_host(service_client):
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "missing parameter: host"
+    assert body["error"]["message"] == "host: missing parameter"
 
 
 async def test_disallow_and_purge_invalid_host(service_client):
@@ -78,7 +81,7 @@ async def test_disallow_and_purge_invalid_host(service_client):
 
     assert response.status == 400
     body = response.json()
-    assert body["error"]["message"] == "invalid host"
+    assert body["error"]["message"] == "host: invalid parameter"
 
 
 async def test_create_webshot_missing_body(service_client):

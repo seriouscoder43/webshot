@@ -67,6 +67,7 @@ set(${PROJECT_NAME}_headers
     include/s3_credentials_types.hpp
     include/s3/s3_sts_client.hpp
     include/s3/s3_v4_client.hpp
+    include/text_postgres_formatter.hpp
     include/webshot_handler.hpp
     include/webshot_job_handler.hpp
     include/webshots_by_prefix_handler.hpp
@@ -82,7 +83,8 @@ set(${PROJECT_NAME}_headers
     include/ip_utils.hpp
     include/webshot_cursor.hpp
     include/webshot_pagination.hpp
-    include/webshot_prefix_pagination.hpp)
+    include/webshot_prefix_pagination.hpp
+    include/text.hpp)
 add_library(
   ${PROJECT_NAME}_objs OBJECT
   src/webshot_handler.cpp
@@ -91,6 +93,7 @@ add_library(
   src/webshot_by_id_handler.cpp
   src/webshot_disallow_and_purge_handler.cpp
   src/webshot_crud.cpp
+  src/text_postgres_formatter.cpp
   src/error_utils.cpp
   src/webshot_denylist.cpp
   src/link.cpp
@@ -127,6 +130,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
                                $<TARGET_OBJECTS:${PROJECT_NAME}_objs>)
 apply_defaults(${PROJECT_NAME}_objs)
 apply_defaults(${PROJECT_NAME})
+target_precompile_headers(${PROJECT_NAME}_objs PRIVATE include/text.hpp)
 
 if(WEBSHOT_ENABLE_COVERAGE)
   target_compile_options(${PROJECT_NAME}_objs PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
@@ -147,6 +151,8 @@ find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ada::ada)
+find_package(uni-algo CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE uni-algo::uni-algo)
 # RE2 (static) on Debian/Ubuntu links against Abseil. Pull Abseil targets
 # explicitly so lld can resolve symbols exported by libre2.a.
 find_package(absl CONFIG REQUIRED)
@@ -212,7 +218,8 @@ target_link_libraries(
           absl::str_format
           absl::strings
           absl::log
-          absl::raw_hash_set)
+          absl::raw_hash_set
+          uni-algo::uni-algo)
 target_include_directories(
   ${PROJECT_NAME}_objs PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/src/
                                ${CMAKE_CURRENT_SOURCE_DIR}/include)

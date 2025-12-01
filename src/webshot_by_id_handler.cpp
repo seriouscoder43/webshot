@@ -5,16 +5,19 @@
  */
 #include "deadline_utils.hpp"
 #include "http_utils.hpp"
+#include "text.hpp"
 #include "webshot_crud.hpp"
 
 #include <chrono>
 
+#include <exception>
 #include <fmt/format.h>
 
 #include <userver/components/component.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/http/content_type.hpp>
+#include <userver/http/status_code.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/server/handlers/http_handler_base.hpp>
 #include <userver/server/http/http_request.hpp>
@@ -24,6 +27,7 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 using namespace v1;
+using namespace text::literals;
 namespace engine = userver::engine;
 
 WebshotById::WebshotById(
@@ -64,20 +68,28 @@ std::string WebshotById::HandleRequestThrow(
         auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
         engine::current_task::SetDeadline(finalDeadline);
 
-        const std::string uuidStr = request.GetPathArg("uuid");
-        if (uuidStr.empty())
-            return httpu::respondError(response, kBadRequest, "missing parameter: uuid");
-        const auto uuid = us::utils::BoostUuidFromString(uuidStr);
-        auto webshot = crud.findWebshot(uuid);
-        if (!webshot) {
+        const std::string arg = request.GetPathArg("uuid");
+        if (arg.empty())
+            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "missing parameter"_t);
+        const auto uuidStr = String::fromBytes(arg);
+        if (!uuidStr)
+            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
+        Uuid uuid;
+        try {
+            uuid = us::utils::BoostUuidFromString(uuidStr->view());
+        } catch (std::exception &e) {
+            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
+        }
+        auto location = crud.findWebshot(uuid);
+        if (!location) {
             LOG_INFO() << fmt::format("webshot not found: {}", us::utils::ToString(uuid));
-            return httpu::respondError(response, kNotFound, "webshot not found");
+            return httpu::respondError(response, kNotFound, "webshot not found"_t);
         }
         response.SetStatus(kFound);
-        response.SetHeader(us::http::headers::kLocation, webshot->location);
+        response.SetHeader(us::http::headers::kLocation, std::string(location->httpsUrl().view()));
         return {};
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("Unhandled error: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error");
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

@@ -7,11 +7,10 @@
  * Defines a lightweight pagination cursor and helpers to serialize/deserialize
  * it as an opaque token suitable for use in API page_token fields.
  */
-
+#include "text.hpp"
 #include "webshot_cursor.hpp"
 
 #include <optional>
-#include <string>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -35,7 +34,7 @@ struct [[nodiscard]] Cursor {
  *
  * The resulting string is suitable for direct use as a page_token.
  */
-[[nodiscard]] std::string encodeCursor(const Cursor &cursor);
+[[nodiscard]] String encodeCursor(const Cursor &cursor);
 
 /**
  * @brief Decode an opaque token into a link-based cursor.
@@ -43,6 +42,6 @@ struct [[nodiscard]] Cursor {
  * @param token Serialized page_token from a previous response.
  * @return Parsed cursor, or empty optional if the token is invalid.
  */
-[[nodiscard]] std::optional<Cursor> decodeCursor(const std::string &token);
+[[nodiscard]] std::optional<Cursor> decodeCursor(const String &token);
 
 } // namespace v1::crud

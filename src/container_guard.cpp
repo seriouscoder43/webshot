@@ -23,12 +23,15 @@ static inline ExecOptions makeExecOpts()
 }
 
 ContainerGuard::ContainerGuard(
-    engine::subprocess::ProcessStarter &starterRef, std::string containerName,
-    const std::vector<std::string> &createArgs
+    engine::subprocess::ProcessStarter &starterRef, String containerName,
+    const std::vector<String> &createArgs
 )
     : starter(&starterRef), name(std::move(containerName)), removed(false)
 {
-    auto proc = starter->Exec("docker", createArgs, makeExecOpts());
+    std::vector<std::string> byteArgs;
+    for (auto &&arg : createArgs)
+        byteArgs.push_back(std::string(arg.view()));
+    auto proc = starter->Exec("docker", byteArgs, makeExecOpts());
     auto status = proc.Get();
     if (!status.IsExited() || status.GetExitCode() != 0) {
         removed = true;
@@ -44,7 +47,7 @@ void ContainerGuard::remove() noexcept
         return;
     try {
         auto proc = starter->Exec(
-            "docker", std::vector<std::string>{"rm", "-f", name}, makeExecOpts()
+            "docker", std::vector<std::string>{"rm", "-f", std::string(name.view())}, makeExecOpts()
         );
         auto status = proc.Get();
         if (!status.IsExited()) {

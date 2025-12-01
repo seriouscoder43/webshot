@@ -2,9 +2,8 @@
 
 #include "link.hpp"
 #include "schemas/webshot.hpp"
-#include "webshot.hpp"
+#include "text.hpp"
 
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -42,8 +41,7 @@ public:
      * On success returns a single capture descriptor including UUID, creation
      * time and normalized link.
      */
-    [[nodiscard]] dto::UuidWithTimeLink
-    createWebshot(Link link, std::vector<std::string> pinnedIps);
+    [[nodiscard]] dto::UuidWithTimeLink createWebshot(Link link, std::vector<String> pinnedIps);
 
     /**
      * @brief Enqueue a crawl job for the given link and return its job descriptor.
@@ -52,9 +50,9 @@ public:
      * succeeds. Job execution is scheduled asynchronously; callers should poll
      * job status via getCrawlJob().
      */
-    [[nodiscard]] dto::WebshotJob createWebshotJob(Link link, std::vector<std::string> pinnedIps);
+    [[nodiscard]] dto::WebshotJob createWebshotJob(Link link, std::vector<String> pinnedIps);
     /** @brief Look up a capture by id. */
-    [[nodiscard]] std::optional<Webshot> findWebshot(Uuid uuid);
+    [[nodiscard]] std::optional<Link> findWebshot(Uuid uuid);
 
     /** @brief Look up a crawl job by id. */
     [[nodiscard]] std::optional<dto::WebshotJob> findCrawlJob(Uuid uuid);
@@ -63,12 +61,12 @@ public:
     [[nodiscard]] std::vector<dto::UuidWithTime> findWebshotByLink(const Link &link);
     /** @brief Paged variant for capture ids by link. */
     [[nodiscard]] dto::PagedFindWebshotByUrlResponse
-    findWebshotByLinkPage(const Link &link, std::string pageToken);
+    findWebshotByLinkPage(const Link &link, String pageToken);
     /** @brief Paged list of captures grouped by normalized link prefix. */
     [[nodiscard]] dto::PagedFindWebshotByPrefixResponse
-    findWebshotsByPrefixPage(const std::string &normalizedPrefix, std::string pageToken);
+    findWebshotsByPrefixPage(String normalizedPrefix, String pageToken);
     /** @brief Disallow a host and enqueue purge of its captures. */
-    void disallowAndPurgeHost(std::string host);
+    void disallowAndPurgeHost(String host);
     /** @brief Static config schema for this component. */
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 

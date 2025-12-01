@@ -14,6 +14,7 @@ function(webshot_add_cpp_test target)
     PRIVATE userver::utest
             fmt::fmt
             ada::ada
+            uni-algo::uni-algo
             absl::str_format
             absl::strings
             absl::log
@@ -119,6 +120,9 @@ webshot_add_cpp_test(
 webshot_add_cpp_test(
   error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils_test.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
+
+webshot_add_cpp_test(text_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/text_test.cpp)
 
 webshot_add_cpp_test(
   s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist_test.cpp LIBS

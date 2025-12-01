@@ -8,6 +8,7 @@
  * normalized link prefixes, as well as string range helpers for prefix scans.
  */
 
+#include "text.hpp"
 #include "webshot_cursor.hpp"
 
 #include <optional>
@@ -26,8 +27,8 @@ using Uuid = boost::uuids::uuid;
  * time and UUID of the last capture when resuming in the middle of a link.
  */
 struct [[nodiscard]] PrefixCursor {
-    std::string prefix;
-    std::string link;
+    String prefix;
+    String link;
     std::optional<Clock::time_point> createdAt;
     std::optional<Uuid> id;
 };
@@ -38,22 +39,22 @@ struct [[nodiscard]] PrefixCursor {
  * @param token Serialized page_token from a previous prefix response.
  * @return Parsed cursor, or empty optional if the token is invalid.
  */
-[[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const std::string &token);
+[[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token);
 
 /**
  * @brief Encode a prefix-based cursor without time/id into an opaque token.
  *
  * Used when the next page starts with the first capture of the next link.
  */
-[[nodiscard]] std::string encodePrefixCursor(const std::string &prefix, const std::string &link);
+[[nodiscard]] String encodePrefixCursor(const String &prefix, const String &link);
 
 /**
  * @brief Encode a prefix-based cursor with time/id into an opaque token.
  *
  * Used when the next page resumes within the same link after the last item.
  */
-[[nodiscard]] std::string encodePrefixCursor(
-    const std::string &prefix, const std::string &link, Clock::time_point createdAt, const Uuid &id
+[[nodiscard]] String encodePrefixCursor(
+    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id
 );
 
 /**
@@ -63,6 +64,6 @@ struct [[nodiscard]] PrefixCursor {
  * 0xFF, truncating the remainder. Returns empty optional if no such bound
  * exists (all bytes are 0xFF).
  */
-[[nodiscard]] std::optional<std::string> upperExclusiveBound(std::string s);
+[[nodiscard]] std::optional<std::string> upperExclusiveBound(String s);
 
 } // namespace v1::crud

@@ -4,6 +4,7 @@
  * @brief Host policy checks and DNS resolution for public addresses.
  */
 #include "ip_utils.hpp"
+#include "text.hpp"
 
 #include <array>
 #include <exception>
@@ -16,48 +17,48 @@
 
 namespace us = userver;
 namespace engine = us::engine;
+using namespace text::literals;
+
 namespace v1::HostPolicy {
 
-bool isBareName(const std::string &host) { return host.find('.') == std::string::npos; }
+bool isBareName(const String &host) { return host.view().find('.') == std::string_view::npos; }
 
-bool isDeniedHostname(const std::string &host)
+bool isDeniedHostname(const String &host)
 {
-    return (host == "localhost" || host == "host.docker.internal");
+    return host == "localhost"_t || host == "host.docker.internal"_t;
 }
 
-bool hasSpecialTldSuffix(std::string_view host)
+bool hasSpecialTldSuffix(String host)
 {
-    static const std::array<std::string_view, 5> kTlds{
-        ".local", ".home.arpa", ".test", ".invalid", ".example"
+    static const std::array<String, 5> kTlds{
+        ".local"_t, ".home.arpa"_t, ".test"_t, ".invalid"_t, ".example"_t
     };
-
-    for (const auto tldWithDot : kTlds) {
-        const auto tldSize = tldWithDot.size();
-        if (host.size() >= tldSize) {
-            if (host.compare(host.size() - tldSize, tldSize, tldWithDot) == 0)
-                return true;
-        }
-
-        const std::string_view plainTld = tldWithDot.substr(1);
-        if (host == plainTld)
+    const auto hv = host.view();
+    for (const auto &tldWithDot : kTlds) {
+        const auto tld = tldWithDot.view();
+        const auto plain = tld.substr(1);
+        if (hv == plain)
             return true;
+        const auto tldSize = tld.size();
+        if (hv.size() >= tldSize && hv.compare(hv.size() - tldSize, tldSize, tld) == 0) {
+            return true;
+        }
     }
     return false;
 }
 
-std::vector<std::string> resolvePublic(
-    us::clients::dns::Resolver &resolver, const std::string &host, engine::Deadline deadline
-)
+std::vector<String>
+resolvePublic(us::clients::dns::Resolver &resolver, const String &host, engine::Deadline deadline)
 {
-    std::vector<std::string> v4;
+    std::vector<String> v4;
     try {
-        auto addrs = resolver.Resolve(host, deadline);
+        auto addrs = resolver.Resolve(std::string(host.view()), deadline);
         for (const auto &sa : addrs) {
             switch (sa.Domain()) {
             case userver::engine::io::AddrDomain::kInet: {
                 const auto *sin = sa.As<struct sockaddr_in>();
                 if (v4.size() < 5 && IpUtils::isPublicIpv4(sin->sin_addr))
-                    v4.emplace_back(sa.PrimaryAddressString());
+                    v4.emplace_back(String::fromBytesThrow(sa.PrimaryAddressString()));
                 break;
             }
             default:

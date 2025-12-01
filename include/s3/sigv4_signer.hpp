@@ -11,6 +11,7 @@
 #include <userver/clients/http/client.hpp>
 
 #include "s3_credentials_types.hpp"
+#include "text.hpp"
 
 namespace v1::s3v4 {
 
@@ -51,10 +52,10 @@ computeSignature(const SigV4Params &params, std::string_view string_to_sign);
 /** @return Date stamp (YYYYMMDD) for the given time point (UTC). */
 [[nodiscard]] std::string toDateStampUtc(std::chrono::system_clock::time_point tp);
 /** @return SHA-256 digest in hex of the input. */
-[[nodiscard]] std::string sha256Hex(std::string_view data);
+[[nodiscard]] String sha256Hex(std::string_view data);
 
 /** RFC3986 percent‑encoding for AWS canonicalization. */
-[[nodiscard]] std::string percentEncode(std::string_view s, bool encodeSlash);
+[[nodiscard]] String percentEncode(const String &s, bool encodeSlash);
 
 /** Encode, sort, and join query parameters per SigV4 canonical rules. */
 [[nodiscard]] std::string
@@ -84,11 +85,11 @@ prepareSignedHeaders(std::string host, const userver::clients::http::Headers &ex
  * Returns the `authorization` header and auxiliary `x-amz-*` headers.
  */
 [[nodiscard]] std::unordered_map<std::string, std::string> signHeaders(
-    const SigV4Params &p, std::string_view method, std::string_view canonicalUri,
-    const std::vector<std::pair<std::string, std::string>> &query,
+    const SigV4Params &p, const String &method, const String &canonicalUri,
+    const std::vector<std::pair<String, String>> &query,
     // input headers to be signed: key must be lowercase and trimmed; host must be present
-    const std::vector<std::pair<std::string, std::string>> &headersLowerTrimmed,
-    std::string_view payloadSha256Hex
+    const std::vector<std::pair<String, String>> &headersLowerTrimmed,
+    const String &payloadSha256Hex
 );
 
 } // namespace v1::s3v4

@@ -1,0 +1,5 @@
+sources:
+  "0.0.0":
+    url: "https://github.com/tzlaine/text/archive/dd2959e7143fde3f62b24d87a6573b5b96b6ea46.tar.gz"
+    sha256: "212bf3554bd5cc9e8560d2efa6d4437bb013b11e3b59c1b2c5f1872b946254f9"
+    strip_root: True

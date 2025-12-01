@@ -13,6 +13,8 @@
 
 namespace {
 
+using namespace text::literals;
+
 void prependCurrentDirToPath()
 {
     char cwd[PATH_MAX] = {};
@@ -40,8 +42,11 @@ UTEST(ContainerGuard, CreateAndRemoveOnDestruction)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    const std::vector<std::string> args{"create", "ok-container"};
-    ContainerGuard guard(starter, "ok-container", args);
+    std::vector<String> args{
+        "create"_t,
+        "ok-container"_t,
+    };
+    ContainerGuard guard(starter, "ok-container"_t, args);
 }
 
 UTEST(ContainerGuard, CreateFailureThrows)
@@ -49,8 +54,11 @@ UTEST(ContainerGuard, CreateFailureThrows)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    const std::string name = "fail-container";
-    const std::vector<std::string> args{"create", "fail"};
+    const String name = "fail-container"_t;
+    std::vector<String> args{
+        "create"_t,
+        "fail"_t,
+    };
 
     EXPECT_THROW(ContainerGuard guard(starter, name, args), std::runtime_error);
 }
@@ -60,7 +68,13 @@ UTEST(ContainerGuard, ExplicitRemoveIsIdempotent)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    ContainerGuard guard(starter, "idempotent-container", {"create", "idempotent-container"});
+    ContainerGuard guard(
+        starter, "idempotent-container"_t,
+        std::vector<String>{
+            "create"_t,
+            "idempotent-container"_t,
+        }
+    );
     guard.remove();
     guard.remove(); // should be a no-op after first call
 }
@@ -70,7 +84,13 @@ UTEST(ContainerGuard, RemoveFailureIsSwallowed)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    ContainerGuard guard(starter, "fail-rm", {"create", "fail-rm"});
+    ContainerGuard guard(
+        starter, "fail-rm"_t,
+        std::vector<String>{
+            "create"_t,
+            "fail-rm"_t,
+        }
+    );
     EXPECT_NO_THROW(guard.remove());
 }
 
@@ -79,7 +99,13 @@ UTEST(ContainerGuard, RemoveLogsNonExited)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    ContainerGuard guard(starter, "fail-signal", {"create", "fail-signal"});
+    ContainerGuard guard(
+        starter, "fail-signal"_t,
+        std::vector<String>{
+            "create"_t,
+            "fail-signal"_t,
+        }
+    );
     EXPECT_NO_THROW(guard.remove());
 }
 
@@ -88,7 +114,13 @@ UTEST(ContainerGuard, RemoveCatchesExecThrow)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    ContainerGuard guard(starter, "throw-rm", {"create", "throw-rm"});
+    ContainerGuard guard(
+        starter, "throw-rm"_t,
+        std::vector<String>{
+            "create"_t,
+            "throw-rm"_t,
+        }
+    );
     ASSERT_EQ(::setenv("WEBSHOT_FORCE_EXEC_THROW", "1", 1), 0);
     EXPECT_NO_THROW(guard.remove());
     ASSERT_EQ(::unsetenv("WEBSHOT_FORCE_EXEC_THROW"), 0);
@@ -99,6 +131,12 @@ UTEST(ContainerGuard, RemoveHandlesSignaledProcess)
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
-    ContainerGuard guard(starter, "fail-signal", {"create", "fail-signal"});
+    ContainerGuard guard(
+        starter, "fail-signal"_t,
+        std::vector<String>{
+            "create"_t,
+            "fail-signal"_t,
+        }
+    );
     EXPECT_NO_THROW(guard.remove());
 }

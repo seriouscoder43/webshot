@@ -1,9 +1,12 @@
 #pragma once
 
+#include "text.hpp"
+
 #include <optional>
 #include <string>
 
 #include <userver/formats/json/value.hpp>
+#include <userver/utils/assert.hpp>
 
 #include "s3_credentials_types.hpp"
 
@@ -17,20 +20,22 @@ namespace v1 {
  * `session_token` is also supported for temporary credentials.
  */
 struct S3CredentialsSecdist {
-    std::optional<s3v4::AccessKeyId> access_key_id;
-    std::optional<s3v4::SecretAccessKey> secret_access_key;
-    std::optional<s3v4::SessionToken> session_token;
+    std::optional<s3v4::AccessKeyId> accessKeyId;
+    std::optional<s3v4::SecretAccessKey> secretAccessKey;
+    std::optional<s3v4::SessionToken> sessionToken;
 
     explicit S3CredentialsSecdist(const userver::formats::json::Value &secdist_doc)
     {
         const auto creds = secdist_doc["s3_credentials"];
         if (!creds.IsMissing()) {
             if (auto v = creds["access_key_id"]; !v.IsMissing())
-                access_key_id = s3v4::AccessKeyId{v.As<std::string>()};
+                accessKeyId = s3v4::AccessKeyId(String::fromBytesThrow(v.As<std::string>()));
             if (auto v = creds["secret_access_key"]; !v.IsMissing())
-                secret_access_key = s3v4::SecretAccessKey{v.As<std::string>()};
+                secretAccessKey = s3v4::SecretAccessKey(
+                    String::fromBytesThrow(v.As<std::string>())
+                );
             if (auto v = creds["session_token"]; !v.IsMissing())
-                session_token = s3v4::SessionToken{v.As<std::string>()};
+                sessionToken = s3v4::SessionToken(String::fromBytesThrow(v.As<std::string>()));
         }
     }
 };

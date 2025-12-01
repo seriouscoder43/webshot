@@ -6,19 +6,20 @@
 #include "webshot_prefix_pagination.hpp"
 
 #include "schemas/webshot.hpp"
+#include "text.hpp"
+#include "utils.hpp"
 
 namespace v1::crud {
 
-[[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const std::string &token)
+[[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token)
 {
     const auto dtoOpt = decodeToken<dto::PaginationPrefixCursor>(token);
     if (!dtoOpt)
-        return std::nullopt;
-
+        return {};
     const auto &cur = *dtoOpt;
     PrefixCursor out;
-    out.prefix = cur.p;
-    out.link = cur.l;
+    out.prefix = *String::fromBytes(cur.p);
+    out.link = *String::fromBytes(cur.l);
     if (cur.t && cur.i) {
         out.createdAt = microsToTimePoint(*cur.t);
         out.id = *cur.i;
@@ -26,29 +27,33 @@ namespace v1::crud {
     return out;
 }
 
-[[nodiscard]] std::string encodePrefixCursor(const std::string &prefix, const std::string &link)
+[[nodiscard]] String encodePrefixCursor(const String &prefix, const String &link)
 {
-    dto::PaginationPrefixCursor cur(prefix, link);
+    dto::PaginationPrefixCursor cur(std::string(prefix.view()), std::string(link.view()));
     return encodeToken(cur);
 }
 
-[[nodiscard]] std::string encodePrefixCursor(
-    const std::string &prefix, const std::string &link, Clock::time_point createdAt, const Uuid &id
+[[nodiscard]] String encodePrefixCursor(
+    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id
 )
 {
     const auto micros = timePointToMicros(createdAt);
-    dto::PaginationPrefixCursor cur(prefix, link, micros, id);
+    dto::PaginationPrefixCursor cur(
+        std::string(prefix.view()), std::string(link.view()), micros, id
+    );
     return encodeToken(cur);
 }
 
-[[nodiscard]] std::optional<std::string> upperExclusiveBound(std::string s)
+[[nodiscard]] std::optional<std::string> upperExclusiveBound(String s)
 {
-    for (int64_t i = static_cast<int64_t>(s.size()) - 1; i >= 0; i--) {
-        unsigned char c = static_cast<unsigned char>(s[static_cast<std::size_t>(i)]);
+    std::string bytes(s.view());
+    for (int64_t i = v1::utils::ssize(bytes) - 1; i >= 0; i--) {
+        size_t j = static_cast<size_t>(i);
+        unsigned char c = static_cast<unsigned char>(bytes[j]);
         if (c < 0xFF) {
-            s[static_cast<std::size_t>(i)] = static_cast<char>(c + 1);
-            s.resize(static_cast<std::size_t>(i) + 1);
-            return s;
+            bytes[j] = static_cast<char>(c + 1);
+            bytes.resize(j + 1);
+            return bytes;
         }
     }
     return {};

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "text.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <string_view>
@@ -31,19 +33,19 @@ public:
 
     /** @name S3 parameters */
     ///@{
-    [[nodiscard]] const std::string &s3Bucket() const noexcept { return s3BucketName; }
-    [[nodiscard]] const std::string &s3Endpoint() const noexcept { return s3EndpointUrl; }
-    [[nodiscard]] const std::string &s3Region() const noexcept { return s3RegionName; }
-    [[nodiscard]] const std::string &publicBaseUrl() const noexcept { return publicBaseUrlValue; }
+    [[nodiscard]] const String &s3Bucket() const noexcept { return s3BucketName; }
+    [[nodiscard]] const String &s3Endpoint() const noexcept { return s3EndpointUrl; }
+    [[nodiscard]] const String &s3Region() const noexcept { return s3RegionName; }
+    [[nodiscard]] const String &publicBaseUrl() const noexcept { return publicBaseUrlValue; }
     [[nodiscard]] std::chrono::milliseconds s3Timeout() const noexcept { return s3TimeoutDuration; }
     ///@}
 
 private:
     size_t queryPartLengthMaxValue;
-    std::string s3BucketName;
-    std::string s3EndpointUrl;
-    std::string s3RegionName;
-    std::string publicBaseUrlValue;
+    String s3BucketName;
+    String s3EndpointUrl;
+    String s3RegionName;
+    String publicBaseUrlValue;
     std::chrono::milliseconds s3TimeoutDuration;
 };
 } // namespace v1

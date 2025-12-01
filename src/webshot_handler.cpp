@@ -9,11 +9,13 @@
 #include "link.hpp"
 #include "schemas/webshot.hpp"
 #include "server_errors.hpp"
+#include "text.hpp"
 #include "webshot_config.hpp"
 #include "webshot_crud.hpp"
 #include "webshot_denylist.hpp"
 
 #include <chrono>
+#include <exception>
 #include <string>
 
 #include <fmt/format.h>
@@ -37,6 +39,7 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 using namespace v1;
+using namespace text::literals;
 namespace json = userver::formats::json;
 namespace engine = userver::engine;
 
@@ -85,14 +88,18 @@ std::string WebshotHandler::HandleRequestThrow(
         if (request.GetMethod() == kPost) {
             dto::CreateWebshotRequest req;
             try {
-                const auto body = json::FromString(request.RequestBody());
-                req = body.As<dto::CreateWebshotRequest>();
+                auto str = String::fromBytes(request.RequestBody());
+                if (!str)
+                    throw std::exception();
+                req = json::FromString(str->view()).As<dto::CreateWebshotRequest>();
             } catch (const std::exception &e) {
-                return httpu::respondError(response, kBadRequest, "invalid request body");
+                return httpu::respondError(response, kBadRequest, "invalid request body"_t);
             }
             try {
-                auto parsed = Link::fromUserInput(req.link, config.queryPartLengthMax());
-                std::string host = parsed.host();
+                auto parsed = Link::fromText(
+                    String::fromBytesThrow(req.link), config.queryPartLengthMax()
+                );
+                auto host = parsed.host();
                 if (HostPolicy::isBareName(host) || HostPolicy::isDeniedHostname(host) ||
                     HostPolicy::hasSpecialTldSuffix(host))
                     throw InvalidLinkException("forbidden host");
@@ -100,34 +107,44 @@ std::string WebshotHandler::HandleRequestThrow(
                 if (pubs.empty())
                     throw InvalidLinkException("forbidden host");
                 if (!denylist.isAllowedHost(host))
-                    return httpu::respondError(response, kForbidden, "host in denylist");
+                    return httpu::respondError(response, kForbidden, "host in denylist"_t);
                 auto job = crud.createWebshotJob(std::move(parsed), std::move(pubs));
                 return httpu::respondJson(response, kAccepted, job);
             } catch (const InvalidLinkException &e) {
-                return httpu::respondError(response, kBadRequest, e.what());
+                return httpu::respondError(response, kBadRequest, String::fromBytesThrow(e.what()));
             }
         }
 
-        const std::string linkArg = request.GetArg("link");
-        if (linkArg.empty())
-            return httpu::respondError(response, kBadRequest, "missing parameter: link");
+        const std::string arg = request.GetArg("link");
+        if (arg.empty())
+            return httpu::respondParamError(response, kBadRequest, "link"_t, "missing parameter"_t);
+        auto str = String::fromBytes(arg);
+        if (!str)
+            return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
         Link link;
         try {
-            link = Link::fromUserInput(linkArg, config.queryPartLengthMax());
+            link = Link::fromText(*str, config.queryPartLengthMax());
         } catch (const InvalidLinkException &e) {
-            return httpu::respondError(response, kBadRequest, e.what());
+            return httpu::respondError(response, kBadRequest, *String::fromBytes(e.what()));
         }
-        const auto token = request.GetArg("page_token");
+        const std::string tokenArg = request.GetArg("page_token");
+        const auto token = String::fromBytes(tokenArg);
+        if (!token)
+            return httpu::respondParamError(
+                response, kBadRequest, "page_token"_t, "missing parameter"_t
+            );
         try {
-            auto page = crud.findWebshotByLinkPage(link, token);
+            auto page = crud.findWebshotByLinkPage(link, *token);
             return httpu::respondJson(response, kOk, page);
         } catch (const errors::InvalidPageTokenException &) {
-            return httpu::respondError(response, kBadRequest, "invalid page_token");
+            return httpu::respondParamError(
+                response, kBadRequest, "page_token"_t, "invalid page_token"_t
+            );
         }
     } catch (const engine::WaitInterruptedException &) {
         throw;
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("Unhandled error in webshot_handler: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error");
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

@@ -1,14 +1,13 @@
 #pragma once
 
+#include "s3_credentials_types.hpp"
+#include "text.hpp"
+
 #include <chrono>
 #include <functional>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include <userver/clients/http/client.hpp>
-
-#include "s3_credentials_types.hpp"
 
 namespace v1 {
 
@@ -21,7 +20,7 @@ struct [[nodiscard]] StsCredentials {
     s3v4::SessionToken sessionToken;
     std::chrono::system_clock::time_point expiresAt;
 
-    explicit StsCredentials(const std::string &xml);
+    explicit StsCredentials(const String &xml);
 };
 
 /**
@@ -31,24 +30,24 @@ struct [[nodiscard]] StsCredentials {
  * The endpoint must use https. A prebuilt policy JSON is passed verbatim.
  */
 [[nodiscard]] StsCredentials fetchStsCredentials(
-    userver::clients::http::Client &httpClient, const std::string &stsEndpoint,
+    userver::clients::http::Client &httpClient, const String &stsEndpoint,
     const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
-    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
-    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+    const String &region, const String &roleArn, const String &roleSessionName,
+    const String &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
 );
 
 namespace detail {
 
 using StsExecutor = std::function<std::string(
-    const std::string &url, const std::string &body, const userver::clients::http::Headers &headers,
+    const String &url, const String &body, const userver::clients::http::Headers &headers,
     std::chrono::milliseconds timeout
 )>;
 
 [[nodiscard]] StsCredentials fetchStsWithExecutor(
-    const StsExecutor &exec, const std::string &stsEndpoint,
-    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
-    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
-    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+    const StsExecutor &exec, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
+    const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
+    const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
+    std::chrono::milliseconds timeout
 );
 
 } // namespace detail

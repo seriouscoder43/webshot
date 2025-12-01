@@ -6,6 +6,7 @@
 #include "deadline_utils.hpp"
 #include "http_utils.hpp"
 #include "link.hpp"
+#include "text.hpp"
 #include "webshot_config.hpp"
 #include "webshot_crud.hpp"
 
@@ -24,6 +25,7 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 using namespace v1;
+using namespace text::literals;
 namespace engine = userver::engine;
 
 WebshotDisallowAndPurgeHandler::WebshotDisallowAndPurgeHandler(
@@ -64,18 +66,21 @@ std::string WebshotDisallowAndPurgeHandler::HandleRequestThrow(
         engine::current_task::SetDeadline(finalDeadline);
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("Failed to compute handler deadline: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error");
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 
-    const std::string host = request.GetArg("host");
-    if (host.empty())
-        return httpu::respondError(response, kBadRequest, "missing parameter: host");
+    const std::string arg = request.GetArg("host");
+    if (arg.empty())
+        return httpu::respondParamError(response, kBadRequest, "host"_t, "missing parameter"_t);
+    const auto host = String::fromBytes(arg);
+    if (!host)
+        return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     Link link;
     try {
-        link = Link::fromUserInput(host, config.queryPartLengthMax());
+        link = Link::fromText(*host, config.queryPartLengthMax());
     } catch (const InvalidLinkException &e) {
         LOG_INFO() << fmt::format("invalid host: {}", e.what());
-        return httpu::respondError(response, kBadRequest, "invalid host");
+        return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     }
     LOG_INFO() << fmt::format("invoked for: {}", link.host());
     try {

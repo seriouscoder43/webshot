@@ -1,0 +1,26 @@
+diff --git a/include/uni_algo/config.h b/include/uni_algo/config.h
+index 989485a..89cc95c 100644
+--- a/include/uni_algo/config.h
++++ b/include/uni_algo/config.h
+@@ -149,10 +149,17 @@ static_assert(std::is_unsigned<type_char32>::value && sizeof(type_char32) >= siz
+ #if defined(UNI_ALGO_STATIC_DATA) && (__cplusplus >= 202002L || _MSVC_LANG >= 202002L)
+ // NOTE: This include is needed for __cpp_lib_constexpr_string below
+ #include <version>
+-#if (__cpp_constexpr >= 201907L) && defined(__cpp_lib_constexpr_string) \
+-    && !(defined(__clang__) && defined(__GLIBCXX__)) // constexpr standard lib is broken in Clang with libstdc++
+-#define UNI_ALGO_CONSTEXPR
+-#define uaiw_constexpr constexpr
++#if (__cpp_constexpr >= 201907L) && defined(__cpp_lib_constexpr_string)
++#  if defined(__clang__) && defined(__GLIBCXX__)
++// Enable constexpr only on sufficiently new Clang + libstdc++.
++#    if (__clang_major__ >= 21) && defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 15)
++#      define UNI_ALGO_CONSTEXPR
++#      define uaiw_constexpr constexpr
++#    endif
++#  else
++#    define UNI_ALGO_CONSTEXPR
++#    define uaiw_constexpr constexpr
++#  endif
+ #endif
+ #endif
+ #ifndef UNI_ALGO_CONSTEXPR

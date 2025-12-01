@@ -3,6 +3,8 @@
 #include "link.hpp"
 #include "s3/s3_url_utils.hpp"
 #include "s3/sigv4_signer.hpp"
+#include "s3_credentials_types.hpp"
+#include "text.hpp"
 
 #include <optional>
 #include <stdexcept>
@@ -21,117 +23,116 @@
 #include <userver/utils/datetime/from_string_saturating.hpp>
 
 namespace http = userver::clients::http;
+using namespace text::literals;
 
 namespace v1 {
 
 namespace {
 
-[[nodiscard]] std::string extractXmlTag(const std::string &xml, std::string_view tag)
+[[nodiscard]] String extractXmlTag(const String &xml, String tag)
 {
     std::string open = "<";
-    open.append(tag.data(), tag.size()).push_back('>');
+    std::string xmlBytes(xml.view()), tagBytes(tag.view());
+    open.append(tagBytes.data(), tagBytes.size()).push_back('>');
     std::string close = "</";
-    close.append(tag.data(), tag.size()).push_back('>');
-    const auto startPos = xml.find(open);
+    close.append(tagBytes.data(), tagBytes.size()).push_back('>');
+    const auto startPos = xmlBytes.find(open);
     if (startPos == std::string::npos)
         throw std::runtime_error("STS XML missing tag");
     const auto valuePos = startPos + open.size();
-    const auto endPos = xml.find(close, valuePos);
+    const auto endPos = xmlBytes.find(close, valuePos);
     if (endPos == std::string::npos)
         throw std::runtime_error("STS XML missing closing tag");
-    return xml.substr(valuePos, endPos - valuePos);
+    return String::fromBytesThrow(xmlBytes.substr(valuePos, endPos - valuePos));
 }
 
 } // namespace
 
-StsCredentials::StsCredentials(const std::string &xml)
-    : accessKeyId(s3v4::AccessKeyId{extractXmlTag(xml, "AccessKeyId")}),
-      secretAccessKey(s3v4::SecretAccessKey{extractXmlTag(xml, "SecretAccessKey")}),
-      sessionToken(s3v4::SessionToken{extractXmlTag(xml, "SessionToken")}),
+StsCredentials::StsCredentials(const String &xml)
+    : accessKeyId(s3v4::AccessKeyId(extractXmlTag(xml, "AccessKeyId"_t))),
+      secretAccessKey(s3v4::SecretAccessKey(extractXmlTag(xml, "SecretAccessKey"_t))),
+      sessionToken(s3v4::SessionToken(extractXmlTag(xml, "SessionToken"_t))),
       expiresAt(
-          userver::utils::datetime::FromRfc3339StringSaturating(extractXmlTag(xml, "Expiration"))
+          userver::utils::datetime::FromRfc3339StringSaturating(
+              std::string(extractXmlTag(xml, "Expiration"_t).view())
+          )
       )
 {
 }
 
 StsCredentials detail::fetchStsWithExecutor(
-    const StsExecutor &exec, const std::string &stsEndpoint,
-    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
-    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
-    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+    const StsExecutor &exec, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
+    const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
+    const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
+    std::chrono::milliseconds timeout
 )
 {
-    const auto stsLink = Link::fromUserInput(stsEndpoint, static_cast<size_t>(stsEndpoint.size()));
+    const auto stsLink = Link::fromText(stsEndpoint, static_cast<size_t>(stsEndpoint.sizeBytes()));
     UINVARIANT(stsLink.url.type == ada::scheme::type::HTTPS, "STS endpoint must use https scheme");
 
-    const std::string host = std::string(stsLink.url.get_host());
+    const auto host = *String::fromBytes(stsLink.url.get_host());
 
-    std::string path = std::string(stsLink.url.get_pathname());
+    auto path = *String::fromBytes(stsLink.url.get_pathname());
     if (path.empty())
-        path = "/";
+        path = "/"_t;
 
-    std::vector<std::pair<std::string, std::string>> query;
+    std::vector<std::pair<String, String>> query;
     if (stsLink.url.has_search()) {
-        const std::string search = std::string(stsLink.url.get_search());
+        const auto search = *String::fromBytes(stsLink.url.get_search());
         query = s3v4::decodeQueryString(search);
     }
-
-    const std::string url = std::string(stsLink.url.get_href());
-
-    std::string body;
-    body.reserve(512);
-    auto appendParam = [&body](std::string_view name, std::string_view value) {
+    String body;
+    auto appendParam = [&body](const String &name, const String &value) {
         if (!body.empty())
-            body.push_back('&');
-        body.append(name);
-        body.push_back('=');
-        body.append(s3v4::percentEncode(value, true));
+            body += "&"_t;
+        body += name;
+        body += "="_t;
+        body += s3v4::percentEncode(value, true);
     };
-    appendParam("Action", "AssumeRole");
-    appendParam("Version", "2011-06-15");
-    appendParam("RoleArn", roleArn);
-    appendParam("RoleSessionName", roleSessionName);
-    appendParam("DurationSeconds", std::to_string(duration.count()));
-    appendParam("Policy", policyJson);
+    appendParam("Action"_t, "AssumeRole"_t);
+    appendParam("Version"_t, "2011-06-15"_t);
+    appendParam("RoleArn"_t, roleArn);
+    appendParam("RoleSessionName"_t, roleSessionName);
+    appendParam("DurationSeconds"_t, String::fromBytesThrow(std::to_string(duration.count())));
+    appendParam("Policy"_t, policyJson);
 
-    const std::string payloadHash = s3v4::sha256Hex(body);
+    const String payloadHash = s3v4::sha256Hex(body.view());
 
     const auto now = userver::utils::datetime::Now();
     s3v4::SigV4Params params(
-        region, "sts", staticAccessKeyId, staticSecretAccessKey, std::nullopt, now
+        std::string(region.view()), "sts", staticAccessKeyId, staticSecretAccessKey, {}, now
     );
 
-    std::vector<std::pair<std::string, std::string>> headersToSign;
-    headersToSign.emplace_back("host", host);
-    headersToSign.emplace_back("content-type", "application/x-www-form-urlencoded");
-
+    std::vector<std::pair<String, String>> headersToSign;
+    headersToSign.emplace_back("host"_t, host);
+    const auto kUrlEncoded = "application/x-www-form-urlencoded"_t;
+    headersToSign.emplace_back("content-type"_t, kUrlEncoded);
     const auto signedHeaders = s3v4::signHeaders(
-        params, "POST", path, query, headersToSign, payloadHash
+        params, "POST"_t, path, query, headersToSign, payloadHash
     );
-
     http::Headers headers;
-    headers[userver::http::headers::kHost] = host;
-    headers[userver::http::headers::kContentType] = "application/x-www-form-urlencoded";
+    headers[userver::http::headers::kHost] = std::string(host.view());
+    headers[userver::http::headers::kContentType] = std::string(kUrlEncoded.view());
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
-
-    const std::string xml = exec(url, body, headers, timeout);
-    return StsCredentials{xml};
+    return StsCredentials(String::fromBytesThrow(exec(stsLink.httpsUrl(), body, headers, timeout)));
 }
 
 StsCredentials fetchStsCredentials(
-    http::Client &httpClient, const std::string &stsEndpoint,
-    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
-    const std::string &region, const std::string &roleArn, const std::string &roleSessionName,
-    const std::string &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
+    http::Client &httpClient, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
+    const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
+    const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
+    std::chrono::milliseconds timeout
 )
 {
     detail::StsExecutor exec = [&httpClient](
-                                   const std::string &url, const std::string &body,
+                                   const String &url, const String &body,
                                    const http::Headers &headers, std::chrono::milliseconds timeoutMs
                                ) {
+        auto urlBytes = std::string(url.view());
+        auto bodyBytes = std::string(body.view());
         auto resp = httpClient.CreateNotSignedRequest()
-                        .post(url, body)
+                        .post(urlBytes, std::move(bodyBytes))
                         .headers(headers)
                         .timeout(timeoutMs)
                         .perform();

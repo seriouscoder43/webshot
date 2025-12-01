@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string_view>
+#include "text.hpp"
 
 #include <userver/formats/json/value.hpp>
 
@@ -11,7 +11,7 @@ namespace v1::errors {
  *
  * The shape matches the OpenAPI schema under `ErrorEnvelope`.
  */
-userver::formats::json::Value makeError(std::string_view message);
+userver::formats::json::Value makeError(String message);
 
 /**
  * @brief Convenience for parameter‑specific errors.
@@ -19,6 +19,6 @@ userver::formats::json::Value makeError(std::string_view message);
  * @param fieldName Name of the offending parameter.
  * @param message Additional context to append to the message.
  */
-userver::formats::json::Value makeParamError(std::string_view fieldName, std::string_view message);
+userver::formats::json::Value makeParamError(String fieldName, String message);
 
 } // namespace v1::errors

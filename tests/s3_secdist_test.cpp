@@ -18,21 +18,21 @@ UTEST(S3Secdist, ParsesAllFields)
     creds["session_token"] = "TOKEN";
 
     const S3CredentialsSecdist parsed(builder.ExtractValue());
-    ASSERT_TRUE(parsed.access_key_id);
-    ASSERT_TRUE(parsed.secret_access_key);
-    ASSERT_TRUE(parsed.session_token);
-    EXPECT_EQ(parsed.access_key_id->GetUnderlying(), std::string("ACCESS"));
-    EXPECT_EQ(parsed.secret_access_key->GetUnderlying(), std::string("SECRET"));
-    EXPECT_EQ(parsed.session_token->GetUnderlying(), std::string("TOKEN"));
+    ASSERT_TRUE(parsed.accessKeyId);
+    ASSERT_TRUE(parsed.secretAccessKey);
+    ASSERT_TRUE(parsed.sessionToken);
+    EXPECT_EQ(parsed.accessKeyId->GetUnderlying().view(), std::string("ACCESS"));
+    EXPECT_EQ(parsed.secretAccessKey->GetUnderlying().view(), std::string("SECRET"));
+    EXPECT_EQ(parsed.sessionToken->GetUnderlying().view(), std::string("TOKEN"));
 }
 
 UTEST(S3Secdist, MissingObjectYieldsNullopts)
 {
     userver::formats::json::ValueBuilder builder; // empty root
     const S3CredentialsSecdist parsed(builder.ExtractValue());
-    EXPECT_FALSE(parsed.access_key_id);
-    EXPECT_FALSE(parsed.secret_access_key);
-    EXPECT_FALSE(parsed.session_token);
+    EXPECT_FALSE(parsed.accessKeyId);
+    EXPECT_FALSE(parsed.secretAccessKey);
+    EXPECT_FALSE(parsed.sessionToken);
 }
 
 UTEST(S3Secdist, PartialCredentials)
@@ -42,8 +42,8 @@ UTEST(S3Secdist, PartialCredentials)
     creds["access_key_id"] = "ACCESS_ONLY";
 
     const S3CredentialsSecdist parsed(builder.ExtractValue());
-    ASSERT_TRUE(parsed.access_key_id);
-    EXPECT_EQ(parsed.access_key_id->GetUnderlying(), std::string("ACCESS_ONLY"));
-    EXPECT_FALSE(parsed.secret_access_key);
-    EXPECT_FALSE(parsed.session_token);
+    ASSERT_TRUE(parsed.accessKeyId);
+    EXPECT_EQ(parsed.accessKeyId->GetUnderlying().view(), std::string("ACCESS_ONLY"));
+    EXPECT_FALSE(parsed.secretAccessKey);
+    EXPECT_FALSE(parsed.sessionToken);
 }

@@ -15,10 +15,10 @@ WebshotConfig::WebshotConfig(
 )
     : us::components::ComponentBase(config, context),
       queryPartLengthMaxValue(config["query-part-length-max"].As<size_t>()),
-      s3BucketName(config["s3-bucket"].As<std::string>()),
-      s3EndpointUrl(config["s3-endpoint"].As<std::string>()),
-      s3RegionName(config["s3-region"].As<std::string>()),
-      publicBaseUrlValue(config["public-base-url"].As<std::string>()),
+      s3BucketName(String::fromBytesThrow(config["s3-bucket"].As<std::string>())),
+      s3EndpointUrl(String::fromBytesThrow(config["s3-endpoint"].As<std::string>())),
+      s3RegionName(String::fromBytesThrow(config["s3-region"].As<std::string>())),
+      publicBaseUrlValue(String::fromBytesThrow(config["public-base-url"].As<std::string>())),
       s3TimeoutDuration(std::chrono::milliseconds(config["s3-timeout-ms"].As<int>()))
 {
 }
