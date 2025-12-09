@@ -1,0 +1,8 @@
+[Unit]
+Description=Webshot crawler bridge network
+PartOf=webshot-stack.target
+
+[Network]
+NetworkName=crawler_net
+Subnet=172.31.0.0/16
+NetworkDeleteOnStop=true

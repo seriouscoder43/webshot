@@ -1,9 +1,0 @@
-sources:
-  "0.0.0":
-    url: "https://github.com/uni-algo/uni-algo/archive/6c091fa266ac03a852128429af3b7481cf50a0ab.tar.gz"
-    sha256: "fee94dba4aaed9e4e370dfbbb94160a0099d21e91a025c9dc886e5547cb291e7"
-    strip_root: True
-patches:
-  "0.0.0":
-    - patch_file: "patches/uni-algo_enable_constexpr.patch"
-      base_path: "."

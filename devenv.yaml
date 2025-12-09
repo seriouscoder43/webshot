@@ -1,0 +1,11 @@
+inputs:
+  pgmigrate:
+    url: path:nix/pgmigrate
+  treefmt-nix:
+    url: github:numtide/treefmt-nix
+  uni-algo:
+    url: path:nix/uni-algo
+  userver:
+    url: path:nix/userver
+  yandex-taxi-testsuite:
+    url: path:nix/yandex-taxi-testsuite

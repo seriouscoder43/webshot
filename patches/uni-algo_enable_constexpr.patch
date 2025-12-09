@@ -13,7 +13,7 @@ index 989485a..89cc95c 100644
 +#if (__cpp_constexpr >= 201907L) && defined(__cpp_lib_constexpr_string)
 +#  if defined(__clang__) && defined(__GLIBCXX__)
 +// Enable constexpr only on sufficiently new Clang + libstdc++.
-+#    if (__clang_major__ >= 21) && defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 15)
++#    if (__clang_major__ >= 19) && defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 14)
 +#      define UNI_ALGO_CONSTEXPR
 +#      define uaiw_constexpr constexpr
 +#    endif

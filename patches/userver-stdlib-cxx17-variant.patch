@@ -1,0 +1,18 @@
+diff --git a/universal/CMakeLists.txt b/universal/CMakeLists.txt
+index 6246513c5..10716d294 100644
+--- a/universal/CMakeLists.txt
++++ b/universal/CMakeLists.txt
+@@ -128,13 +128,6 @@ else()
+     )
+ endif()
+ 
+-# Check stdlib is recent enough
+-include(CheckIncludeFileCXX)
+-check_include_file_cxx(variant HAS_CXX17_VARIANT)
+-if(NOT HAS_CXX17_VARIANT)
+-    message(FATAL_ERROR "You have an outdated standard C++ library")
+-endif()
+-
+ option(USERVER_NO_WERROR "Do not treat warnings as errors" ON)
+ if(NOT USERVER_NO_WERROR)
+     message(STATUS "Forcing warnings as errors!")

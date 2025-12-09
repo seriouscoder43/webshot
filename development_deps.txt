@@ -1,4 +1,0 @@
-git ninja-build clangd ccache \
-docker.io docker-compose-plugin watchexec uv \
-python3 pre-commit \
-clang-format

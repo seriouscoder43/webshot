@@ -1,0 +1,17 @@
+[Unit]
+Description=Webshot development PostgreSQL (service-db)
+After=webshot-crawler-network.service
+Requires=webshot-crawler-network.service
+PartOf=webshot-stack.target
+
+[Service]
+Restart=on-failure
+
+[Container]
+ContainerName=servicedb
+Image=docker.io/postgres:18.1-trixie
+PublishPort=5432:5432
+Environment=POSTGRES_HOST_AUTH_METHOD=trust
+Network=crawler_net
+Volume=${WEBSHOT_ROOT}/sql/schema:/docker-entrypoint-initdb.d/schema:ro
+Volume=${WEBSHOT_ROOT}/containers/service-db-init-multi-db.sh:/docker-entrypoint-initdb.d/10-service-db-init-multi-db.sh:ro

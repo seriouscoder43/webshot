@@ -166,6 +166,7 @@ def service_secdist_path(service_source_dir: pathlib.Path) -> pathlib.Path:
 def service_env(service_source_dir: pathlib.Path):
     return {
         "LSAN_OPTIONS": f"suppressions={service_source_dir}/lsan.supp",
+        # "ASAN_OPTIONS": "detect_stack_use_after_return=0",
     }
 
 
