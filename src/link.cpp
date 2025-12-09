@@ -65,10 +65,13 @@ static bool isValidScheme(std::string_view sv) noexcept
     return true;
 }
 
-std::string_view serializeHref(const ada::url_aggregator &url)
+std::string serializeHref(const ada::url_aggregator &url)
 {
-    auto href = url.get_href();
-    return href.back() == '/' ? href.substr(0, href.size() - 1) : href;
+    const auto href = url.get_href();
+    if (!href.empty() && href.back() == '/') {
+        return std::string(std::begin(href), std::end(href) - 1);
+    }
+    return std::string(href);
 }
 
 } // namespace
