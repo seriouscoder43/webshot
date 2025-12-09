@@ -16,8 +16,6 @@ PublishPort=8888:8888
 PublishPort=8082:8080
 PublishPort=9324:9324
 Network=crawler_net
-# Named data volume for SeaweedFS; created automatically if missing.
-Volume=seaweed_data:/data
 Volume=${WEBSHOT_ROOT}/containers/seaweed/s3_config.json:/etc/seaweedfs/s3_config.json:ro
-Exec=server -s3 -filer -ip.bind=0.0.0.0 -dir=/data -volume.max=8 -master.volumeSizeLimitMB=32 -metricsPort=9324 -s3.config=/etc/seaweedfs/s3_config.json
+Exec=server -s3 -filer -ip.bind=0.0.0.0 -dir=/data -master.volumeSizeLimitMB=32 -metricsPort=9324 -s3.config=/etc/seaweedfs/s3_config.json
 StopTimeout=60

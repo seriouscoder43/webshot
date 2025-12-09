@@ -11,12 +11,13 @@
   system = pkgs.stdenv.system;
 
   python = pkgs.python3;
-  chaoticPython = pkgs.python3.withPackages (ps: [
+  chaoticPython = python.withPackages (ps: [
     ps.jinja2
     ps.pyyaml
     ps.pydantic
     ps.psycopg2
     ps.websockets
+    ps.minio
   ]);
 
   userverDeps = import ./nix/userver/deps.nix {
@@ -51,7 +52,7 @@ in {
     ]
     ++ userverDeps
     ++ [webshotTestSan]
-    ++ (with pkgs; [awscli2 gdb]);
+    ++ (with pkgs; [gdb]);
 
   treefmt = {
     enable = true;
