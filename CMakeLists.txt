@@ -21,16 +21,29 @@ set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
 option(WEBSHOT_ENABLE_LLVM_SYMBOLIZER
        "Enable llvm-symbolizer integration for sanitizer stack traces" ON)
 set(WEBSHOT_LLVM_SYMBOLIZER_BIN
-    "llvm-symbolizer-21"
+    "llvm-symbolizer"
     CACHE STRING "llvm-symbolizer binary used for sanitizer stack traces")
 
 option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
+
+# Ensure that userver integration does not create Python virtual environments
+# when this service is configured. Testsuite and SQL/chaotic helpers should use
+# the system Python specified by USERVER_PYTHON_PATH instead.
+set(USERVER_TESTSUITE_USE_VENV
+    OFF
+    CACHE BOOL "Disable userver testsuite Python virtualenvs" FORCE)
+set(USERVER_SQL_USE_VENV
+    OFF
+    CACHE BOOL "Disable userver SQL helper Python virtualenvs" FORCE)
+set(USERVER_CHAOTIC_USE_VENV
+    OFF
+    CACHE BOOL "Disable userver chaotic helper Python virtualenvs" FORCE)
 
 # Resolve to an absolute path when possible so ASan can actually exec it.
 if(WEBSHOT_ENABLE_LLVM_SYMBOLIZER)
   find_program(
     WEBSHOT_LLVM_SYMBOLIZER_BIN
-    NAMES ${WEBSHOT_LLVM_SYMBOLIZER_BIN} llvm-symbolizer-21 llvm-symbolizer
+    NAMES ${WEBSHOT_LLVM_SYMBOLIZER_BIN} llvm-symbolizer llvm-symbolizer
     DOC "Resolved llvm-symbolizer binary for sanitizer stacks")
 endif()
 
@@ -46,8 +59,7 @@ if(WEBSHOT_USE_MOLD)
 endif()
 
 if(NOT DEFINED CMAKE_CXX_CLANG_TIDY)
-  find_program(WEBSHOT_CLANG_TIDY_BIN NAMES clang-tidy clang-tidy-21
-                                            clang-tidy-20)
+  find_program(WEBSHOT_CLANG_TIDY_BIN NAMES clang-tidy clang-tidy clang-tidy-20)
   if(WEBSHOT_CLANG_TIDY_BIN)
     set(CMAKE_CXX_CLANG_TIDY "${WEBSHOT_CLANG_TIDY_BIN}")
   else()
@@ -59,8 +71,7 @@ if(WEBSHOT_CLANG_FORMAT)
   set(CLANG_FORMAT_BIN "${WEBSHOT_CLANG_FORMAT}")
 elseif(NOT CLANG_FORMAT_BIN OR CLANG_FORMAT_BIN STREQUAL
                                "CLANG_FORMAT_BIN-NOTFOUND")
-  find_program(CLANG_FORMAT_BIN NAMES clang-format clang-format-21
-                                      clang-format-20)
+  find_program(CLANG_FORMAT_BIN NAMES clang-format clang-format clang-format-20)
 endif()
 
 set(${PROJECT_NAME}_headers
@@ -124,8 +135,11 @@ function(apply_defaults target)
             -Wdisabled-optimization
             -Wctad-maybe-unsupported)
   target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-ggdb3>
-                                           $<$<CONFIG:Release>:-O3>)
-  set_property(TARGET ${target} PROPERTY CXX_COMPILER_LAUNCHER ccache)
+                                           $<$<CONFIG:Release>:-O2>)
+  if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer)
+  endif()
+  # set_property(TARGET ${target} PROPERTY CXX_COMPILER_LAUNCHER ccache)
 endfunction()
 
 add_executable(${PROJECT_NAME} src/main.cpp
@@ -139,7 +153,9 @@ if(WEBSHOT_ENABLE_COVERAGE)
   target_link_options(${PROJECT_NAME} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
 endif()
 
+find_package(Boost CONFIG REQUIRED COMPONENTS context)
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
+
 # When using Conan, CMAKE_FIND_PACKAGE_PREFER_CONFIG is enabled and the system
 # c-ares package provides only c-ares::cares. userver::core, however, links
 # against a target named c-ares. Provide a compatibility alias so that userver's
@@ -192,8 +208,6 @@ endif()
 if(USE_SANITIZERS)
   target_compile_options(${PROJECT_NAME} PRIVATE "-fsanitize=address,undefined")
   target_link_options(${PROJECT_NAME} PRIVATE "-fsanitize=address,undefined")
-  # target_compile_options(${TARGET} PRIVATE "-fsanitize=undefined,thread")
-  # target_link_options(${TARGET} PRIVATE "-fsanitize=undefined,thread")
 endif()
 
 file(GLOB_RECURSE SCHEMAS ${CMAKE_CURRENT_SOURCE_DIR}/schemas/*.yaml)

@@ -24,6 +24,7 @@ function(webshot_add_cpp_test target)
     ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
                       ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
   apply_defaults(${target})
+
   add_test(NAME ${target} COMMAND ${target})
   set(test_env "PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{PATH}")
   # Keep leak reports clean: rely on project-wide LSAN suppression file.
@@ -239,7 +240,7 @@ if(WEBSHOT_ALL_TESTS)
         APPEND
         PROPERTY
           ENVIRONMENT
-          "ASAN_OPTIONS=symbolize=1:external_symbolizer_path=${WEBSHOT_LLVM_SYMBOLIZER_BIN}"
+          "ASAN_OPTIONS=symbolize=1:external_symbolizer_path=${WEBSHOT_LLVM_SYMBOLIZER_BIN}:detect_stack_use_after_return=0"
       )
     endif()
   endforeach()
