@@ -23,14 +23,14 @@
 - It is currently impossible to run `devenv` or `devenv tasks` from the agent sandbox due to Nix cache and flake lock write restrictions; all `devenv` invocations (shell entry, task runs, flake updates) MUST be delegated to the human user.
 
 ## Build, Run, Test
-- Configure sanitizer build (Debug + ASan/UBSan) via `cmake --preset configure-preset-clang-san` (binary dir `/tmp/build-webshot-san`).
-- Build service and tests after configuration via `cmake --build --preset build-preset-clang-san`.
-- For release builds, use `configure-preset-clang-release` + `build-preset-clang-release`.
+- Configure sanitizer build (Debug + ASan/UBSan) via `devenv task run webshot:configureSan` (binary dir `/tmp/build-webshot-san`).
+- Build service and tests after configuration via `devenv task run webshot:buildSan`.
+- For release builds, use `devenv task run webshot:configureRelease` + `devenv task run webshot:buildRelease`.
 - When passing config vars on the CLI, use `--config_vars` (underscore); userver does not support a `--config-vars` (dash) flag even if some upstream docs mention it.
 - Run C++ tests in the sanitizer build directory with `ctest --output-on-failure` (usually from `/tmp/build-webshot-san`).
 - Python testsuite tests are run with `pytest` under the `tests/` directory and rely on `pytest_userver` plugins plus the `testsuite` Python package; do NOT add custom virtualenv creation here.
 - The project uses the Ninja generator; there is no need to pass `-j` to `cmake --build` (parallelism is handled by Ninja or `--parallel` if needed).
-- Compute coverage via `configure-preset-clang-cov` + `build-preset-clang-cov` targets is currently experimental and not wired into Nix-driven workflows; expect extra plumbing if you attempt to use it.
+- Compute coverage via `devenv task run webshot:configureCov` + `devenv task run webshot:buildCov` tasks.
 
 ## Style & Naming
 - Classes MUST use PascalCase (for example, `WebshotCrud`).
