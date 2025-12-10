@@ -33,7 +33,7 @@ async def test_capture_and_query_example_com(service_client, pgsql):
     uuid_str = job_body["uuid"]
     normalized_link = job_body["link"]
 
-    # Wait for job completion (allow up to ~60s)
+    # Wait for job completion
     for _ in range(120):
         status_resp = await service_client.get(f"/v1/webshot/jobs/{uuid_str}")
         assert status_resp.status == 200

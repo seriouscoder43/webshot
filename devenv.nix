@@ -38,6 +38,75 @@
   userverPkgs = inputs.userver.packages.${system};
   uniAlgoPkgs = inputs."uni-algo".packages.${system};
   yttsPkgs = inputs."yandex-taxi-testsuite".packages.${system};
+  buildDirs = {
+    san = "/tmp/build-webshot-san";
+    tidy = "/tmp/build-webshot-tidy";
+    cov = "/tmp/build-webshot-cov";
+    release = "/tmp/build-webshot-release";
+  };
+
+  cmakeBaseFlags = [
+    "-S ."
+    "-G Ninja"
+    "-D CMAKE_CXX_COMPILER=clang++"
+    "-D CMAKE_C_COMPILER_LAUNCHER=ccache"
+    "-D CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    "-D WEBSHOT_CLANG_FORMAT=clang-format"
+    "-D USERVER_PYTHON_PATH=$USERVER_PYTHON_PATH"
+    "-D WEBSHOT_USE_MOLD=ON"
+    "-D WEBSHOT_ENABLE_LLVM_SYMBOLIZER=ON"
+    "-D WEBSHOT_ENABLE_SQL_COVERAGE=OFF"
+    "-D userver_DIR=$USERVER_DIR"
+    "-D USERVER_FEATURE_TESTSUITE=ON"
+    "-D USERVER_TESTSUITE_USE_VENV=OFF"
+    "-D USERVER_SQL_USE_VENV=OFF"
+    "-D USERVER_CHAOTIC_USE_VENV=OFF"
+    "-D TESTSUITE_PYTHON_BINARY=$USERVER_PYTHON_PATH"
+    "-Wno-dev"
+  ];
+
+  sanFlags = [
+    "-D CMAKE_CXX_CLANG_TIDY="
+    "-D CMAKE_BUILD_TYPE=Debug"
+    "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    "-D USE_SANITIZERS=ON"
+    "-D BUILD_TESTING=ON"
+    "-D WEBSHOT_LLVM_SYMBOLIZER_BIN=$WEBSHOT_LLVM_SYMBOLIZER_BIN"
+  ];
+
+  tidyFlags =
+    sanFlags
+    ++ [
+      "-D CMAKE_CXX_CLANG_TIDY=clang-tidy"
+    ];
+
+  covFlags =
+    sanFlags
+    ++ [
+      "-D WEBSHOT_ENABLE_COVERAGE=ON"
+      "-D WEBSHOT_LLVM_COV_BIN=llvm-cov"
+      "-D WEBSHOT_LLVM_PROFDATA_BIN=llvm-profdata"
+    ];
+
+  releaseFlags = [
+    "-D CMAKE_CXX_CLANG_TIDY="
+    "-D CMAKE_BUILD_TYPE=Release"
+    "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    "-D USE_SANITIZERS=OFF"
+    "-D BUILD_TESTING=OFF"
+  ];
+
+  mkConfigureTask = buildDir: extraFlags: {
+    cwd = config.git.root;
+    exec = lib.concatStringsSep " " (
+      ["cmake" "-B" buildDir] ++ cmakeBaseFlags ++ extraFlags
+    );
+  };
+
+  mkBuildTask = buildDir: {
+    cwd = config.git.root;
+    exec = "cmake --build ${buildDir}";
+  };
 in {
   cachix.enable = false;
   packages =
@@ -125,15 +194,29 @@ in {
     cwd = config.git.root;
   };
 
-  tasks."webshot:configureSan" = {
-    exec = "cmake --preset configure-preset-clang-san";
-    cwd = config.git.root;
-  };
+  tasks."webshot:configureSan" =
+    mkConfigureTask buildDirs.san sanFlags;
 
-  tasks."webshot:buildSan" = {
-    exec = "cmake --build --preset build-preset-clang-san";
-    cwd = config.git.root;
-  };
+  tasks."webshot:configureTidy" =
+    mkConfigureTask buildDirs.tidy tidyFlags;
+
+  tasks."webshot:configureCov" =
+    mkConfigureTask buildDirs.cov covFlags;
+
+  tasks."webshot:configureRelease" =
+    mkConfigureTask buildDirs.release releaseFlags;
+
+  tasks."webshot:buildSan" =
+    mkBuildTask buildDirs.san;
+
+  tasks."webshot:buildTidy" =
+    mkBuildTask buildDirs.tidy;
+
+  tasks."webshot:buildCov" =
+    mkBuildTask buildDirs.cov;
+
+  tasks."webshot:buildRelease" =
+    mkBuildTask buildDirs.release;
 
   tasks."webshot:testSan" = {
     package = webshotTestSan;
