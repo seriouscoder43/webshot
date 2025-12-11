@@ -3,6 +3,7 @@ import uuid
 from urllib.parse import urlparse
 
 import pytest
+from helpers.constants import TEST_HOST
 from helpers.prefix import prefix_key_from_link
 
 
@@ -24,7 +25,7 @@ async def _wait_for_purge(db, prefix_key: str, timeout: float = 30.0, delay: flo
 
 @pytest.mark.asyncio
 async def test_capture_and_query_example_com(service_client, pgsql):
-    link = "https://example.com/webshot-capture-path"
+    link = f"https://{TEST_HOST}/webshot-capture-path"
 
     # Create capture
     resp = await service_client.post("/v1/webshot", json={"link": link})
@@ -61,7 +62,7 @@ async def test_capture_and_query_example_com(service_client, pgsql):
     assert any(item["uuid"] == uuid_str for item in items)
 
     # List by prefix (use host prefix)
-    prefix = urlparse(normalized_link).hostname or "example.com"
+    prefix = urlparse(normalized_link).hostname or TEST_HOST
     resp = await service_client.get("/v1/webshot/prefix", params={"prefix": prefix})
     assert resp.status == 200
     prefix_items = resp.json()["items"]
@@ -85,7 +86,7 @@ async def test_capture_and_query_example_com(service_client, pgsql):
 
 @pytest.mark.asyncio
 async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
-    host = "example.com"
+    host = TEST_HOST
     link = f"https://{host}/"
     prefix_key = prefix_key_from_link(link)
 

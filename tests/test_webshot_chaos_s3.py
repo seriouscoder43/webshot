@@ -2,13 +2,14 @@ import asyncio
 import uuid
 
 import pytest
+from helpers.constants import TEST_HOST
 
 
 @pytest.mark.asyncio
 async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
     await s3_gate.stop_accepting()
 
-    link = "https://example.com/chaos-s3-failure"
+    link = f"https://{TEST_HOST}/chaos-s3-failure"
     resp = await service_client.post("/v1/webshot", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
@@ -43,7 +44,7 @@ async def test_s3_recovers_after_outage(service_client, s3_gate):
     await s3_gate.to_client_pass()
     s3_gate.start_accepting()
 
-    link = "https://example.com/chaos-s3-recover"
+    link = f"https://{TEST_HOST}/chaos-s3-recover"
     resp = await service_client.post("/v1/webshot", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]

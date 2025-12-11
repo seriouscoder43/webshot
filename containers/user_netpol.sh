@@ -16,7 +16,7 @@ if ! command -v iptables >/dev/null 2>&1; then
 fi
 
 # Default crawler network IPv4 CIDR; can be overridden via environment.
-DEFAULT_CRAWLER_V4_CIDR="${DEFAULT_CRAWLER_V4_CIDR:-172.31.0.0/16}"
+DEFAULT_CRAWLER_V4_CIDR="${DEFAULT_CRAWLER_V4_CIDR:-192.0.2.0/24}"
 
 cmd="${1:-}"
 cidr_v4="${2:-}"

@@ -5,5 +5,5 @@ Requires=webshot-postgres.service
 Requires=webshot-seaweed.service
 Requires=webshot-scalar.service
 Requires=webshot-reverse-proxy.service
+Requires=webshot-test-target.service
 After=webshot-crawler-network.service
-

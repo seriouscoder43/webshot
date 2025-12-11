@@ -1,12 +1,13 @@
 import asyncio
 
 import pytest
+from helpers.constants import TEST_HOST
 from helpers.prefix import prefix_key_from_link
 
 
 @pytest.mark.asyncio
 async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
-    link = "https://example.com/concurrent-cooldown-path"
+    link = f"https://{TEST_HOST}/concurrent-cooldown-path"
 
     tasks = [service_client.post("/v1/webshot", json={"link": link}) for _ in range(20)]
     responses = await asyncio.gather(*tasks)
@@ -22,7 +23,7 @@ async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
 
 @pytest.mark.asyncio
 async def test_concurrent_different_links_create_jobs(service_client, pgsql):
-    links = [f"https://example.com/concurrent-{i}" for i in range(12)]
+    links = [f"https://{TEST_HOST}/concurrent-{i}" for i in range(12)]
 
     responses = await asyncio.gather(
         *[service_client.post("/v1/webshot", json={"link": link_value}) for link_value in links]
@@ -48,7 +49,7 @@ async def test_concurrent_different_links_create_jobs(service_client, pgsql):
 
 @pytest.mark.asyncio
 async def test_disallow_and_purge_blocks_concurrent_new_captures(service_client, pgsql):
-    host = "example.com"
+    host = TEST_HOST
     link = f"https://{host}/concurrent-purge"
     prefix_key = prefix_key_from_link(link)
 

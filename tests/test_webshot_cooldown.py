@@ -1,8 +1,10 @@
 import uuid
 
+from helpers.constants import TEST_HOST
+
 
 async def test_create_webshot_respects_link_cooldown(service_client, pgsql):
-    link = "https://example.com/cooldown-path"
+    link = f"https://{TEST_HOST}/cooldown-path"
 
     resp1 = await service_client.post("/v1/webshot", json={"link": link})
     assert resp1.status == 202

@@ -1,6 +1,7 @@
 import pathlib
 import uuid
 
+from helpers.constants import TEST_HOST
 from helpers.prefix import prefix_key_from_link
 from helpers.sql_loader import _adapt_positional_to_psycopg
 
@@ -27,18 +28,18 @@ async def test_list_webshots_orders_by_created_at(
             INSERT_WEBSHOT_SQL,
             (
                 newer_id,
-                "example.com/a",
-                prefix_key_from_link("example.com/a"),
-                f"http://example.com/{newer_id}",
+                f"{TEST_HOST}/a",
+                prefix_key_from_link(f"{TEST_HOST}/a"),
+                f"http://{TEST_HOST}/{newer_id}",
             ),
         )
         cur.execute(
             INSERT_WEBSHOT_SQL,
             (
                 older_id,
-                "example.com/a",
-                prefix_key_from_link("example.com/a"),
-                f"http://example.com/{older_id}",
+                f"{TEST_HOST}/a",
+                prefix_key_from_link(f"{TEST_HOST}/a"),
+                f"http://{TEST_HOST}/{older_id}",
             ),
         )
     finally:
@@ -46,7 +47,7 @@ async def test_list_webshots_orders_by_created_at(
 
     response = await service_client.get(
         "/v1/webshot",
-        params={"link": "example.com/a"},
+        params={"link": f"{TEST_HOST}/a"},
     )
 
     assert response.status == 200
@@ -69,18 +70,18 @@ async def test_list_webshots_prefix_sees_inserted_links(
             INSERT_WEBSHOT_SQL,
             (
                 uuid.uuid4(),
-                "example.com/prefix/a",
-                prefix_key_from_link("example.com/prefix/a"),
-                "http://example.com/prefix/a",
+                f"{TEST_HOST}/prefix/a",
+                prefix_key_from_link(f"{TEST_HOST}/prefix/a"),
+                f"http://{TEST_HOST}/prefix/a",
             ),
         )
         cur.execute(
             INSERT_WEBSHOT_SQL,
             (
                 uuid.uuid4(),
-                "example.com/prefix/b",
-                prefix_key_from_link("example.com/prefix/b"),
-                "http://example.com/prefix/b",
+                f"{TEST_HOST}/prefix/b",
+                prefix_key_from_link(f"{TEST_HOST}/prefix/b"),
+                f"http://{TEST_HOST}/prefix/b",
             ),
         )
     finally:
@@ -88,13 +89,13 @@ async def test_list_webshots_prefix_sees_inserted_links(
 
     response = await service_client.get(
         "/v1/webshot/prefix",
-        params={"prefix": "example.com/prefix"},
+        params={"prefix": f"{TEST_HOST}/prefix"},
     )
 
     assert response.status == 200
     body = response.json()
     links = {item["link"] for item in body["items"]}
-    assert {"example.com/prefix/a", "example.com/prefix/b"}.issubset(links)
+    assert {f"{TEST_HOST}/prefix/a", f"{TEST_HOST}/prefix/b"}.issubset(links)
 
 
 async def test_list_webshots_paged_two_pages(
@@ -115,9 +116,9 @@ async def test_list_webshots_paged_two_pages(
                 INSERT_WEBSHOT_SQL,
                 (
                     webshot_id,
-                    "example.com/a",
-                    prefix_key_from_link("example.com/a"),
-                    f"http://example.com/{webshot_id}",
+                    f"{TEST_HOST}/a",
+                    prefix_key_from_link(f"{TEST_HOST}/a"),
+                    f"http://{TEST_HOST}/{webshot_id}",
                 ),
             )
     finally:
@@ -126,7 +127,7 @@ async def test_list_webshots_paged_two_pages(
     # First page: 2 items (webshots-page-max), next_page_token present.
     resp1 = await service_client.get(
         "/v1/webshot",
-        params={"link": "example.com/a"},
+        params={"link": f"{TEST_HOST}/a"},
     )
     assert resp1.status == 200
     body1 = resp1.json()
@@ -138,7 +139,7 @@ async def test_list_webshots_paged_two_pages(
     # Second page: remaining 1 item, next_page_token is null/absent.
     resp2 = await service_client.get(
         "/v1/webshot",
-        params={"link": "example.com/a", "page_token": next_token},
+        params={"link": f"{TEST_HOST}/a", "page_token": next_token},
     )
     assert resp2.status == 200
     body2 = resp2.json()

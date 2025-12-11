@@ -1,3 +1,5 @@
+from helpers.constants import TEST_HOST
+
 INVALID_PAGE_TOKEN_MSG = "page_token: invalid page_token"
 
 
@@ -12,7 +14,7 @@ async def test_list_webshots_missing_link(service_client):
 async def test_list_webshots_invalid_page_token(service_client):
     response = await service_client.get(
         "/v1/webshot",
-        params={"link": "example.com/a", "page_token": "not-a-token"},
+        params={"link": f"{TEST_HOST}/a", "page_token": "not-a-token"},
     )
 
     assert response.status == 400
@@ -23,7 +25,7 @@ async def test_list_webshots_invalid_page_token(service_client):
 async def test_list_webshots_empty_result(service_client):
     response = await service_client.get(
         "/v1/webshot",
-        params={"link": "example.com/a"},
+        params={"link": f"{TEST_HOST}/a"},
     )
 
     assert response.status == 200
@@ -44,7 +46,7 @@ async def test_list_webshots_prefix_missing_prefix(service_client):
 async def test_list_webshots_prefix_invalid_page_token(service_client):
     response = await service_client.get(
         "/v1/webshot/prefix",
-        params={"prefix": "example.com/a", "page_token": "not-a-token"},
+        params={"prefix": f"{TEST_HOST}/a", "page_token": "not-a-token"},
     )
 
     assert response.status == 400
@@ -55,7 +57,7 @@ async def test_list_webshots_prefix_invalid_page_token(service_client):
 async def test_list_webshots_prefix_empty_result(service_client):
     response = await service_client.get(
         "/v1/webshot/prefix",
-        params={"prefix": "example.com/a"},
+        params={"prefix": f"{TEST_HOST}/a"},
     )
 
     assert response.status == 200
@@ -107,13 +109,13 @@ async def test_create_webshot_denylisted_host(service_client):
     # Insert host into denylist via dedicated endpoint.
     deny_resp = await service_client.post(
         "/v1/disallow-and-purge",
-        params={"host": "https://example.com/"},
+        params={"host": f"https://{TEST_HOST}/"},
     )
     assert deny_resp.status == 202
 
     response = await service_client.post(
         "/v1/webshot",
-        json={"link": "https://example.com/"},
+        json={"link": f"https://{TEST_HOST}/"},
     )
 
     assert response.status == 403

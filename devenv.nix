@@ -121,7 +121,7 @@ in {
     ]
     ++ userverDeps
     ++ [webshotTestSan]
-    ++ (with pkgs; [gdb]);
+    ++ (with pkgs; [lldb]);
 
   treefmt = {
     enable = true;

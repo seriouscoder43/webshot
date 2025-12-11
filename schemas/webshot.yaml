@@ -81,11 +81,11 @@ paths:
               full-url:
                 summary: Full HTTP URL
                 value:
-                  link: https://example.org/path?q=1
+                  link: https://example.com/path?q=1
               host-without-scheme:
                 summary: Host with optional path
                 value:
-                  link: example.org/path?q=1
+                  link: example.com/path?q=1
       responses:
         '202':
           description: Capture job enqueued; job descriptor returned.

@@ -23,6 +23,7 @@ for unit in containers/quadlet/webshot-crawler.network \
             containers/quadlet/webshot-postgres.container \
             containers/quadlet/webshot-seaweed.container \
             containers/quadlet/webshot-scalar.container \
+            containers/quadlet/webshot-test-target.container \
             containers/quadlet/webshot-reverse-proxy.container; do
   if [[ ! -f "${unit}" ]]; then
     echo "Skipping missing unit template: ${unit}" >&2
