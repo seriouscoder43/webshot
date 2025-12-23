@@ -4,13 +4,15 @@
   inputs,
   ...
 }: let
-  lib = pkgs.lib;
-  buildDeps = import ./nix/common_deps.nix {inherit pkgs;};
-  toolchain = import ./nix/toolchain.nix {inherit pkgs;};
-  llvm21 = pkgs.llvmPackages_21;
-  system = pkgs.stdenv.system;
+  pkgsWithOverlay = pkgs.extend (import ./nix/overlays/boost-stacktrace-backtrace.nix);
 
-  python = pkgs.python3;
+  lib = pkgsWithOverlay.lib;
+  buildDeps = import ./nix/common_deps.nix {pkgs = pkgsWithOverlay;};
+  toolchain = import ./nix/toolchain.nix {pkgs = pkgsWithOverlay;};
+  llvm21 = pkgsWithOverlay.llvmPackages_21;
+  system = pkgsWithOverlay.stdenv.system;
+
+  python = pkgsWithOverlay.python3;
   chaoticPython = python.withPackages (ps: [
     ps.jinja2
     ps.pyyaml
@@ -21,14 +23,15 @@
   ]);
 
   userverDeps = import ./nix/userver/deps.nix {
-    inherit pkgs chaoticPython;
+    pkgs = pkgsWithOverlay;
+    inherit chaoticPython;
   };
 
   # Extra libs needed by C++ tests; used only in a dedicated wrapper,
   # not exported globally into the dev shell.
-  testLibs = userverDeps ++ [pkgs.stdenv.cc.cc];
+  testLibs = userverDeps ++ [pkgsWithOverlay.stdenv.cc.cc];
 
-  webshotTestSan = pkgs.writeShellScriptBin "webshot-test-san" ''
+  webshotTestSan = pkgsWithOverlay.writeShellScriptBin "webshot-test-san" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
     cd /tmp/build-webshot-san
@@ -121,7 +124,7 @@ in {
     ]
     ++ userverDeps
     ++ [webshotTestSan]
-    ++ (with pkgs; [git gdb]);
+    ++ (with pkgsWithOverlay; [git gdb]);
 
   treefmt = {
     enable = true;
@@ -154,22 +157,22 @@ in {
     sqlfluff-lint = {
       enable = true;
       entry = "sqlfluff lint";
-      package = pkgs.sqlfluff;
+      package = pkgsWithOverlay.sqlfluff;
       language = "system";
       files = "\\.sql$";
     };
   };
   env.CMAKE_PREFIX_PATH = lib.makeSearchPath "lib/cmake" [
     userverPkgs.userver-debug-addr-ub
-    pkgs.boost183.dev
-    pkgs.fmt.dev
-    pkgs.zstd.dev
-    pkgs.cctz
-    pkgs.yaml-cpp
+    pkgsWithOverlay.boost183.dev
+    pkgsWithOverlay.fmt.dev
+    pkgsWithOverlay.zstd.dev
+    pkgsWithOverlay.cctz
+    pkgsWithOverlay.yaml-cpp
   ];
 
   env.PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
-    pkgs.cryptopp.dev
+    pkgsWithOverlay.cryptopp.dev
   ];
 
   env.USERVER_PYTHON = "${chaoticPython}/bin/python3";

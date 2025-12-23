@@ -11,7 +11,10 @@
     forAllSystems = f:
       nixpkgs.lib.genAttrs systems
       (system: let
-        pkgs = import nixpkgs {inherit system;};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [(import ../overlays/boost-stacktrace-backtrace.nix)];
+        };
         llvm = pkgs.llvmPackages_21;
         stdenv = llvm.stdenv;
       in

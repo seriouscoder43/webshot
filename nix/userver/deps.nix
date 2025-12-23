@@ -8,6 +8,7 @@
   jemalloc
   zlib
   boost183
+  libbacktrace
   zstd
   yaml-cpp
   cryptopp

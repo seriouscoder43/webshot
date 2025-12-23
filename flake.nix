@@ -12,7 +12,10 @@
     flake-utils.lib.eachDefaultSystem (
       system: let
         system = "x86_64-linux";
-        pkgs = import nixpkgs {inherit system;};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [(import ./nix/overlays/boost-stacktrace-backtrace.nix)];
+        };
         toolchain = import ./nix/toolchain.nix {inherit pkgs;};
         buildDeps = import ./nix/common_deps.nix {inherit pkgs;};
       in {
