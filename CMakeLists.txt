@@ -171,14 +171,8 @@ find_package(ada CONFIG REQUIRED COMPONENTS ada)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ada::ada)
 find_package(uni-algo CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE uni-algo::uni-algo)
-# RE2 (static) on Debian/Ubuntu links against Abseil. Pull Abseil targets
-# explicitly so lld can resolve symbols exported by libre2.a.
 find_package(absl CONFIG REQUIRED)
-# RE2's static lib on Debian/Ubuntu depends on Abseil; propagate to consumers of
-# the object lib
-target_link_libraries(
-  ${PROJECT_NAME}_objs PUBLIC absl::str_format absl::strings absl::log
-                              absl::raw_hash_set)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
                       PUBLIC userver::core userver::postgresql userver::s3api)
 target_sources(
@@ -231,10 +225,7 @@ target_link_libraries(
           userver::core
           userver::postgresql
           userver::s3api
-          absl::str_format
           absl::strings
-          absl::log
-          absl::raw_hash_set
           uni-algo::uni-algo)
 target_include_directories(
   ${PROJECT_NAME}_objs PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/src/

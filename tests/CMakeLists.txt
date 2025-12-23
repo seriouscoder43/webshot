@@ -15,10 +15,7 @@ function(webshot_add_cpp_test target)
             fmt::fmt
             ada::ada
             uni-algo::uni-algo
-            absl::str_format
             absl::strings
-            absl::log
-            absl::raw_hash_set
             ${ARGS_LIBS})
   target_include_directories(
     ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
