@@ -1,8 +1,8 @@
 [Unit]
-Description=Webshot service (host, prod-like)
+Description=Webshot service (host, prodlike)
 Requires=webshot-postgres.service
 After=webshot-postgres.service
-PartOf=webshot-prod-debug-stack.target
+PartOf=webshot-prodlike.target
 
 [Service]
 Type=simple

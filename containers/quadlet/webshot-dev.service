@@ -1,10 +1,10 @@
 [Unit]
-Description=Webshot service (host)
+Description=Webshot service (host, dev)
 Requires=webshot-postgres.service
 Requires=webshot-seaweed.service
 After=webshot-postgres.service
 After=webshot-seaweed.service
-PartOf=webshot-debug-stack.target
+PartOf=webshot-dev.target
 
 [Service]
 Type=simple

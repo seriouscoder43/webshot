@@ -4,8 +4,8 @@ After=webshot-crawler-network.service
 After=webshot-scalar.service
 Requires=webshot-crawler-network.service
 Requires=webshot-scalar.service
-PartOf=webshot-debug-stack.target
-PartOf=webshot-prod-debug-stack.target
+PartOf=webshot-dev.target
+PartOf=webshot-prodlike.target
 
 [Service]
 Restart=on-failure

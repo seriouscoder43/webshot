@@ -1,7 +1,7 @@
 [Unit]
 Description=Webshot crawler bridge network
-PartOf=webshot-stack.target
-PartOf=webshot-prod-stack.target
+PartOf=webshot-infra-dev.target
+PartOf=webshot-infra-prodlike.target
 
 [Network]
 NetworkName=crawler_net

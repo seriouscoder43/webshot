@@ -99,11 +99,26 @@
     "-D BUILD_TESTING=OFF"
   ];
 
-  mkConfigureTask = buildDir: extraFlags: {
+  mkClangdConfig = name: buildDir:
+    pkgsWithOverlay.writeText "webshot-clangd-${name}" ''
+      CompileFlags:
+        CompilationDatabase: ${buildDir}
+    '';
+
+  clangdConfigs = {
+    san = mkClangdConfig "san" buildDirs.san;
+    tidy = mkClangdConfig "tidy" buildDirs.tidy;
+    cov = mkClangdConfig "cov" buildDirs.cov;
+    release = mkClangdConfig "release" buildDirs.release;
+  };
+
+  mkConfigureTask = buildDir: clangdConfig: extraFlags: {
     cwd = config.git.root;
-    exec = lib.concatStringsSep " " (
-      ["cmake" "-B" buildDir] ++ cmakeBaseFlags ++ extraFlags
-    );
+    exec =
+      lib.concatStringsSep " " (
+        ["cmake" "-B" buildDir] ++ cmakeBaseFlags ++ extraFlags
+      )
+      + ''&& ln -sf ${clangdConfig} .clangd'';
   };
 
   mkBuildTask = buildDir: {
@@ -189,57 +204,57 @@ in {
   env.WEBSHOT_LLVM_SYMBOLIZER_BIN = "${llvm21.llvm}/bin/llvm-symbolizer";
   env.WEBSHOT_RUNTIME_LD_LIBRARY_PATH = lib.makeLibraryPath testLibs;
 
-  tasks."webshot:infraUp" = {
-    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-stack.target";
+  tasks."webshot:infraDevUp" = {
+    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-infra-dev.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:infraDown" = {
-    exec = "systemctl --user stop webshot-stack.target";
+  tasks."webshot:infraDevDown" = {
+    exec = "systemctl --user stop webshot-infra-dev.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:debugUp" = {
-    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-debug-stack.target";
+  tasks."webshot:devUp" = {
+    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-dev.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:debugDown" = {
-    exec = "systemctl --user stop webshot-debug-stack.target";
+  tasks."webshot:devDown" = {
+    exec = "systemctl --user stop webshot-dev.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:prodInfraUp" = {
-    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-prod-stack.target";
+  tasks."webshot:infraProdlikeUp" = {
+    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-infra-prodlike.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:prodInfraDown" = {
-    exec = "systemctl --user stop webshot-prod-stack.target";
+  tasks."webshot:infraProdlikeDown" = {
+    exec = "systemctl --user stop webshot-infra-prodlike.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:prodDebugUp" = {
-    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-prod-debug-stack.target";
+  tasks."webshot:prodlikeUp" = {
+    exec = "bash containers/quadlet/install_quadlet.sh && systemctl --user start webshot-prodlike.target";
     cwd = config.git.root;
   };
 
-  tasks."webshot:prodDebugDown" = {
-    exec = "systemctl --user stop webshot-prod-debug-stack.target";
+  tasks."webshot:prodlikeDown" = {
+    exec = "systemctl --user stop webshot-prodlike.target";
     cwd = config.git.root;
   };
 
   tasks."webshot:configureSan" =
-    mkConfigureTask buildDirs.san sanFlags;
+    mkConfigureTask buildDirs.san clangdConfigs.san sanFlags;
 
   tasks."webshot:configureTidy" =
-    mkConfigureTask buildDirs.tidy tidyFlags;
+    mkConfigureTask buildDirs.tidy clangdConfigs.tidy tidyFlags;
 
   tasks."webshot:configureCov" =
-    mkConfigureTask buildDirs.cov covFlags;
+    mkConfigureTask buildDirs.cov clangdConfigs.cov covFlags;
 
   tasks."webshot:configureRelease" =
-    mkConfigureTask buildDirs.release releaseFlags;
+    mkConfigureTask buildDirs.release clangdConfigs.release releaseFlags;
 
   tasks."webshot:buildSan" =
     mkBuildTask buildDirs.san;

@@ -3,6 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd -- "${script_dir}/../.." && pwd)"
+build_dir="${WEBSHOT_BUILD_DIR:-/tmp/build-webshot-san}"
 
 containers_dest="${XDG_CONFIG_HOME:-"${HOME}/.config"}/containers/systemd"
 user_units_dest="${XDG_CONFIG_HOME:-"${HOME}/.config"}/systemd/user"
@@ -24,13 +25,13 @@ echo "Setting user systemd environment: WEBSHOT_ROOT=${root}"
 if [[ -n "${WEBSHOT_RUNTIME_LD_LIBRARY_PATH:-}" ]]; then
   systemctl --user set-environment \
     "WEBSHOT_ROOT=${root}" \
-    "WEBSHOT_BUILD_DIR=/tmp/build-webshot-san" \
+    "WEBSHOT_BUILD_DIR=${build_dir}" \
     "WEBSHOT_RUNTIME_LD_LIBRARY_PATH=${WEBSHOT_RUNTIME_LD_LIBRARY_PATH}"
 else
   systemctl --user set-environment \
     "WEBSHOT_ROOT=${root}" \
-    "WEBSHOT_BUILD_DIR=/tmp/build-webshot-san"
-  echo "Note: WEBSHOT_RUNTIME_LD_LIBRARY_PATH is not set; host webshot.service may fail to start." >&2
+    "WEBSHOT_BUILD_DIR=${build_dir}"
+  echo "Note: WEBSHOT_RUNTIME_LD_LIBRARY_PATH is not set; host webshot-*.service may fail to start." >&2
   echo "Tip: run this script under devenv shell/direnv so it can export the runtime library path." >&2
 fi
 
@@ -76,12 +77,12 @@ for unit in "${quadlet_units[@]}"; do
 done
 
 user_units=(
-  containers/quadlet/webshot-stack.target
-  containers/quadlet/webshot-prod-stack.target
-  containers/quadlet/webshot-debug-stack.target
-  containers/quadlet/webshot-prod-debug-stack.target
-  containers/quadlet/webshot.service
-  containers/quadlet/webshot-prod.service
+  containers/quadlet/webshot-infra-dev.target
+  containers/quadlet/webshot-infra-prodlike.target
+  containers/quadlet/webshot-dev.target
+  containers/quadlet/webshot-prodlike.target
+  containers/quadlet/webshot-dev.service
+  containers/quadlet/webshot-prodlike.service
 )
 
 for unit in "${user_units[@]}"; do

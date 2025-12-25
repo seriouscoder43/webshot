@@ -2,7 +2,7 @@
 Description=Webshot SeaweedFS all-in-one (S3 + filer)
 After=webshot-crawler-network.service
 Requires=webshot-crawler-network.service
-PartOf=webshot-stack.target
+PartOf=webshot-infra-dev.target
 
 [Service]
 Restart=on-failure
