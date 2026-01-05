@@ -1,0 +1,37 @@
+version: "0.5"
+is_strict: true
+
+processes:
+  infra:
+    command: "bash containers/process-compose/infra_daemon.sh dev"
+    is_daemon: true
+    log_location: "${WEBSHOT_STATE_DIR}/dev/infra.log"
+    readiness_probe:
+      exec:
+        command: "bash containers/process-compose/infra_ready.sh dev"
+      initial_delay_seconds: 5
+      period_seconds: 1
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 300
+    availability:
+      restart: on_failure
+      backoff_seconds: 1
+      max_restarts: 10
+    shutdown:
+      command: "bash containers/process-compose/infra_down.sh dev"
+      timeout_seconds: 60
+
+  webshot:
+    command: "${WEBSHOT_BUILD_DIR}/webshot --config config/static_config.yaml --config_vars config/config_vars.debug.yaml"
+    depends_on:
+      infra:
+        condition: process_healthy
+    environment:
+      - "LD_LIBRARY_PATH=${WEBSHOT_RUNTIME_LD_LIBRARY_PATH}"
+      - "CPU_LIMIT=4c"
+    log_location: "${WEBSHOT_STATE_DIR}/dev/webshot.log"
+    availability:
+      restart: on_failure
+      backoff_seconds: 1
+      max_restarts: 3
