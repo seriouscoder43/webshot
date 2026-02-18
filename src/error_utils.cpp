@@ -3,7 +3,7 @@
  * @file
  * @brief Helpers to produce JSON error envelopes used by handlers.
  */
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "text.hpp"
 
 #include <fmt/format.h>

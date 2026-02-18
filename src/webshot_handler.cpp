@@ -6,7 +6,7 @@
 #include "deadline_utils.hpp"
 #include "http_utils.hpp"
 #include "link.hpp"
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
 #include "webshot_config.hpp"

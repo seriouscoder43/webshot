@@ -147,7 +147,7 @@ if(USERVER_FEATURE_TESTSUITE)
     --service-config=${CMAKE_SOURCE_DIR}/config/static_config.yaml
     --service-config-vars=${CMAKE_SOURCE_DIR}/config/config_vars.testsuite.yaml
     --service-binary=$<TARGET_FILE:${PROJECT_NAME}>
-    --service-secdist=${CMAKE_SOURCE_DIR}/secrets/test_secdist.json
+    --service-secdist=${CMAKE_SOURCE_DIR}/secret/test_secdist.json
     --service-source-dir=${CMAKE_SOURCE_DIR}
     --postgresql=postgresql://postgres@localhost:5432/postgres)
 

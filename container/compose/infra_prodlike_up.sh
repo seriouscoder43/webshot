@@ -8,16 +8,11 @@ need podman
 need_compose
 
 cd -- "${script_dir}"
-compose_file="infra-dev.yaml"
+compose_file="infra_prodlike.yaml"
 
 bash "${script_dir}/ensure_networks.sh"
 
 compose --in-pod true -f "${compose_file}" up -d
 
-wait_healthy egress-proxy 120
+wait_healthy egress_proxy 120
 wait_healthy servicedb 120
-wait_healthy seaweedfs 120
-
-wait_running webshot_scalar 120
-wait_running webshot_reverse_proxy 120
-wait_running webshot-test-target 120

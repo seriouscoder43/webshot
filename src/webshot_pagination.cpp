@@ -5,7 +5,7 @@
 
 #include "webshot_pagination.hpp"
 
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 
 namespace v1::crud {
 

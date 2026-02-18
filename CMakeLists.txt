@@ -182,7 +182,7 @@ userver_add_sql_library(
   NAMESPACE
   webshot
   SOURCE_DIR
-  sql/queries
+  sql/query
   OUTPUT_DIR
   ${CMAKE_CURRENT_BINARY_DIR}
   SQL_FILES
@@ -200,7 +200,7 @@ if(USE_SANITIZERS)
   target_link_options(${PROJECT_NAME} PRIVATE "-fsanitize=address,undefined")
 endif()
 
-file(GLOB_RECURSE SCHEMAS ${CMAKE_CURRENT_SOURCE_DIR}/schemas/*.yaml)
+file(GLOB_RECURSE SCHEMAS ${CMAKE_CURRENT_SOURCE_DIR}/schema/*.yaml)
 userver_target_generate_chaotic(
   ${PROJECT_NAME}-chgen
   GENERATE_SERIALIZERS

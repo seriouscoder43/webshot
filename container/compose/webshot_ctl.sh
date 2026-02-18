@@ -61,18 +61,18 @@ webshot_stop_timeout_sec="${WEBSHOT_WEBSHOT_STOP_TIMEOUT_SEC:-30}"
 
 infra_up() {
   case "${mode}" in
-    dev) bash containers/compose/infra_dev_up.sh ;;
-    prodlike) bash containers/compose/infra_prodlike_up.sh ;;
+    dev) bash container/compose/infra_dev_up.sh ;;
+    prodlike) bash container/compose/infra_prodlike_up.sh ;;
   esac
 
   local deadline=$((SECONDS + infra_ready_timeout_sec))
   while true; do
-    if bash containers/compose/infra_ready.sh "${mode}" >/dev/null 2>&1; then
+    if bash container/compose/infra_ready.sh "${mode}" >/dev/null 2>&1; then
       return 0
     fi
     if ((SECONDS >= deadline)); then
       echo "Infra did not become ready within ${infra_ready_timeout_sec}s." >&2
-      bash containers/compose/infra_ready.sh "${mode}" --verbose || true
+      bash container/compose/infra_ready.sh "${mode}" --verbose || true
       return 1
     fi
     sleep 1
@@ -81,8 +81,8 @@ infra_up() {
 
 infra_down() {
   case "${mode}" in
-    dev) bash containers/compose/infra_dev_down.sh ;;
-    prodlike) bash containers/compose/infra_prodlike_down.sh ;;
+    dev) bash container/compose/infra_dev_down.sh ;;
+    prodlike) bash container/compose/infra_prodlike_down.sh ;;
   esac
 }
 
@@ -223,11 +223,11 @@ webshot_stop() {
 print_status() {
   echo "Mode: ${mode}"
 
-  if bash containers/compose/infra_ready.sh "${mode}" >/dev/null 2>&1; then
+  if bash container/compose/infra_ready.sh "${mode}" >/dev/null 2>&1; then
     echo "Infra: ready"
   else
     echo "Infra: not ready"
-    bash containers/compose/infra_ready.sh "${mode}" --verbose || true
+    bash container/compose/infra_ready.sh "${mode}" --verbose || true
   fi
 
   if [[ -f "${webshot_pid_file}" ]]; then

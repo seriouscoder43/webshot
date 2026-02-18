@@ -157,7 +157,7 @@ in {
         ".direnv/**"
         ".cache/**"
         ".pytest_cache/**"
-        "secrets/**"
+        "secret/**"
       ];
     };
   };
@@ -215,62 +215,62 @@ in {
   env.WEBSHOT_STATE_DIR = "${config.devenv.root}/.cache/webshot";
 
   tasks."webshot:infraDevUp" = {
-    exec = "bash containers/compose/infra_dev_up.sh";
+    exec = "bash container/compose/infra_dev_up.sh";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:infraDevDown" = {
-    exec = "bash containers/compose/infra_dev_down.sh";
+    exec = "bash container/compose/infra_dev_down.sh";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:devUp" = {
-    exec = "bash containers/compose/webshot_ctl.sh dev up";
+    exec = "bash container/compose/webshot_ctl.sh dev up";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:devDown" = {
-    exec = "bash containers/compose/webshot_ctl.sh dev down";
+    exec = "bash container/compose/webshot_ctl.sh dev down";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:devStatus" = {
-    exec = "bash containers/compose/webshot_ctl.sh dev status";
+    exec = "bash container/compose/webshot_ctl.sh dev status";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:devLogs" = {
-    exec = "bash containers/compose/webshot_ctl.sh dev logs";
+    exec = "bash container/compose/webshot_ctl.sh dev logs";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:infraProdlikeUp" = {
-    exec = "bash containers/compose/infra_prodlike_up.sh";
+    exec = "bash container/compose/infra_prodlike_up.sh";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:infraProdlikeDown" = {
-    exec = "bash containers/compose/infra_prodlike_down.sh";
+    exec = "bash container/compose/infra_prodlike_down.sh";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:prodlikeUp" = {
-    exec = "bash containers/compose/webshot_ctl.sh prodlike up";
+    exec = "bash container/compose/webshot_ctl.sh prodlike up";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:prodlikeDown" = {
-    exec = "bash containers/compose/webshot_ctl.sh prodlike down";
+    exec = "bash container/compose/webshot_ctl.sh prodlike down";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:prodlikeStatus" = {
-    exec = "bash containers/compose/webshot_ctl.sh prodlike status";
+    exec = "bash container/compose/webshot_ctl.sh prodlike status";
     cwd = config.devenv.root;
   };
 
   tasks."webshot:prodlikeLogs" = {
-    exec = "bash containers/compose/webshot_ctl.sh prodlike logs";
+    exec = "bash container/compose/webshot_ctl.sh prodlike logs";
     cwd = config.devenv.root;
   };
 

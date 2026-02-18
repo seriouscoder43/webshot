@@ -84,7 +84,7 @@ async def s3_gate_ready(s3_gate, service_source_dir: pathlib.Path):
     await s3_gate.to_server_pass()
     await s3_gate.to_client_pass()
     s3_gate.start_accepting()
-    secrets_path = service_source_dir / "secrets" / "test_secdist.json"
+    secrets_path = service_source_dir / "secret" / "test_secdist.json"
     ensure_s3_bucket_exists(secrets_path=secrets_path, endpoint="localhost:8333", bucket="webshot")
     yield s3_gate
 
@@ -125,7 +125,7 @@ def userver_pg_config(pgsql_local, pg_gate):
 
 @pytest.fixture(scope="session")
 def service_secdist_path(service_source_dir: pathlib.Path) -> pathlib.Path:
-    return service_source_dir / "secrets" / "test_secdist.json"
+    return service_source_dir / "secret" / "test_secdist.json"
 
 
 @pytest.fixture(scope="session")

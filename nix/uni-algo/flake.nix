@@ -39,7 +39,7 @@
         version = "1.2.0";
         src = uniAlgoSrc pkgs;
 
-        patches = [../../patches/uni-algo_enable_constexpr.patch];
+        patches = [../../patch/uni_algo_enable_constexpr.patch];
 
         nativeBuildInputs = with pkgs; [
           cmake

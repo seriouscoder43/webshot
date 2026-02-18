@@ -1,7 +1,7 @@
 #pragma once
 
 #include "link.hpp"
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "text.hpp"
 
 #include <string_view>

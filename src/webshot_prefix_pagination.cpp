@@ -5,7 +5,7 @@
 
 #include "webshot_prefix_pagination.hpp"
 
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "text.hpp"
 #include "utils.hpp"
 

@@ -3,4 +3,4 @@ set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-bash "${script_dir}/../process-compose/webshot_pc.sh" dev down
+bash "${script_dir}/webshot_ctl.sh" prodlike down

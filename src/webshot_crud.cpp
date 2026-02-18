@@ -12,7 +12,7 @@
 #include "s3/s3_v4_client.hpp"
 #include "s3_refresh_utils.hpp"
 #include "s3_secdist.hpp"
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
 #include "text_postgres_formatter.hpp"

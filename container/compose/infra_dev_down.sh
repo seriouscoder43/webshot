@@ -9,7 +9,7 @@ need_compose
 need timeout
 
 cd -- "${script_dir}"
-compose_file="infra-dev.yaml"
+compose_file="infra_dev.yaml"
 
 timeout_sec="${WEBSHOT_INFRA_DOWN_TIMEOUT_SEC:-90}"
 if timeout "${timeout_sec}" compose --in-pod true -f "${compose_file}" down; then

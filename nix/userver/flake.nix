@@ -72,12 +72,12 @@
             src = userverSrc;
 
             patches = [
-              ../../patches/userver-testsuite-no-venv.patch
-              ../../patches/userver-chaotic-no-venv.patch
-              ../../patches/userver-sql-no-venv.patch
-              ../../patches/userver-openssl-imported-targets.patch
-              ../../patches/userver-cctz-cmake-version.patch
-              ../../patches/userver-stdlib-cxx17-variant.patch
+              ../../patch/userver_testsuite_no_venv.patch
+              ../../patch/userver_chaotic_no_venv.patch
+              ../../patch/userver_sql_no_venv.patch
+              ../../patch/userver_openssl_imported_targets.patch
+              ../../patch/userver_cctz_cmake_version.patch
+              ../../patch/userver_stdlib_cxx17_variant.patch
             ];
 
             nativeBuildInputs = with pkgs; [

@@ -4,7 +4,7 @@
 
 #include <userver/utest/utest.hpp>
 
-#include "schemas/webshot.hpp"
+#include "schema/webshot.hpp"
 #include "text.hpp"
 #include "webshot_cursor.hpp"
 
