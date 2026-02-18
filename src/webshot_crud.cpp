@@ -689,6 +689,8 @@ void WebshotCrud::Impl::runCrawlerForContext(
          "--blockAds"_t,
          "--behaviors"_t,
          "siteSpecific"_t,
+         "--failOnFailedSeed"_t,
+         "--failOnInvalidStatus"_t,
          "--lang"_t,
          crawlerLang,
          "--context"_t,
