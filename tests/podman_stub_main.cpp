@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
                 ::raise(SIGKILL);
                 _exit(137);
             }
-            if (arg == "fail-throw") {
+            if (arg == "fail-abort") {
                 std::abort();
             }
         }

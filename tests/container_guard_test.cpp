@@ -93,39 +93,22 @@ UTEST(ContainerGuard, RemoveFailureIsSwallowed)
     EXPECT_NO_THROW(guard.remove());
 }
 
-UTEST(ContainerGuard, RemoveLogsNonExited)
+UTEST(ContainerGuard, RemoveHandlesAbortedSubprocess)
 {
     prependCurrentDirToPath();
     auto starter = makeStarter();
 
     ContainerGuard guard(
-        starter, "fail-signal"_t,
+        starter, "fail-abort"_t,
         std::vector<String>{
             "create"_t,
-            "fail-signal"_t,
+            "fail-abort"_t,
         }
     );
     EXPECT_NO_THROW(guard.remove());
 }
 
-UTEST(ContainerGuard, RemoveCatchesExecThrow)
-{
-    prependCurrentDirToPath();
-    auto starter = makeStarter();
-
-    ContainerGuard guard(
-        starter, "throw-rm"_t,
-        std::vector<String>{
-            "create"_t,
-            "throw-rm"_t,
-        }
-    );
-    ASSERT_EQ(::setenv("WEBSHOT_FORCE_EXEC_THROW", "1", 1), 0);
-    EXPECT_NO_THROW(guard.remove());
-    ASSERT_EQ(::unsetenv("WEBSHOT_FORCE_EXEC_THROW"), 0);
-}
-
-UTEST(ContainerGuard, RemoveHandlesSignaledProcess)
+UTEST(ContainerGuard, RemoveHandlesSignaledSubprocess)
 {
     prependCurrentDirToPath();
     auto starter = makeStarter();

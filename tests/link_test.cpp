@@ -6,208 +6,216 @@
 #include "link.hpp"
 
 namespace {
-constexpr size_t kLimit = 1024;
+constexpr size_t kQueryPartLengthMax = 1024;
 
 using v1::InvalidLinkException;
 using v1::Link;
 
-[[nodiscard]] std::string normalize(std::string input)
+[[nodiscard]] std::string normalizeKey(std::string input)
 {
     auto text = String::fromBytes(std::move(input));
-    EXPECT_TRUE(text);
-    const auto link = Link::fromText(text.value(), kLimit);
+    if (!text) {
+        ADD_FAILURE() << "String::fromBytes failed";
+        return {};
+    }
+    const auto link = Link::fromText(*text, kQueryPartLengthMax);
     const auto normalizedText = link.normalized();
     return std::string(normalizedText.view());
 }
 
-[[nodiscard]] std::string normalizeBytes(const std::vector<char> &bytes)
+[[nodiscard]] std::string normalizeKeyFromBytes(const std::vector<char> &bytes)
 {
     std::string input(std::begin(bytes), std::end(bytes));
     auto text = String::fromBytes(std::move(input));
-    EXPECT_TRUE(text);
-    const auto link = Link::fromText(text.value(), kLimit);
+    if (!text) {
+        ADD_FAILURE() << "String::fromBytes failed";
+        return {};
+    }
+    const auto link = Link::fromText(*text, kQueryPartLengthMax);
     const auto normalizedText = link.normalized();
     return std::string(normalizedText.view());
 }
 } // namespace
 
-UTEST(LinkFromUtf8, AcceptsHttpsWithHostname)
+UTEST(LinkFromText, AcceptsHttpsWithHostname)
 {
     auto text = String::fromBytes(std::string{"https://example.com/"});
     ASSERT_TRUE(text);
-    const auto link = Link::fromText(text.value(), kLimit);
+    const auto link = Link::fromText(text.value(), kQueryPartLengthMax);
     EXPECT_EQ(std::string(link.host().view()), std::string{"example.com"});
     EXPECT_EQ(std::string(link.httpUrl().view()), std::string{"http://example.com"});
     EXPECT_EQ(std::string(link.normalized().view()), std::string{"example.com"});
 }
 
-UTEST(LinkFromUtf8, RejectsUnsupportedScheme)
+UTEST(LinkFromText, RejectsUnsupportedScheme)
 {
     EXPECT_THROW(
         {
             auto text = String::fromBytes(std::string{"ftp://example.com/"});
             ASSERT_TRUE(text);
-            [[maybe_unused]] auto link = Link::fromText(text.value(), kLimit);
+            [[maybe_unused]] auto link = Link::fromText(text.value(), kQueryPartLengthMax);
         },
         InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, RejectsMissingHostname)
+UTEST(LinkFromText, RejectsMissingHostname)
 {
     EXPECT_THROW(
         {
             auto text = String::fromBytes(std::string{"http:///"});
             ASSERT_TRUE(text);
-            [[maybe_unused]] auto link = Link::fromText(text.value(), kLimit);
+            [[maybe_unused]] auto link = Link::fromText(text.value(), kQueryPartLengthMax);
         },
         InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, AcceptsQueryAtLimit)
+UTEST(LinkFromText, AcceptsQueryAtLimit)
 {
     std::string urlString = "https://example.com/?";
-    urlString.append(kLimit - 1, 'a');
+    urlString.append(kQueryPartLengthMax - 1, 'a');
     EXPECT_NO_THROW({
-        auto value = normalize(urlString);
+        auto value = normalizeKey(urlString);
         EXPECT_FALSE(value.empty());
     });
 }
 
-UTEST(LinkFromUtf8, RejectsQueryOverLimit)
+UTEST(LinkFromText, RejectsQueryOverLimit)
 {
     std::string urlString = "https://example.com/?";
-    urlString.append(kLimit + 1, 'a');
-    EXPECT_THROW({ [[maybe_unused]] auto value = normalize(urlString); }, InvalidLinkException);
+    urlString.append(kQueryPartLengthMax + 1, 'a');
+    EXPECT_THROW({ [[maybe_unused]] auto value = normalizeKey(urlString); }, InvalidLinkException);
 }
 
-UTEST(LinkFromUtf8, NormalizesScheme)
+UTEST(LinkFromText, NormalizesScheme)
 {
-    const auto httpLink = normalize("http://example.com/path");
-    const auto httpsLink = normalize("https://example.com/path");
+    const auto httpLink = normalizeKey("http://example.com/path");
+    const auto httpsLink = normalizeKey("https://example.com/path");
     EXPECT_EQ(httpLink, httpsLink);
     EXPECT_EQ(httpLink, std::string{"example.com/path"});
 }
 
-UTEST(LinkFromUtf8, RemovesTrailingSlash)
+UTEST(LinkFromText, RemovesTrailingSlash)
 {
-    EXPECT_EQ(normalize("https://example.com/path/"), std::string{"example.com/path"});
+    EXPECT_EQ(normalizeKey("https://example.com/path/"), std::string{"example.com/path"});
 }
 
-UTEST(LinkFromUtf8, TrimsTrailingDotInHost)
+UTEST(LinkFromText, TrimsTrailingDotInHost)
 {
-    EXPECT_EQ(normalize("https://example.com./"), std::string{"example.com"});
+    EXPECT_EQ(normalizeKey("https://example.com./"), std::string{"example.com"});
 }
 
-UTEST(LinkFromUtf8, StripsCredentialsAndFragment)
+UTEST(LinkFromText, StripsCredentialsAndFragment)
 {
-    EXPECT_EQ(normalize("http://user:pass@example.com/a#frag"), std::string{"example.com/a"});
+    EXPECT_EQ(normalizeKey("http://user:pass@example.com/a#frag"), std::string{"example.com/a"});
 }
 
-UTEST(LinkFromUtf8, AcceptsBareHost)
+UTEST(LinkFromText, AcceptsBareHost)
 {
-    EXPECT_EQ(normalize("example.com"), std::string{"example.com"});
+    EXPECT_EQ(normalizeKey("example.com"), std::string{"example.com"});
 }
 
-UTEST(LinkFromUtf8, PreservesQueryWithinLimit)
+UTEST(LinkFromText, PreservesQueryWithinLimit)
 {
-    auto link = normalize("https://example.com/?a=1&b=2");
+    auto link = normalizeKey("https://example.com/?a=1&b=2");
     EXPECT_EQ(link, std::string{"example.com/?a=1&b=2"});
 }
 
-UTEST(LinkFromUtf8, RejectsNetworkPathReference)
+UTEST(LinkFromText, RejectsNetworkPathReference)
 {
     EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalize("//example.com/path"); }, InvalidLinkException
+        { [[maybe_unused]] auto value = normalizeKey("//example.com/path"); }, InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, RejectsOverlargePort)
+UTEST(LinkFromText, RejectsOverlargePort)
 {
     EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalize("http://example.com:99999/"); },
+        { [[maybe_unused]] auto value = normalizeKey("http://example.com:99999/"); },
         InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, RejectsIPv6Host)
+UTEST(LinkFromText, RejectsIPv6Host)
 {
     EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalize("http://[::1]/"); }, InvalidLinkException
+        { [[maybe_unused]] auto value = normalizeKey("http://[::1]/"); }, InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, RejectsIPv4Host)
+UTEST(LinkFromText, RejectsIPv4Host)
 {
     EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalize("http://192.0.2.1/"); }, InvalidLinkException
+        { [[maybe_unused]] auto value = normalizeKey("http://192.0.2.1/"); }, InvalidLinkException
     );
 }
 
-UTEST(LinkFromUtf8, KeepsEscapedSlashInPath)
+UTEST(LinkFromText, KeepsEscapedSlashInPath)
 {
-    EXPECT_EQ(normalize("https://example.com/a%2Fb"), std::string{"example.com/a%2Fb"});
+    EXPECT_EQ(normalizeKey("https://example.com/a%2Fb"), std::string{"example.com/a%2Fb"});
 }
 
-UTEST(LinkFromUtf8, DoesNotMisreadUtf8AsAsciiDelimiters)
+UTEST(LinkFromText, DoesNotMisreadUtf8AsAsciiDelimiters)
 {
     // U+20AC encodes to E2 82 AC in UTF-8 and must not be treated as '/' or '.'
-    EXPECT_EQ(normalize("https://example.com/\xE2\x82\xAC"), std::string{"example.com/%E2%82%AC"});
+    EXPECT_EQ(
+        normalizeKey("https://example.com/\xE2\x82\xAC"), std::string{"example.com/%E2%82%AC"}
+    );
 }
 
-UTEST(LinkFromUtf8, TreatsSchemeOnlyAtStart)
+UTEST(LinkFromText, TreatsSchemeOnlyAtStart)
 {
     // "://" appearing later is part of the path and must not be misparsed as scheme
-    EXPECT_EQ(normalize("example.com/http://foo"), std::string{"example.com/http://foo"});
+    EXPECT_EQ(normalizeKey("example.com/http://foo"), std::string{"example.com/http://foo"});
 }
 
-UTEST(LinkFromUtf8, DoesNotTrimFullwidthSlash)
+UTEST(LinkFromText, DoesNotTrimFullwidthSlash)
 {
     // U+FF0F FULLWIDTH SOLIDUS percent-encoded must not be trimmed as a trailing '/'
-    EXPECT_EQ(normalize("https://example.com/%EF%BC%8F"), std::string{"example.com/%EF%BC%8F"});
+    EXPECT_EQ(normalizeKey("https://example.com/%EF%BC%8F"), std::string{"example.com/%EF%BC%8F"});
 }
 
-UTEST(LinkFromUtf8, AcceptsIDNHostname)
+UTEST(LinkFromText, AcceptsIDNHostname)
 {
     // "b\303\274cher.de" should be converted to its punycode form
-    EXPECT_EQ(normalize("https://b\303\274cher.de/"), std::string{"xn--bcher-kva.de"});
+    EXPECT_EQ(normalizeKey("https://b\303\274cher.de/"), std::string{"xn--bcher-kva.de"});
 }
 
-UTEST(LinkFromUtf8, TrimsSurroundingWhitespace)
+UTEST(LinkFromText, TrimsSurroundingWhitespace)
 {
-    EXPECT_EQ(normalize("  https://example.com/x  "), std::string{"example.com/x"});
+    EXPECT_EQ(normalizeKey("  https://example.com/x  "), std::string{"example.com/x"});
 }
 
-UTEST(LinkFromUtf8, ResolvesDotSegments)
+UTEST(LinkFromText, ResolvesDotSegments)
 {
-    EXPECT_EQ(normalize("https://example.com/a/./b/../c"), std::string{"example.com/a/c"});
+    EXPECT_EQ(normalizeKey("https://example.com/a/./b/../c"), std::string{"example.com/a/c"});
 }
 
 UTEST(LinkMembers, HostAndHttpUrlNormalized)
 {
     auto text = String::fromBytes(std::string{"https://Example.com:8081/Path/"});
     ASSERT_TRUE(text);
-    const auto link = Link::fromTextStripPort(text.value(), kLimit);
+    const auto link = Link::fromTextStripPort(text.value(), kQueryPartLengthMax);
     EXPECT_EQ(std::string(link.host().view()), std::string{"example.com"});
     EXPECT_EQ(std::string(link.httpUrl().view()), std::string{"http://example.com/Path"});
     EXPECT_EQ(std::string(link.normalized().view()), std::string{"example.com/Path"});
 }
 
-UTEST(LinkFromBytes, MatchesUtf8Normalization)
+UTEST(LinkFromTextBytes, MatchesUtf8Normalization)
 {
     const std::string url = "https://example.com/a?b=1";
-    const auto utf8Normalized = normalize(url);
+    const auto utf8Normalized = normalizeKey(url);
     const std::vector<char> bytes(std::begin(url), std::end(url));
-    const auto bytesNormalized = normalizeBytes(bytes);
+    const auto bytesNormalized = normalizeKeyFromBytes(bytes);
     EXPECT_EQ(utf8Normalized, bytesNormalized);
 }
 
-UTEST(LinkFromBytes, HandlesUtf8EuroSymbol)
+UTEST(LinkFromTextBytes, HandlesUtf8EuroSymbol)
 {
     const std::string url = "https://example.com/\xE2\x82\xAC";
-    const auto utf8Normalized = normalize(url);
+    const auto utf8Normalized = normalizeKey(url);
     const std::vector<char> bytes(std::begin(url), std::end(url));
-    const auto bytesNormalized = normalizeBytes(bytes);
+    const auto bytesNormalized = normalizeKeyFromBytes(bytes);
     EXPECT_EQ(utf8Normalized, bytesNormalized);
 }
