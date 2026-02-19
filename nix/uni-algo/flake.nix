@@ -13,7 +13,7 @@
       (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [(import ../overlays/boost-stacktrace-backtrace.nix)];
+          overlays = [(import ../overlay/boost_stacktrace_backtrace.nix)];
         };
         llvm = pkgs.llvmPackages_21;
         stdenv = llvm.stdenv;

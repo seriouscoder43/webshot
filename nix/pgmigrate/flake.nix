@@ -15,7 +15,7 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [(import ../overlays/boost-stacktrace-backtrace.nix)];
+        overlays = [(import ../overlay/boost_stacktrace_backtrace.nix)];
       };
 
       python = pkgs.python3;

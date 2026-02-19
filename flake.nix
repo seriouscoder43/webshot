@@ -14,7 +14,7 @@
         system = "x86_64-linux";
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [(import ./nix/overlays/boost-stacktrace-backtrace.nix)];
+          overlays = [(import ./nix/overlay/boost_stacktrace_backtrace.nix)];
         };
         toolchain = import ./nix/toolchain.nix {inherit pkgs;};
         buildDeps = import ./nix/common_deps.nix {inherit pkgs;};

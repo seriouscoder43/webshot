@@ -13,7 +13,7 @@
       (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [(import ../overlays/boost-stacktrace-backtrace.nix)];
+          overlays = [(import ../overlay/boost_stacktrace_backtrace.nix)];
         };
 
         llvm = pkgs.llvmPackages_21;
@@ -40,6 +40,7 @@
           "-DUSERVER_DOWNLOAD_PACKAGES=OFF"
           "-DUSERVER_USE_STATIC_LIBS=OFF"
           "-DUSERVER_CHECK_PACKAGE_VERSIONS=0"
+          "-DUSERVER_DEBUG_INFO_COMPRESSION=z"
           "-DUSERVER_FEATURE_POSTGRESQL=ON"
           "-DUSERVER_FEATURE_S3API=ON"
           "-DUSERVER_FEATURE_PATCH_LIBPQ=OFF"

@@ -4,7 +4,7 @@
   inputs,
   ...
 }: let
-  pkgsWithOverlay = pkgs.extend (import ./nix/overlays/boost-stacktrace-backtrace.nix);
+  pkgsWithOverlay = pkgs.extend (import ./nix/overlay/boost_stacktrace_backtrace.nix);
 
   lib = pkgsWithOverlay.lib;
   buildDeps = import ./nix/common_deps.nix {pkgs = pkgsWithOverlay;};
@@ -61,6 +61,7 @@
     "-D CMAKE_C_COMPILER_LAUNCHER=ccache"
     "-D CMAKE_CXX_COMPILER_LAUNCHER=ccache"
     "-D USERVER_PYTHON_PATH=$USERVER_PYTHON_PATH"
+    "-D USERVER_DEBUG_INFO_COMPRESSION=z"
     "-D WEBSHOT_ENABLE_SQL_COVERAGE=OFF"
     "-D userver_DIR=$USERVER_DIR"
     "-D USERVER_FEATURE_TESTSUITE=ON"
