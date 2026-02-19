@@ -12,6 +12,7 @@
 #include "text.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -138,9 +139,10 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
         for (const auto &kv : resp->headers()) {
             const auto &name = kv.first;
             if (name.size() > 11 &&
-                std::equal(name.begin(), name.begin() + 11, "x-amz-meta-", [](char a, char b) {
-                    return std::tolower(static_cast<unsigned char>(a)) == b;
-                })) {
+                std::equal(
+                    std::begin(name), std::begin(name) + 11, "x-amz-meta-",
+                    [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == b; }
+                )) {
                 out.meta->emplace(name.substr(11), kv.second);
             }
         }

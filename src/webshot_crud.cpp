@@ -27,6 +27,7 @@
 
 #include <chrono>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -997,15 +998,15 @@ WebshotCrud::findWebshotsByPrefixPage(String normalizedPrefix, String pageToken)
             links.push_back(cursorLink);
             if (linksPerPage > 1) {
                 auto more = selectLinksNext(cursorLink, linksPerPage - 1);
-                links.insert(links.end(), more.begin(), more.end());
+                links.insert(std::end(links), std::begin(more), std::end(more));
             }
         } else {
             auto more = selectLinksNext(cursorLink, linksPerPage);
-            links.insert(links.end(), more.begin(), more.end());
+            links.insert(std::end(links), std::begin(more), std::end(more));
         }
     } else {
         auto first = selectLinksFirst(linksPerPage);
-        links.insert(links.end(), first.begin(), first.end());
+        links.insert(std::end(links), std::begin(first), std::end(first));
     }
 
     struct Row {
