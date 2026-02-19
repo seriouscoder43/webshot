@@ -38,6 +38,12 @@
     ctest --output-on-failure
   '';
 
+  webshotTestCov = pkgsWithOverlay.writeShellScriptBin "webshot-test-cov" ''
+    set -euo pipefail
+    export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
+    cmake --build ${buildDirs.cov} --target webshot-coverage-html
+  '';
+
   userverPkgs = inputs.userver.packages.${system};
   uniAlgoPkgs = inputs."uni-algo".packages.${system};
   yttsPkgs = inputs."yandex-taxi-testsuite".packages.${system};
@@ -54,10 +60,7 @@
     "-D CMAKE_CXX_COMPILER=clang++"
     "-D CMAKE_C_COMPILER_LAUNCHER=ccache"
     "-D CMAKE_CXX_COMPILER_LAUNCHER=ccache"
-    "-D WEBSHOT_CLANG_FORMAT=clang-format"
     "-D USERVER_PYTHON_PATH=$USERVER_PYTHON_PATH"
-    "-D WEBSHOT_USE_MOLD=ON"
-    "-D WEBSHOT_ENABLE_LLVM_SYMBOLIZER=ON"
     "-D WEBSHOT_ENABLE_SQL_COVERAGE=OFF"
     "-D userver_DIR=$USERVER_DIR"
     "-D USERVER_FEATURE_TESTSUITE=ON"
@@ -69,12 +72,10 @@
   ];
 
   sanFlags = [
-    "-D CMAKE_CXX_CLANG_TIDY="
     "-D CMAKE_BUILD_TYPE=Debug"
     "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-D USE_SANITIZERS=ON"
     "-D BUILD_TESTING=ON"
-    "-D WEBSHOT_LLVM_SYMBOLIZER_BIN=$WEBSHOT_LLVM_SYMBOLIZER_BIN"
   ];
 
   tidyFlags =
@@ -87,12 +88,9 @@
     sanFlags
     ++ [
       "-D WEBSHOT_ENABLE_COVERAGE=ON"
-      "-D WEBSHOT_LLVM_COV_BIN=llvm-cov"
-      "-D WEBSHOT_LLVM_PROFDATA_BIN=llvm-profdata"
     ];
 
   releaseFlags = [
-    "-D CMAKE_CXX_CLANG_TIDY="
     "-D CMAKE_BUILD_TYPE=Release"
     "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-D USE_SANITIZERS=OFF"
@@ -126,19 +124,20 @@
     exec = "cmake --build ${buildDir}";
   };
 in {
-  cachix.enable = false;
+  cachix.enable = true;
   packages =
     buildDeps.native
     ++ buildDeps.runtime
     ++ [
       toolchain.cc
       llvm21.llvm
+      llvm21.clang-tools
       userverPkgs.userver-debug-addr-ub
       uniAlgoPkgs.default
       yttsPkgs.default
     ]
     ++ userverDeps
-    ++ [webshotTestSan]
+    ++ [webshotTestSan webshotTestCov]
     ++ (with pkgsWithOverlay; [git gdb]);
   treefmt = {
     enable = true;
@@ -209,7 +208,6 @@ in {
     yttsPkgs.default
   ];
 
-  env.WEBSHOT_LLVM_SYMBOLIZER_BIN = "${llvm21.llvm}/bin/llvm-symbolizer";
   env.WEBSHOT_RUNTIME_LD_LIBRARY_PATH = lib.makeLibraryPath testLibs;
   env.WEBSHOT_BUILD_DIR = buildDirs.san;
   env.WEBSHOT_STATE_DIR = "${config.devenv.root}/.cache/webshot";
@@ -301,5 +299,10 @@ in {
   tasks."webshot:testSan" = {
     package = webshotTestSan;
     exec = "webshot-test-san";
+  };
+
+  tasks."webshot:testCov" = {
+    package = webshotTestCov;
+    exec = "webshot-test-cov";
   };
 }

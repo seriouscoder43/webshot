@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.29)
 project(webshot CXX)
 
 # Ensure userver codegen target is created only once even with multiple
@@ -18,11 +18,6 @@ set(WEBSHOT_ENABLE_COVERAGE
     CACHE BOOL
           "Enable LLVM coverage instrumentation for the webshot service binary")
 set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
-option(WEBSHOT_ENABLE_LLVM_SYMBOLIZER
-       "Enable llvm-symbolizer integration for sanitizer stack traces" ON)
-set(WEBSHOT_LLVM_SYMBOLIZER_BIN
-    "llvm-symbolizer"
-    CACHE STRING "llvm-symbolizer binary used for sanitizer stack traces")
 
 option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
 
@@ -39,40 +34,7 @@ set(USERVER_CHAOTIC_USE_VENV
     OFF
     CACHE BOOL "Disable userver chaotic helper Python virtualenvs" FORCE)
 
-# Resolve to an absolute path when possible so ASan can actually exec it.
-if(WEBSHOT_ENABLE_LLVM_SYMBOLIZER)
-  find_program(
-    WEBSHOT_LLVM_SYMBOLIZER_BIN
-    NAMES ${WEBSHOT_LLVM_SYMBOLIZER_BIN} llvm-symbolizer llvm-symbolizer
-    DOC "Resolved llvm-symbolizer binary for sanitizer stacks")
-endif()
-
-option(WEBSHOT_USE_MOLD "Use mold linker if available" ON)
-if(WEBSHOT_USE_MOLD)
-  find_program(WEBSHOT_MOLD_BIN NAMES mold)
-  if(WEBSHOT_MOLD_BIN)
-    message(STATUS "Using mold linker: ${WEBSHOT_MOLD_BIN}")
-    # Prefer the built-in CMake linker type flag when available. This lets CMake
-    # choose the right flags for the current toolchain.
-    set(CMAKE_LINKER_TYPE MOLD)
-  endif()
-endif()
-
-if(NOT DEFINED CMAKE_CXX_CLANG_TIDY)
-  find_program(WEBSHOT_CLANG_TIDY_BIN NAMES clang-tidy clang-tidy clang-tidy-20)
-  if(WEBSHOT_CLANG_TIDY_BIN)
-    set(CMAKE_CXX_CLANG_TIDY "${WEBSHOT_CLANG_TIDY_BIN}")
-  else()
-    message(WARNING "clang-tidy not found; static analysis disabled")
-  endif()
-endif()
-
-if(WEBSHOT_CLANG_FORMAT)
-  set(CLANG_FORMAT_BIN "${WEBSHOT_CLANG_FORMAT}")
-elseif(NOT CLANG_FORMAT_BIN OR CLANG_FORMAT_BIN STREQUAL
-                               "CLANG_FORMAT_BIN-NOTFOUND")
-  find_program(CLANG_FORMAT_BIN NAMES clang-format clang-format clang-format-20)
-endif()
+set(CMAKE_LINKER_TYPE MOLD)
 
 set(${PROJECT_NAME}_headers
     include/s3_credentials_types.hpp
@@ -135,7 +97,6 @@ function(apply_defaults target)
   if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer)
   endif()
-  # set_property(TARGET ${target} PROPERTY CXX_COMPILER_LAUNCHER ccache)
 endfunction()
 
 add_executable(${PROJECT_NAME} src/main.cpp
@@ -151,16 +112,6 @@ endif()
 
 find_package(Boost CONFIG REQUIRED COMPONENTS context)
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
-
-# When using Conan, CMAKE_FIND_PACKAGE_PREFER_CONFIG is enabled and the system
-# c-ares package provides only c-ares::cares. userver::core, however, links
-# against a target named c-ares. Provide a compatibility alias so that userver's
-# imported targets resolve to the correct library instead of a raw -lc-ares
-# linker flag.
-if(NOT TARGET c-ares AND TARGET c-ares::cares)
-  add_library(c-ares INTERFACE IMPORTED)
-  target_link_libraries(c-ares INTERFACE c-ares::cares)
-endif()
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)

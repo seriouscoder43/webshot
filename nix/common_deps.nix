@@ -15,6 +15,5 @@
     podman
     podman-compose
     postgresql_18
-    pkgs."process-compose"
   ];
 }

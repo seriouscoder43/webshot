@@ -1,10 +1,3 @@
-set(WEBSHOT_LLVM_COV_BIN
-    "llvm-cov"
-    CACHE STRING "llvm-cov binary used for coverage reporting")
-set(WEBSHOT_LLVM_PROFDATA_BIN
-    "llvm-profdata"
-    CACHE STRING "llvm-profdata binary used for coverage reporting")
-
 function(webshot_add_cpp_test target)
   cmake_parse_arguments(ARGS "" "" "SOURCES;LIBS;INCLUDE_DIRS" ${ARGN})
 
@@ -22,9 +15,13 @@ function(webshot_add_cpp_test target)
                       ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
   apply_defaults(${target})
 
+  if(USE_SANITIZERS)
+    target_compile_options(${target} PRIVATE "-fsanitize=address,undefined")
+    target_link_options(${target} PRIVATE "-fsanitize=address,undefined")
+  endif()
+
   add_test(NAME ${target} COMMAND ${target})
   set(test_env "PATH=${CMAKE_CURRENT_BINARY_DIR}:$ENV{PATH}")
-  # Keep leak reports clean: rely on project-wide LSAN suppression file.
   set(test_env
       "${test_env};LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan.supp")
   set_tests_properties(${target} PROPERTIES ENVIRONMENT "${test_env}")
@@ -171,9 +168,9 @@ if(USERVER_FEATURE_TESTSUITE)
       ${CMAKE_CTEST_COMMAND} --output-on-failure
     COMMAND
       bash -lc
-      "${WEBSHOT_LLVM_PROFDATA_BIN} merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata"
+      "llvm-profdata merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata"
     COMMAND
-      ${WEBSHOT_LLVM_COV_BIN} report ${WEBSHOT_COVERAGE_TARGET_FILES}
+      llvm-cov report ${WEBSHOT_COVERAGE_TARGET_FILES}
       -instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
       "-ignore-filename-regex=.*/tests/.*|.*/webshot_config\\.(cpp|hpp)"
       -show-instantiation-summary
@@ -191,7 +188,7 @@ if(USERVER_FEATURE_TESTSUITE)
     COMMAND ${CMAKE_COMMAND} -E make_directory
             ${CMAKE_CURRENT_BINARY_DIR}/coverage/html
     COMMAND
-      ${WEBSHOT_LLVM_COV_BIN} show --format=html
+      llvm-cov show --format=html
       --output-dir=${CMAKE_CURRENT_BINARY_DIR}/coverage/html
       --instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
       ${WEBSHOT_COVERAGE_TARGET_FILES}
@@ -201,27 +198,4 @@ if(USERVER_FEATURE_TESTSUITE)
     USES_TERMINAL VERBATIM)
 
   add_dependencies(webshot-coverage ${PROJECT_NAME} podman_stub ${WEBSHOT_CPP_TESTS})
-endif()
-
-get_property(
-  WEBSHOT_ALL_TESTS
-  DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  PROPERTY TESTS)
-if(WEBSHOT_ALL_TESTS)
-  foreach(t ${WEBSHOT_ALL_TESTS})
-    if(WEBSHOT_ENABLE_LLVM_SYMBOLIZER AND WEBSHOT_LLVM_SYMBOLIZER_BIN)
-      set_property(
-        TEST ${t}
-        APPEND
-        PROPERTY ENVIRONMENT
-                 "ASAN_SYMBOLIZER_PATH=${WEBSHOT_LLVM_SYMBOLIZER_BIN}")
-      set_property(
-        TEST ${t}
-        APPEND
-        PROPERTY
-          ENVIRONMENT
-		  "ASAN_OPTIONS=symbolize=1:external_symbolizer_path=${WEBSHOT_LLVM_SYMBOLIZER_BIN}"
-      )
-    endif()
-  endforeach()
 endif()

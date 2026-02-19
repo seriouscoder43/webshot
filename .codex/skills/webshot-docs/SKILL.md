@@ -1,6 +1,6 @@
 ---
 name: webshot-docs
-description: How to look up docs for the webshot repo and its dependencies (MCP docs, Exa search).
+description: How to look up docs for the webshot repo and its dependencies
 ---
 
 # Webshot Docs Lookup
