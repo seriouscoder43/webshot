@@ -110,3 +110,35 @@ async def test_create_webshot_denylisted_host(service_client):
     assert response.status == 403
     body = response.json()
     assert body["error"]["message"] == "host in denylist"
+
+
+async def test_create_webshot_denylisted_path_blocks_subpaths(service_client):
+    deny_resp = await service_client.post(
+        "/v1/disallow-and-purge",
+        params={"host": f"https://{TEST_HOST}/a"},
+    )
+    assert deny_resp.status == 202
+
+    response = await service_client.post(
+        "/v1/webshot",
+        json={"link": f"https://{TEST_HOST}/a/b"},
+    )
+
+    assert response.status == 403
+    body = response.json()
+    assert body["error"]["message"] == "host in denylist"
+
+
+async def test_create_webshot_denylisted_path_does_not_block_sibling_path(service_client):
+    deny_resp = await service_client.post(
+        "/v1/disallow-and-purge",
+        params={"host": f"https://{TEST_HOST}/a"},
+    )
+    assert deny_resp.status == 202
+
+    response = await service_client.post(
+        "/v1/webshot",
+        json={"link": f"https://{TEST_HOST}/ab"},
+    )
+
+    assert response.status == 202

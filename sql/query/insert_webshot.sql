@@ -1,3 +1,4 @@
-insert into webshot (id, created_at, link, prefix_key, location)
-values ($1, default, $2, $3, $4)
+-- $4: prefix_tree as text (ltree input)
+insert into webshot (id, created_at, link, prefix_key, prefix_tree, location)
+values ($1, default, $2, $3, text2ltree($4), $5)
 returning id, created_at

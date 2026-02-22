@@ -783,6 +783,7 @@ void WebshotCrud::Impl::runCrawlerForContext(
 WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 {
     const auto prefixKey = prefix::makePrefixKey(ctx.link);
+    const auto prefixTree = prefix::makePrefixTree(prefixKey);
     const auto host = ctx.link.host();
 
     if (!denylist.isAllowedPrefix(prefixKey)) {
@@ -802,7 +803,8 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
             pg::TimePointTz createdAt;
         };
         auto row = readwrite(
-                       sql::kInsertWebshot, ctx.id, ctx.link.normalized(), prefixKey, ctx.location
+                       sql::kInsertWebshot, ctx.id, ctx.link.normalized(), prefixKey, prefixTree,
+                       ctx.location
         )
                        .AsSingleRow<Row>(pg::kRowTag);
         return us::utils::datetime::TimePointTz(
@@ -824,12 +826,10 @@ WebshotCrud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 
 void WebshotCrud::Impl::purgePrefix(const String &prefixKey)
 {
+    const auto tree = prefix::makePrefixTree(prefixKey);
     while (true) {
         try {
-            auto res = readonly(
-                sql::kSelectIdsByPrefixPaged, prefixKey, crud::upperExclusiveBound(prefixKey),
-                purgeDeleteBatchSize
-            );
+            auto res = readonly(sql::kSelectIdsByDenyPrefixPaged, tree, purgeDeleteBatchSize);
             std::vector<Uuid> ids;
             ids.reserve(res.Size());
             for (auto row : res)

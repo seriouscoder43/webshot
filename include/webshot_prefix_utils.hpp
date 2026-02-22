@@ -4,11 +4,10 @@
 #include "text.hpp"
 
 #include <string>
-#include <vector>
 
 namespace v1::prefix {
 
 [[nodiscard]] String makePrefixKey(const Link &link);
-[[nodiscard]] std::vector<std::string> expandPrefixCandidates(const String &prefixKey);
+[[nodiscard]] std::string makePrefixTree(const String &prefixKey);
 
 } // namespace v1::prefix

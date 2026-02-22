@@ -9,7 +9,6 @@
 #include "webshot_prefix_utils.hpp"
 
 #include <string>
-#include <vector>
 
 #include <fmt/format.h>
 
@@ -17,7 +16,6 @@
 #include <userver/logging/log.hpp>
 #include <userver/storages/postgres/cluster.hpp>
 #include <userver/storages/postgres/component.hpp>
-#include <userver/utils/assert.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
@@ -58,15 +56,13 @@ WebshotDenylist::~WebshotDenylist() = default;
 
 bool WebshotDenylist::isAllowedPrefix(const String &prefixKey) noexcept
 {
-    auto candidates = prefix::expandPrefixCandidates(prefixKey);
-    std::vector<std::string> prefixes;
-    prefixes.reserve(candidates.size());
-    for (const auto &c : candidates)
-        prefixes.push_back(c);
     try {
-        return impl->cluster
-                   ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylist, prefixes)
-                   .Size() == 0;
+        const auto tree = prefix::makePrefixTree(prefixKey);
+        const auto blocked =
+            impl->cluster
+                ->Execute(pg::ClusterHostType::kSlaveOrMaster, sql::kCheckDenylistTree, tree)
+                .AsSingleRow<bool>();
+        return !blocked;
     } catch (const std::exception &e) {
         LOG_ERROR() << fmt::format("denylist check failed: {}", e.what());
         return false;
@@ -76,8 +72,9 @@ bool WebshotDenylist::isAllowedPrefix(const String &prefixKey) noexcept
 void WebshotDenylist::insertPrefix(const String &prefixKey, const String &reason)
 {
     try {
+        const auto tree = prefix::makePrefixTree(prefixKey);
         static_cast<void>(impl->cluster->Execute(
-            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, prefixKey, reason
+            pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, prefixKey, tree, reason
         ));
     } catch (const std::exception &e) {
         LOG_CRITICAL() << fmt::format("denylist insert failed for {}: {}", prefixKey, e.what());

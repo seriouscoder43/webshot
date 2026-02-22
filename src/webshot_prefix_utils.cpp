@@ -2,9 +2,31 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <userver/utils/encoding/hex.hpp>
+
 namespace v1::prefix {
+
+namespace {
+
+void appendEncodedSegment(std::string &out, std::string_view bytes)
+{
+    constexpr size_t kMaxBytesPerLabel = 127;
+    if (bytes.empty()) {
+        out.append(".x");
+        return;
+    }
+    for (size_t pos = 0; pos < bytes.size(); pos += kMaxBytesPerLabel) {
+        const auto chunk = bytes.substr(pos, std::min(kMaxBytesPerLabel, bytes.size() - pos));
+        out.push_back('.');
+        out.push_back('x');
+        out.append(userver::utils::encoding::ToHex(chunk));
+    }
+}
+
+} // namespace
 
 [[nodiscard]] String makePrefixKey(const Link &link)
 {
@@ -41,27 +63,35 @@ namespace v1::prefix {
     return String::fromBytesThrow(key);
 }
 
-[[nodiscard]] std::vector<std::string> expandPrefixCandidates(const String &prefixKey)
+[[nodiscard]] std::string makePrefixTree(const String &prefixKey)
 {
-    std::vector<std::string> out;
     auto view = prefixKey.view();
-    if (view.empty())
-        return out;
-    auto firstSlash = view.find('/');
-    if (firstSlash == std::string::npos) {
-        out.emplace_back(view);
-        return out;
-    }
-    out.emplace_back(view.substr(0, firstSlash));
-    for (size_t pos = firstSlash; pos < view.size();) {
-        auto next = view.find('/', pos + 1);
-        if (next == std::string::npos) {
-            out.emplace_back(view);
-            break;
+    std::string out("h");
+    const auto firstSlash = view.find('/');
+    const auto hostPart = firstSlash == std::string_view::npos
+                              ? std::string_view(view)
+                              : std::string_view(view).substr(0, firstSlash);
+
+    const auto appendSplitSegments = [&out](std::string_view input, const char sep) {
+        for (size_t start = 0;;) {
+            const auto next = input.find(sep, start);
+            const auto seg = next == std::string_view::npos ? input.substr(start)
+                                                            : input.substr(start, next - start);
+            appendEncodedSegment(out, seg);
+            if (next == std::string_view::npos)
+                break;
+            start = next + 1;
         }
-        out.emplace_back(view.substr(0, next));
-        pos = next;
-    }
+    };
+
+    appendSplitSegments(hostPart, '.');
+
+    if (firstSlash == std::string_view::npos)
+        return out;
+
+    out.append(".p");
+    const auto path = std::string_view(view).substr(firstSlash + 1);
+    appendSplitSegments(path, '/');
     return out;
 }
 

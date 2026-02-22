@@ -1,14 +1,18 @@
+create extension if not exists ltree;
+
 create table host_denylist (
     prefix_key text collate "C" not null,
+    prefix_tree ltree not null,
     created_at timestamptz not null default now(),
     reason text not null,
-    constraint host_denylist_pk primary key (prefix_key)
+    constraint host_denylist_pk primary key (prefix_key),
+    constraint host_denylist_prefix_tree_uniq unique (prefix_tree)
 );
 
 create index if not exists host_denylist_created_at_idx
 on host_denylist (created_at desc);
-create index if not exists host_denylist_prefix_key_like_idx
-on host_denylist (prefix_key text_pattern_ops);
+create index if not exists host_denylist_prefix_tree_gist_idx
+on host_denylist using gist (prefix_tree);
 
 create table crawl_job (
     id uuid primary key,
