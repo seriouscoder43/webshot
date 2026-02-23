@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 2; }; }
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd -- "${script_dir}/../.." && pwd)"
+# shellcheck source=shell/lib.sh
+. "${root}/shell/lib.sh"
 
 need bash
 need python3
-
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd -- "${script_dir}/../.." && pwd)"
 
 secdist_path="secret/test_secdist.json"
 s3_endpoint_hostport="localhost:8333"

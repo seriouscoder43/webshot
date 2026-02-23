@@ -46,6 +46,7 @@ set(${PROJECT_NAME}_headers
     include/webshots_by_prefix_handler.hpp
     include/webshot_by_id_handler.hpp
     include/webshot_disallow_and_purge_handler.hpp
+    include/webshot_denylist_check_handler.hpp
     include/webshot_crud.hpp
     include/webshot_config.hpp
     include/error_utils.hpp
@@ -64,6 +65,7 @@ add_library(
   src/webshots_by_prefix_handler.cpp
   src/webshot_by_id_handler.cpp
   src/webshot_disallow_and_purge_handler.cpp
+  src/webshot_denylist_check_handler.cpp
   src/webshot_crud.cpp
   src/text_postgres_formatter.cpp
   src/error_utils.cpp

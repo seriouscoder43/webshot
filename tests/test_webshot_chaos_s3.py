@@ -7,6 +7,7 @@ from helpers.constants import TEST_HOST
 
 @pytest.mark.asyncio
 async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
+    await s3_gate.sockets_close()
     await s3_gate.stop_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-failure"

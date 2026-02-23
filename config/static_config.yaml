@@ -53,12 +53,18 @@ components_manager:
       path: /service/monitor
       method: GET
       task_processor: main-task-processor
+    webshot-denylist-check:
+      path: /v1/denylist/check
+      method: POST
+      task_processor: main-task-processor
+      request-timeout-ms: 2000
+      max_request_size: &max-data-per-request 65536
     webshot-handler:
       path: /v1/webshot
       method: GET,POST
       task_processor: main-task-processor
       request-timeout-ms: 60000
-      max_request_size: &max-data-per-request 65536
+      max_request_size: *max-data-per-request
     webshots-by-prefix:
       path: /v1/webshot/prefix
       method: GET

@@ -139,7 +139,7 @@ in {
     ]
     ++ userverDeps
     ++ [webshotTestSan webshotTestCov]
-    ++ (with pkgsWithOverlay; [git gdb]);
+    ++ (with pkgsWithOverlay; [git gdb nssTools]);
   treefmt = {
     enable = true;
     config = {
@@ -222,8 +222,6 @@ in {
 
   env.WEBSHOT_RUNTIME_LD_LIBRARY_PATH = lib.makeLibraryPath testLibs;
   env.WEBSHOT_BUILD_DIR = buildDirs.san;
-  env.WEBSHOT_STATE_DIR = "${config.devenv.root}/.cache/webshot";
-
   tasks."webshot:infraDevUp" = {
     exec = "bash container/compose/infra_dev_up.sh";
     cwd = config.devenv.root;

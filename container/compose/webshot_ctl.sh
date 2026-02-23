@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd -- "${script_dir}/../.." && pwd)"
+# shellcheck source=shell/lib.sh
+. "${root}/shell/lib.sh"
+
 on_err() {
   local exit_code=$?
   echo "Error: command failed (exit=${exit_code}) at ${BASH_SOURCE[0]}:${BASH_LINENO[0]}: ${BASH_COMMAND}" >&2
@@ -15,7 +20,7 @@ Usage: webshot_ctl.sh <dev|prodlike> <up|down|status|logs>
 Uses:
   - WEBSHOT_BUILD_DIR (required for up)
   - WEBSHOT_RUNTIME_LD_LIBRARY_PATH (required for up)
-  - WEBSHOT_STATE_DIR (optional; defaults to <repo>/.cache/webshot)
+  - WEBSHOT_STATE_DIR (optional; defaults to ${XDG_RUNTIME_DIR:-/tmp}/webshot-${UID})
 
 Timeout env vars (optional):
   - WEBSHOT_INFRA_READY_TIMEOUT_SEC (default: 240)
@@ -24,9 +29,6 @@ Timeout env vars (optional):
 EOF
   exit 2
 }
-
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 2; }; }
-need_env() { [[ -n "${!1:-}" ]] || { echo "Missing required env var: ${1}" >&2; exit 2; }; }
 
 mode="${1:-}"
 action="${2:-}"
@@ -44,11 +46,10 @@ need bash
 need podman
 need timeout
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd -- "${script_dir}/../.." && pwd)"
 cd -- "${root}"
 
-state_root="${WEBSHOT_STATE_DIR:-${root}/.cache/webshot}"
+runtime_root="${XDG_RUNTIME_DIR:-/tmp}"
+state_root="${WEBSHOT_STATE_DIR:-${runtime_root}/webshot-${UID}}"
 state_dir="${state_root}/${mode}"
 mkdir -p "${state_dir}"
 
@@ -61,8 +62,12 @@ webshot_stop_timeout_sec="${WEBSHOT_WEBSHOT_STOP_TIMEOUT_SEC:-30}"
 
 infra_up() {
   case "${mode}" in
-    dev) bash container/compose/infra_dev_up.sh ;;
-    prodlike) bash container/compose/infra_prodlike_up.sh ;;
+    dev)
+      bash container/compose/infra_dev_up.sh
+      ;;
+    prodlike)
+      bash container/compose/infra_prodlike_up.sh
+      ;;
   esac
 
   local deadline=$((SECONDS + infra_ready_timeout_sec))
@@ -81,8 +86,12 @@ infra_up() {
 
 infra_down() {
   case "${mode}" in
-    dev) bash container/compose/infra_dev_down.sh ;;
-    prodlike) bash container/compose/infra_prodlike_down.sh ;;
+    dev)
+      bash container/compose/infra_dev_down.sh
+      ;;
+    prodlike)
+      bash container/compose/infra_prodlike_down.sh
+      ;;
   esac
 }
 

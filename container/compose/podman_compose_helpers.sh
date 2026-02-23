@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 2; }; }
+_ws_helpers_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_ws_root="$(cd -- "${_ws_helpers_dir}/../.." && pwd)"
+# shellcheck source=shell/lib.sh
+. "${_ws_root}/shell/lib.sh"
+unset _ws_helpers_dir _ws_root
 
 need_compose() {
   if podman compose version >/dev/null 2>&1; then

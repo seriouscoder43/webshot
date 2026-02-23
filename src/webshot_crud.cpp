@@ -26,6 +26,7 @@
 #include <webshot/sql_queries.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <iterator>
 #include <memory>
@@ -79,16 +80,18 @@ namespace concurrent = us::concurrent;
 namespace rcu = us::rcu;
 namespace chrono = std::chrono;
 namespace sql = webshot::sql;
+using namespace v1;
+using namespace text::literals;
+using Uuid = boost::uuids::uuid;
+using chrono::system_clock;
 namespace {
+const String kMitmTrustTarballPath = "/tmp/webshot_mitm/nssdb.tar.gz"_t;
+
 constexpr int kCrawlerExitSuccess = 0;
 constexpr int kCrawlerExitSizeLimit = 14;
 constexpr int kCrawlerExitTimeLimit = 15;
 constexpr int kCrawlerExitDiskUtilization = 16;
 } // namespace
-using namespace v1;
-using namespace text::literals;
-using Uuid = boost::uuids::uuid;
-using chrono::system_clock;
 
 us::yaml_config::Schema WebshotCrud::GetStaticConfigSchema()
 {
@@ -331,6 +334,13 @@ public:
           crawlBackground(ctx.GetTaskProcessor("main-task-processor"))
     {
         UINVARIANT(!crawlerProxyServer.empty(), "crawler-proxy-server must not be empty");
+        UINVARIANT(
+            us::fs::FileExists(
+                engine::current_task::GetBlockingTaskProcessor(),
+                std::string(kMitmTrustTarballPath.view())
+            ),
+            kMitmTrustTarballPath.view()
+        );
 
         const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
                                                  crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
@@ -650,9 +660,16 @@ void WebshotCrud::Impl::runCrawlerForContext(
     );
 
     std::vector<String> createArgs = {
-        "create"_t,     "-e"_t, text::format("CHROME_FLAGS={}", chromeFlags),
-        "--shm-size"_t, "1g"_t, "-v"_t
+        "create"_t, "-e"_t, text::format("CHROME_FLAGS={}", chromeFlags), "--shm-size"_t, "1g"_t
     };
+    createArgs.insert(
+        std::end(createArgs),
+        {"-e"_t, "HOME=/crawls/home"_t, "-e"_t, "XDG_CONFIG_HOME=/crawls/home/.config"_t, "-e"_t,
+         "XDG_CACHE_HOME=/crawls/home/.cache"_t, "-e"_t,
+         "XDG_DATA_HOME=/crawls/home/.local/share"_t, "-v"_t,
+         text::format("{}:/crawls/nssdb.tar.gz:ro", kMitmTrustTarballPath)}
+    );
+    createArgs.push_back("-v"_t);
     createArgs.push_back(text::format("{}:/crawls", ctx.archiveRoot.GetPath()));
     createArgs.push_back("--network"_t);
     createArgs.push_back(crawlerNetwork);
@@ -660,50 +677,56 @@ void WebshotCrud::Impl::runCrawlerForContext(
     createArgs.push_back("--name"_t);
     createArgs.push_back(cname);
     createArgs.push_back(crawlerImage);
+    std::vector<String> crawlArgs = {
+        "crawl"_t,
+        "--collection"_t,
+        collection,
+        "--generateWACZ"_t,
+        "--workers"_t,
+        text::format("{}", crawlerWorkers),
+        "--headless"_t,
+        "--scopeType"_t,
+        crawlerScopeType,
+        "--pageLimit"_t,
+        "1"_t,
+        "--pageLoadTimeout"_t,
+        text::format("{}", crawlerPageLoadTimeoutSec),
+        "--postLoadDelay"_t,
+        text::format("{}", crawlerPostLoadDelaySec),
+        "--netIdleWait"_t,
+        text::format("{}", crawlerNetIdleWaitSec),
+        "--pageExtraDelay"_t,
+        text::format("{}", crawlerPageExtraDelaySec),
+        "--behaviorTimeout"_t,
+        text::format("{}", crawlerBehaviorTimeoutSec),
+        "--timeLimit"_t,
+        text::format("{}", crawlerContainerTimeoutSec),
+        "--waitUntil"_t,
+        "load"_t,
+        "--blockAds"_t,
+        "--behaviors"_t,
+        "siteSpecific"_t,
+        "--failOnFailedSeed"_t,
+        "--failOnInvalidStatus"_t,
+        "--lang"_t,
+        crawlerLang,
+        "--context"_t,
+        "general,worker,pageStatus,writer,storage,jsError,state,crawlStatus,fetch"_t,
+        "wacz"_t,
+        "--logLevel"_t,
+        "debug,info"_t,
+        "--logging"_t,
+        "debug,stats,jserrors"_t,
+        "--url"_t,
+        ctx.link.httpUrl()
+    };
     createArgs.insert(
-        createArgs.end(),
-        {"crawl"_t,
-         "--collection"_t,
-         collection,
-         "--generateWACZ"_t,
-         "--workers"_t,
-         text::format("{}", crawlerWorkers),
-         "--headless"_t,
-         "--scopeType"_t,
-         crawlerScopeType,
-         "--pageLimit"_t,
-         "1"_t,
-         "--pageLoadTimeout"_t,
-         text::format("{}", crawlerPageLoadTimeoutSec),
-         "--postLoadDelay"_t,
-         text::format("{}", crawlerPostLoadDelaySec),
-         "--netIdleWait"_t,
-         text::format("{}", crawlerNetIdleWaitSec),
-         "--pageExtraDelay"_t,
-         text::format("{}", crawlerPageExtraDelaySec),
-         "--behaviorTimeout"_t,
-         text::format("{}", crawlerBehaviorTimeoutSec),
-         "--timeLimit"_t,
-         text::format("{}", crawlerContainerTimeoutSec),
-         "--waitUntil"_t,
-         "load"_t,
-         "--blockAds"_t,
-         "--behaviors"_t,
-         "siteSpecific"_t,
-         "--failOnFailedSeed"_t,
-         "--failOnInvalidStatus"_t,
-         "--lang"_t,
-         crawlerLang,
-         "--context"_t,
-         "general,worker,pageStatus,writer,storage,jsError,state,crawlStatus,fetch"_t,
-         "wacz"_t,
-         "--logLevel"_t,
-         "debug,info"_t,
-         "--logging"_t,
-         "debug,stats,jserrors"_t,
-         "--url"_t,
-         ctx.link.httpUrl()}
+        std::end(createArgs),
+        {"/bin/sh"_t, "-c"_t,
+         "set -eu; mkdir -p \"$HOME\"; tar -xzf /crawls/nssdb.tar.gz -C \"$HOME\"; exec \"$@\""_t,
+         "_"_t}
     );
+    createArgs.insert(std::end(createArgs), std::begin(crawlArgs), std::end(crawlArgs));
     if (crawlerSizeLimitMiB > 0) {
         const int64_t sizeLimitBytes = crawlerSizeLimitMiB * 1024 * 1024;
         createArgs.push_back("--sizeLimit"_t);

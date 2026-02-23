@@ -6,6 +6,7 @@
 #include "webshot_config.hpp"
 #include "webshot_crud.hpp"
 #include "webshot_denylist.hpp"
+#include "webshot_denylist_check_handler.hpp"
 #include "webshot_disallow_and_purge_handler.hpp"
 #include "webshot_handler.hpp"
 #include "webshot_job_handler.hpp"
@@ -41,6 +42,7 @@ int main(int argc, char *argv[])
                               .Append<v1::WebshotHandler>()
                               .Append<v1::WebshotJobHandler>()
                               .Append<v1::WebshotDisallowAndPurgeHandler>()
+                              .Append<v1::WebshotDenylistCheckHandler>()
                               .Append<v1::WebshotById>()
                               .Append<us::server::handlers::ServerMonitor>();
     return us::utils::DaemonMain(argc, argv, component_list);

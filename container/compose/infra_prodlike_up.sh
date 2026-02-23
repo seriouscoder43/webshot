@@ -4,9 +4,13 @@ set -Eeuo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=container/compose/podman_compose_helpers.sh
 . "${script_dir}/podman_compose_helpers.sh"
+# shellcheck source=container/compose/infra_helpers.sh
+. "${script_dir}/infra_helpers.sh"
 
 need podman
 need_compose
+
+infra_mitm_bootstrap_if_needed "${script_dir}" prodlike
 
 cd -- "${script_dir}"
 compose_file="infra_prodlike.yaml"

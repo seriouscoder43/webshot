@@ -1,10 +1,14 @@
 import asyncio
+import io
+import json
 import uuid
 from urllib.parse import urlparse
+from zipfile import ZipFile
 
 import pytest
 from helpers.constants import TEST_HOST
 from helpers.prefix import prefix_key_from_link
+from minio import Minio
 
 
 async def _wait_for_purge(db, prefix_key: str, timeout: float = 30.0, delay: float = 0.5):
@@ -21,6 +25,53 @@ async def _wait_for_purge(db, prefix_key: str, timeout: float = 30.0, delay: flo
         if asyncio.get_event_loop().time() >= deadline:
             raise AssertionError(f"purge did not complete; remaining rows: {cnt}")
         await asyncio.sleep(delay)
+
+
+def _wacz_cdxj_statuses_for_url(wacz: bytes, url: str) -> set[int]:
+    statuses: set[int] = set()
+    with ZipFile(io.BytesIO(wacz)) as zf:
+        cdxj = zf.read("indexes/index.cdxj")
+    for line in cdxj.splitlines():
+        if not line:
+            continue
+        json_pos = line.find(b"{")
+        if json_pos == -1:
+            continue
+        try:
+            obj = json.loads(line[json_pos:].decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if obj.get("url") != url:
+            continue
+        status = obj.get("status")
+        try:
+            statuses.add(int(status))
+        except (TypeError, ValueError):
+            continue
+    return statuses
+
+
+async def _download_wacz_from_s3(service_secdist_path, object_name: str) -> bytes:
+    def _get() -> bytes:
+        import json
+
+        with service_secdist_path.open(encoding="utf-8") as f:
+            raw = json.load(f)
+        creds = raw["s3_credentials"]
+        client = Minio(
+            "localhost:8333",
+            access_key=creds["access_key_id"],
+            secret_key=creds["secret_access_key"],
+            secure=False,
+        )
+        resp = client.get_object("webshot", object_name)
+        try:
+            return resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    return await asyncio.to_thread(_get)
 
 
 @pytest.mark.asyncio
@@ -143,3 +194,74 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
     with db.cursor() as cur:
         cur.execute("select 1 from webshot where id = %s", (uuid.UUID(job_id),))
         assert cur.fetchone() is None
+
+
+@pytest.mark.asyncio
+async def test_capture_depth_fetches_additional_resources(service_client, service_secdist_path):
+    link = f"https://{TEST_HOST}/with-subresource"
+
+    resp = await service_client.post("/v1/webshot", json={"link": link})
+    assert resp.status == 202
+    job_id = resp.json()["uuid"]
+
+    for _ in range(120):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("job did not complete in time")
+
+    wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
+    seed_statuses = _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/with-subresource")
+    assert 200 in seed_statuses
+
+    style_statuses = _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/style.css")
+    assert 200 in style_statuses
+
+    script_statuses = _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/script.js")
+    assert 200 in script_statuses
+
+
+@pytest.mark.asyncio
+async def test_denylist_blocks_subresource_fetch(service_client, service_secdist_path):
+    deny_resp = await service_client.post(
+        "/v1/disallow-and-purge",
+        params={"host": f"http://{TEST_HOST}/denylist/style.css"},
+    )
+    assert deny_resp.status == 202
+
+    link = f"https://{TEST_HOST}/with-subresource-denylist"
+    resp = await service_client.post("/v1/webshot", json={"link": link})
+    assert resp.status == 202
+    job_id = resp.json()["uuid"]
+
+    for _ in range(120):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("job did not complete in time")
+
+    wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
+    seed_statuses = _wacz_cdxj_statuses_for_url(
+        wacz, f"http://{TEST_HOST}/with-subresource-denylist"
+    )
+    assert 200 in seed_statuses
+
+    blocked_style_statuses = _wacz_cdxj_statuses_for_url(
+        wacz, f"http://{TEST_HOST}/denylist/style.css"
+    )
+    assert 200 not in blocked_style_statuses
+
+    script_statuses = _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/denylist/script.js")
+    assert 200 in script_statuses
