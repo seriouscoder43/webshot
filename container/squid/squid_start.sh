@@ -3,6 +3,13 @@ set -eu
 
 # Squid TLS MITM bootstrap.
 
+ca_crt="/usr/local/share/ca-certificates/webshot-test-target-origin-ca.crt"
+if [ -r "$ca_crt" ]; then
+  if command -v update-ca-certificates >/dev/null 2>&1; then
+    update-ca-certificates >/dev/null
+  fi
+fi
+
 find_sslcrtd() {
   for p in \
     /usr/lib/squid/security_file_certgen \

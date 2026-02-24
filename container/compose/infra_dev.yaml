@@ -4,7 +4,7 @@ services:
     container_name: egress_proxy
     image: localhost/webshot-squid-openssl:dev
     build:
-      context: ./squid_image
+      context: ../squid/image
     restart: on-failure
     command: ["/bin/sh", "/usr/local/bin/squid_start.sh"]
     networks:
@@ -13,12 +13,13 @@ services:
     extra_hosts:
       - "host.containers.internal:host-gateway"
     volumes:
-      - ./squid.conf:/etc/squid/squid.conf:ro
-      - ./squid.mode.dev.conf:/etc/squid/squid.mode.conf:ro
+      - ../squid/squid.conf:/etc/squid/squid.conf:ro
+      - ../squid/squid.mode.dev.conf:/etc/squid/squid.mode.conf:ro
       - /tmp/webshot_mitm/squid_ca.pem:/etc/squid/webshot_ca.pem:ro
-      - ./squid_start.sh:/usr/local/bin/squid_start.sh:ro
-      - ./webshot_denylist_acl.sh:/usr/local/bin/webshot_denylist_acl.sh:ro
-      - ./healthcheck_squid.sh:/usr/local/bin/healthcheck_squid.sh:ro
+      - /tmp/webshot_mitm/origin_ca.crt:/usr/local/share/ca-certificates/webshot-test-target-origin-ca.crt:ro
+      - ../squid/squid_start.sh:/usr/local/bin/squid_start.sh:ro
+      - ../squid/webshot_denylist_acl.sh:/usr/local/bin/webshot_denylist_acl.sh:ro
+      - ../squid/healthcheck_squid.sh:/usr/local/bin/healthcheck_squid.sh:ro
     healthcheck:
       test: ["CMD", "/bin/sh", "/usr/local/bin/healthcheck_squid.sh"]
       interval: disable
@@ -106,6 +107,8 @@ services:
           - asset.test-target
     volumes:
       - ../../container/nginx_test.conf:/etc/nginx/conf.d/default.conf:ro
+      - /tmp/webshot_mitm/test_target.crt:/etc/nginx/ssl/test_target.crt:ro
+      - /tmp/webshot_mitm/test_target.key:/etc/nginx/ssl/test_target.key:ro
 networks:
   crawler_net:
     name: crawler_net

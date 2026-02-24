@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from zipfile import ZipFile
 
 import pytest
-from helpers.constants import TEST_HOST
+from helpers.constants import TEST_ASSET_HOST, TEST_HOST
 from helpers.prefix import prefix_key_from_link
 from minio import Minio
 
@@ -265,3 +265,76 @@ async def test_denylist_blocks_subresource_fetch(service_client, service_secdist
 
     script_statuses = _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/denylist/script.js")
     assert 200 in script_statuses
+
+
+@pytest.mark.asyncio
+async def test_capture_fetches_https_subresource_assets(service_client, service_secdist_path):
+    link = f"https://{TEST_HOST}/with-https-asset-subresource"
+
+    resp = await service_client.post("/v1/webshot", json={"link": link})
+    assert resp.status == 202
+    job_id = resp.json()["uuid"]
+
+    for _ in range(120):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("job did not complete in time")
+
+    wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
+    seed_statuses = _wacz_cdxj_statuses_for_url(
+        wacz, f"http://{TEST_HOST}/with-https-asset-subresource"
+    )
+    assert 200 in seed_statuses
+
+    css_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/asset.css")
+    assert 200 in css_statuses
+
+    js_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/asset.js")
+    assert 200 in js_statuses
+
+
+@pytest.mark.asyncio
+async def test_denylist_blocks_https_subresource_fetch(service_client, service_secdist_path):
+    deny_resp = await service_client.post(
+        "/v1/disallow-and-purge",
+        params={"host": f"https://{TEST_ASSET_HOST}/denylist/asset.css"},
+    )
+    assert deny_resp.status == 202
+
+    link = f"https://{TEST_HOST}/with-https-asset-subresource-denylist"
+    resp = await service_client.post("/v1/webshot", json={"link": link})
+    assert resp.status == 202
+    job_id = resp.json()["uuid"]
+
+    for _ in range(120):
+        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        assert status_resp.status == 200
+        job = status_resp.json()
+        if job["status"] == "succeeded":
+            break
+        if job["status"] == "failed":
+            pytest.fail(f"job failed: {job}")
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("job did not complete in time")
+
+    wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
+    seed_statuses = _wacz_cdxj_statuses_for_url(
+        wacz, f"http://{TEST_HOST}/with-https-asset-subresource-denylist"
+    )
+    assert 200 in seed_statuses
+
+    blocked_css_statuses = _wacz_cdxj_statuses_for_url(
+        wacz, f"https://{TEST_ASSET_HOST}/denylist/asset.css"
+    )
+    assert 200 not in blocked_css_statuses
+
+    js_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/denylist/asset.js")
+    assert 200 in js_statuses

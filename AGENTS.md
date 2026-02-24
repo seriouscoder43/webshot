@@ -14,9 +14,3 @@ Reminder:
 - Verify, don't recall: reread active code/logs; test exact endpoints.
 - Prefer authoritative data: no guessing or fallback to stale/synthetic for critical logic.
 - Always say what the contents of replies are based on (memory, repo code, docs, tool output).
-
-# Text hygiene
-- Keep tracked source/config ASCII-only; represent any required Unicode with escapes (e.g. `\uXXXX`, `\xNN`, `\ooo`).
-- Tracked docs (`*.md`) may include UTF-8 when it is user-facing or test-vector data, but must not contain invisible/format characters or non-ASCII whitespace.
-- Never use "smart" punctuation or lookalike whitespace (curly quotes, en/em dashes, minus sign, NBSP, zero-width spaces). Prefer plain ASCII equivalents.
-- To scan (recommended): `python3 check_unicode_hygiene.py`
