@@ -183,10 +183,6 @@ properties:
     crawler_proxy_server:
         type: string
         description: 'HTTP proxy URL for Chrome inside the crawler container (mandatory)'
-    crawl_concurrency:
-        type: integer
-        minimum: 1
-        description: 'Max concurrent crawls; blocks above this'
     crawler_image:
         type: string
         description: 'image used for the crawl container'
@@ -328,6 +324,7 @@ public:
     s3v4::AccessKeyId staticAccessKeyId;
     s3v4::SecretAccessKey staticSecretAccessKey;
     WebshotDenylist &denylist;
+    engine::TaskProcessor &mainTaskProcessor;
     engine::CancellableSemaphore crawlSlots;
     engine::TaskProcessor &purgeTaskProcessor;
     engine::TaskProcessor &credsRefreshTaskProcessor;
@@ -395,11 +392,12 @@ public:
           ),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           denylist(ctx.FindComponent<WebshotDenylist>()),
-          crawlSlots(cfg["crawl_concurrency"].As<size_t>()),
+          mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
+          crawlSlots(engine::GetWorkerCount(mainTaskProcessor)),
           purgeTaskProcessor(ctx.GetTaskProcessor("purge_task_processor")),
           credsRefreshTaskProcessor(ctx.GetTaskProcessor("creds_refresh_task_processor")),
           s3RefreshTask(), crawlJobCleanupTask(), purgeBackground(purgeTaskProcessor),
-          crawlBackground(ctx.GetTaskProcessor("main-task-processor"))
+          crawlBackground(mainTaskProcessor)
     {
         UINVARIANT(!crawlerProxyServer.empty(), "crawler_proxy_server must not be empty");
         UINVARIANT(

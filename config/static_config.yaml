@@ -6,15 +6,16 @@ components_manager:
       worker_threads: 1
       thread_name: purge_task_processor_worker
     fs-task-processor:
-      worker_threads: &blocking_num_workers 4
+      worker_threads: 4
     creds_refresh_task_processor:
       worker_threads: 1
       thread_name: creds_refresh_task_processor_worker
   default_task_processor: main-task-processor
+  fs_task_processor: fs-task-processor
   components:
     http-client:
       fs-task-processor: fs-task-processor
-    secdist:
+    secdist: {}
     default-secdist-provider:
       config: $secdist_path
       missing-ok: true
@@ -31,7 +32,7 @@ components_manager:
       s3_timeout_ms: 30000
     dns-client:
       fs-task-processor: fs-task-processor
-    testsuite-support:
+    testsuite-support: {}
     server:
       listener:
         port: 8080
@@ -98,7 +99,6 @@ components_manager:
       link_cooldown_sec: $link_cooldown_sec
       crawl_job_retention_sec: 604800
       crawl_job_cleanup_interval_sec: 3600
-      crawl_concurrency: *blocking_num_workers
       crawler_image: 'docker.io/webrecorder/browsertrix-crawler:latest@sha256:35f863bdd26154fbcb6c79badc2d2ca7a1385e45df55523ed240b728acbf7582'
       crawler_workers: 1
       crawler_page_load_timeout_sec: $crawler_page_load_timeout_sec

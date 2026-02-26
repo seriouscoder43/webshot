@@ -192,9 +192,6 @@ webshot_start() {
   echo "Starting webshot (${mode})..." >&2
   (
     export LD_LIBRARY_PATH="${WEBSHOT_RUNTIME_LD_LIBRARY_PATH}"
-    if [[ "${mode}" == "dev" ]]; then
-      export CPU_LIMIT="4c"
-    fi
     cd -- "${root}"
     nohup bash -c "${cmd}" >>"${webshot_log_file}" 2>&1 &
     echo "$!" >"${webshot_pid_file}"

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pathlib
 from urllib.parse import urlparse, urlunparse
 
@@ -153,4 +154,18 @@ def patch_s3_config(config_yaml, _config_vars):
     webshot_cfg["s3_endpoint"] = "http://localhost:8334"
 
 
-USERVER_CONFIG_HOOKS = [patch_s3_config]
+def patch_main_task_processor_worker_threads(config_yaml, _config_vars):
+    worker_threads = 0
+    if hasattr(os, "sched_getaffinity"):
+        worker_threads = len(os.sched_getaffinity(0))
+    if worker_threads <= 0:
+        worker_threads = os.cpu_count() or 0
+    if worker_threads <= 0:
+        raise RuntimeError("Failed to autodetect main-task-processor worker_threads")
+
+    config_yaml["components_manager"]["task_processors"]["main-task-processor"][
+        "worker_threads"
+    ] = worker_threads
+
+
+USERVER_CONFIG_HOOKS = [patch_s3_config, patch_main_task_processor_worker_threads]
