@@ -2,9 +2,7 @@ version: "3.9"
 services:
   egress_proxy:
     container_name: egress_proxy
-    image: localhost/webshot-squid-openssl:prodlike
-    build:
-      context: ../squid/image
+    image: localhost/squid:prodlike
     restart: on-failure
     command: ["/bin/sh", "/usr/local/bin/squid_start.sh"]
     networks:

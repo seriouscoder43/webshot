@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.29)
 project(webshot CXX)
 
+include(GNUInstallDirs)
+
 # Ensure userver codegen target is created only once even with multiple
 # generators (SQL, chaotic, testsuite). Pre-initialize the global property that
 # guards userver-codegen creation.
@@ -35,6 +37,10 @@ set(USERVER_CHAOTIC_USE_VENV
     CACHE BOOL "Disable userver chaotic helper Python virtualenvs" FORCE)
 
 set(CMAKE_LINKER_TYPE MOLD)
+
+# Ensure the installed `webshot` binary is runnable without extra wrappers like
+# `LD_LIBRARY_PATH` by embedding runtime search paths for linked dependencies.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 set(${PROJECT_NAME}_headers
     include/s3_credentials_types.hpp
@@ -179,3 +185,9 @@ target_link_libraries(
 target_include_directories(
   ${PROJECT_NAME}_objs PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/src/
                                ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/config/"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/webshot/config")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/schema/"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/webshot/schema")

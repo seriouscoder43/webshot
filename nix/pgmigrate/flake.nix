@@ -2,7 +2,7 @@
   description = "Nix flake for pgmigrate (PostgreSQL migrations tool)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
   };
 

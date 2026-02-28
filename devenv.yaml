@@ -1,13 +1,6 @@
 inputs:
   nixpkgs:
-    url: github:NixOS/nixpkgs/1cd347bf3355fce6c64ab37d3967b4a2cb4b878c
-  mk-shell-bin:
-    url: github:rrbutani/nix-mk-shell-bin
-  nix2container:
-    url: github:nlewo/nix2container
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
+    url: github:NixOS/nixpkgs/a672be65651c80d3f592a89b3945466584a22069
   pgmigrate:
     url: path:nix/pgmigrate
     inputs:

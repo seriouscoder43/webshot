@@ -5,4 +5,3 @@ RUN apt-get update \
     ca-certificates \
     squid-openssl \
   && rm -rf /var/lib/apt/lists/*
-

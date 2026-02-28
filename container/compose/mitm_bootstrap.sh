@@ -18,11 +18,10 @@ Creates:
   <out_dir>/origin_ca.key       Origin CA private key (PEM, secret)
   <out_dir>/test_target.crt     HTTPS cert for test-target + asset.test-target (PEM, signed by origin CA)
   <out_dir>/test_target.key     HTTPS key for test-target + asset.test-target (PEM, secret)
-  <out_dir>/nssdb.tar.gz        Tarball containing .pki/nssdb (NSS SQL DB) that trusts proxy_ca.crt
 
 Notes:
   - Intended for per-infra-start invocation.
-  - Requires openssl + certutil (from nssTools) on PATH.
+  - Requires openssl on PATH.
 EOF
   exit 2
 }
@@ -31,8 +30,6 @@ out_dir="${1:-}"
 [[ -n "${out_dir}" ]] || usage
 
 need openssl
-need certutil
-need tar
 need mkdir
 need rm
 
@@ -47,14 +44,13 @@ origin_ca_crt="${out_dir}/origin_ca.crt"
 origin_ca_key="${out_dir}/origin_ca.key"
 test_target_crt="${out_dir}/test_target.crt"
 test_target_key="${out_dir}/test_target.key"
-nssdb_tar="${out_dir}/nssdb.tar.gz"
 
 if [[ -e "${ca_crt}" || -e "${ca_key}" ]]; then
   echo "Refusing to overwrite legacy MITM artifacts in ${out_dir} (ca.crt/ca.key)" >&2
   exit 2
 fi
 
-if [[ -e "${proxy_ca_crt}" || -e "${proxy_ca_key}" || -e "${squid_ca_pem}" || -e "${origin_ca_crt}" || -e "${origin_ca_key}" || -e "${test_target_crt}" || -e "${test_target_key}" || -e "${nssdb_tar}" ]]; then
+if [[ -e "${proxy_ca_crt}" || -e "${proxy_ca_key}" || -e "${squid_ca_pem}" || -e "${origin_ca_crt}" || -e "${origin_ca_key}" || -e "${test_target_crt}" || -e "${test_target_key}" ]]; then
   echo "Refusing to overwrite existing MITM artifacts in ${out_dir}" >&2
   exit 2
 fi
@@ -109,12 +105,3 @@ openssl x509 -req -sha256 -days 7 \
   -out "${test_target_crt}" \
   -extfile "${test_target_ext}" \
   -extensions v3_req
-
-# Create an NSS SQL DB under ${tmp_home}/.pki/nssdb and trust the new CA.
-db_dir="${tmp_home}/.pki/nssdb"
-mkdir -p -- "${db_dir}"
-
-certutil -N -d "sql:${db_dir}" --empty-password
-certutil -A -d "sql:${db_dir}" -n "webshot-egress-proxy-ca" -t "C,," -i "${proxy_ca_crt}"
-
-tar -C "${tmp_home}" -czf "${nssdb_tar}" .pki

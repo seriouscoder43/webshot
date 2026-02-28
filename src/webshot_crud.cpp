@@ -87,8 +87,6 @@ using namespace text::literals;
 using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 namespace {
-const String kMitmTrustTarballPath = "/tmp/webshot_mitm/nssdb.tar.gz"_t;
-
 constexpr int64_t kCrawlerSeedAttemptsMax = 2;
 
 [[nodiscard]] bool urlsMatchAllowTrailingSlash(const String &a, const String &b) noexcept
@@ -400,13 +398,6 @@ public:
           crawlBackground(mainTaskProcessor)
     {
         UINVARIANT(!crawlerProxyServer.empty(), "crawler_proxy_server must not be empty");
-        UINVARIANT(
-            us::fs::FileExists(
-                engine::current_task::GetBlockingTaskProcessor(),
-                std::string(kMitmTrustTarballPath.view())
-            ),
-            kMitmTrustTarballPath.view()
-        );
 
         const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
                                                  crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
@@ -721,7 +712,7 @@ crawler::AttemptSummary WebshotCrud::Impl::runCrawlerAttempt(
     );
 
     const auto chromeFlags = text::format(
-        "--dns-over-https-mode=off --disable-quic --proxy-server={} "
+        "--dns-over-https-mode=off --disable-quic --ignore-certificate-errors --proxy-server={} "
         "--proxy-bypass-list=<-loopback>",
         crawlerProxyServer
     );
@@ -733,8 +724,7 @@ crawler::AttemptSummary WebshotCrud::Impl::runCrawlerAttempt(
         std::end(createArgs),
         {"-e"_t, "HOME=/crawls/home"_t, "-e"_t, "XDG_CONFIG_HOME=/crawls/home/.config"_t, "-e"_t,
          "XDG_CACHE_HOME=/crawls/home/.cache"_t, "-e"_t,
-         "XDG_DATA_HOME=/crawls/home/.local/share"_t, "-v"_t,
-         text::format("{}:/crawls/nssdb.tar.gz:ro", kMitmTrustTarballPath)}
+         "XDG_DATA_HOME=/crawls/home/.local/share"_t}
     );
     createArgs.push_back("-v"_t);
     createArgs.push_back(text::format("{}:/crawls", archiveRoot.GetPath()));
@@ -789,9 +779,7 @@ crawler::AttemptSummary WebshotCrud::Impl::runCrawlerAttempt(
     };
     createArgs.insert(
         std::end(createArgs),
-        {"/bin/sh"_t, "-c"_t,
-         "set -eu; mkdir -p \"$HOME\"; tar -xzf /crawls/nssdb.tar.gz -C \"$HOME\"; exec \"$@\""_t,
-         "_"_t}
+        {"/bin/sh"_t, "-c"_t, "set -eu; mkdir -p \"$HOME\"; exec \"$@\""_t, "_"_t}
     );
     createArgs.insert(std::end(createArgs), std::begin(crawlArgs), std::end(crawlArgs));
     if (crawlerSizeLimitMiB > 0) {

@@ -10,6 +10,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 need podman
 need_compose
 need timeout
+need squid-load-dev
 
 infra_mitm_bootstrap_if_needed "${script_dir}" dev
 
@@ -17,6 +18,10 @@ cd -- "${script_dir}"
 compose_file="infra_dev.yaml"
 
 bash "${script_dir}/ensure_networks.sh"
+
+if ! podman image inspect localhost/squid:dev >/dev/null 2>&1; then
+  squid-load-dev
+fi
 
 compose --in-pod true -f "${compose_file}" up -d
 

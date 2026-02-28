@@ -54,48 +54,132 @@
     release = "${config.devenv.root}/build/release";
   };
 
-  cmakeBaseFlags = [
-    "-S ."
-    "-G Ninja"
-    "-D CMAKE_CXX_COMPILER=clang++"
-    "-D CMAKE_C_COMPILER_LAUNCHER=ccache"
-    "-D CMAKE_CXX_COMPILER_LAUNCHER=ccache"
-    "-D USERVER_PYTHON_PATH=$USERVER_PYTHON_PATH"
-    "-D USERVER_DEBUG_INFO_COMPRESSION=z"
-    "-D WEBSHOT_ENABLE_SQL_COVERAGE=OFF"
-    "-D userver_DIR=$USERVER_DIR"
-    "-D USERVER_FEATURE_TESTSUITE=ON"
-    "-D USERVER_TESTSUITE_USE_VENV=OFF"
-    "-D USERVER_SQL_USE_VENV=OFF"
-    "-D USERVER_CHAOTIC_USE_VENV=OFF"
-    "-D TESTSUITE_PYTHON_BINARY=$USERVER_PYTHON_PATH"
-    "-Wno-dev"
+  nixGitignore = pkgsWithOverlay.nix-gitignore;
+
+  webshotSrc = nixGitignore.gitignoreSource [] ./.;
+
+  gitignoreLines = lib.splitString "\n" (builtins.readFile ./.gitignore);
+  gitignorePatterns =
+    builtins.filter (
+      line:
+        line
+        != ""
+        && !(lib.hasPrefix "#" line)
+    )
+    (map (line: lib.removeSuffix "\r" line) gitignoreLines);
+
+  treefmtExcludesFromGitignore =
+    lib.concatMap (
+      pattern:
+        if lib.hasSuffix "/" pattern
+        then ["${lib.removeSuffix "/" pattern}/**"]
+        else [pattern "${pattern}/**"]
+    )
+    gitignorePatterns;
+
+  mkCmakeCommonFlags = {
+    userverDir,
+    pythonPath,
+  }: [
+    "-Duserver_DIR=${userverDir}"
+    "-DUSERVER_PYTHON_PATH=${pythonPath}"
+    "-DUSERVER_DEBUG_INFO_COMPRESSION=z"
+    "-DWEBSHOT_ENABLE_SQL_COVERAGE=OFF"
   ];
 
+  mkWebshotOutput = {
+    pnameSuffix ? "",
+    userverPkg,
+  }:
+    toolchain.stdenv.mkDerivation {
+      pname = "webshot${pnameSuffix}";
+      version = "0.1.0";
+      src = webshotSrc;
+
+      dontStrip = true;
+
+      nativeBuildInputs = buildDeps.native ++ [toolchain.cc pkgsWithOverlay.makeWrapper];
+      buildInputs =
+        [
+          userverPkg
+          uniAlgoPkgs.default
+        ]
+        ++ userverDeps;
+
+      cmakeFlags =
+        [
+          "-DCMAKE_BUILD_TYPE=Debug"
+          "-DBUILD_TESTING=OFF"
+          "-DUSE_SANITIZERS=ON"
+          "-DWEBSHOT_ENABLE_COVERAGE=OFF"
+          "-DUSERVER_USE_CCACHE=OFF"
+          "-DCMAKE_C_COMPILER_LAUNCHER="
+          "-DCMAKE_CXX_COMPILER_LAUNCHER="
+          "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
+          "-DCMAKE_INSTALL_RPATH=${lib.makeLibraryPath ([userverPkg uniAlgoPkgs.default pkgsWithOverlay.stdenv.cc.cc.lib] ++ userverDeps)}"
+        ]
+        ++ mkCmakeCommonFlags {
+          userverDir = "${userverPkg}/lib/cmake/userver";
+          pythonPath = "${chaoticPython}/bin/python3";
+        }
+        ++ [
+          "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
+          "-DCMAKE_C_COMPILER=${toolchain.cc}/bin/clang"
+        ];
+
+      postFixup = ''
+        wrapProgram "$out/bin/webshot" \
+          --prefix PATH : "${lib.makeBinPath [pkgsWithOverlay.podman]}"
+      '';
+    };
+
+  cmakeTaskBaseFlags =
+    [
+      "-S"
+      "."
+      "-G"
+      "Ninja"
+      "-DCMAKE_CXX_COMPILER=clang++"
+      "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+      "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    ]
+    ++ mkCmakeCommonFlags {
+      userverDir = "${userverPkgs.userver-debug-addr-ub}/lib/cmake/userver";
+      pythonPath = "${chaoticPython}/bin/python3";
+    }
+    ++ [
+      "-DUSERVER_FEATURE_TESTSUITE=ON"
+      "-DUSERVER_TESTSUITE_USE_VENV=OFF"
+      "-DUSERVER_SQL_USE_VENV=OFF"
+      "-DUSERVER_CHAOTIC_USE_VENV=OFF"
+      "-DTESTSUITE_PYTHON_BINARY=${chaoticPython}/bin/python3"
+      "-Wno-dev"
+    ];
+
   sanFlags = [
-    "-D CMAKE_BUILD_TYPE=Debug"
-    "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
-    "-D USE_SANITIZERS=ON"
-    "-D BUILD_TESTING=ON"
+    "-DCMAKE_BUILD_TYPE=Debug"
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    "-DUSE_SANITIZERS=ON"
+    "-DBUILD_TESTING=ON"
   ];
 
   tidyFlags =
     sanFlags
     ++ [
-      "-D CMAKE_CXX_CLANG_TIDY=clang-tidy"
+      "-DCMAKE_CXX_CLANG_TIDY=clang-tidy"
     ];
 
   covFlags =
     sanFlags
     ++ [
-      "-D WEBSHOT_ENABLE_COVERAGE=ON"
+      "-DWEBSHOT_ENABLE_COVERAGE=ON"
     ];
 
   releaseFlags = [
-    "-D CMAKE_BUILD_TYPE=Release"
-    "-D CMAKE_EXPORT_COMPILE_COMMANDS=ON"
-    "-D USE_SANITIZERS=OFF"
-    "-D BUILD_TESTING=OFF"
+    "-DCMAKE_BUILD_TYPE=Release"
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    "-DUSE_SANITIZERS=OFF"
+    "-DBUILD_TESTING=OFF"
   ];
 
   mkClangdConfig = name: buildDir:
@@ -114,18 +198,46 @@
   mkConfigureTask = buildDir: clangdConfig: extraFlags: {
     cwd = config.devenv.root;
     exec =
-      lib.concatStringsSep " " (
-        ["cmake" "-B" buildDir] ++ cmakeBaseFlags ++ extraFlags
+      lib.escapeShellArgs (
+        ["cmake" "-B" buildDir] ++ cmakeTaskBaseFlags ++ extraFlags
       )
-      + ''&& ln -sf ${clangdConfig} .clangd'';
+      + " && ln -sf ${clangdConfig} .clangd";
   };
 
   mkBuildTask = buildDir: {
     cwd = config.devenv.root;
     exec = "cmake --build ${buildDir}";
   };
+
+  squidImageDev = import ./container/squid/image/squid.nix {
+    pkgs = pkgsWithOverlay;
+    tag = "dev";
+  };
+
+  squidImageProdlike = import ./container/squid/image/squid.nix {
+    pkgs = pkgsWithOverlay;
+    tag = "prodlike";
+  };
+
+  squidLoadDev = pkgsWithOverlay.writeShellScriptBin "squid-load-dev" ''
+    set -euo pipefail
+    img="$(devenv build -q outputs.squidImageDev)"
+    [[ -n "$img" ]] || { echo "Failed to build squidImageDev" >&2; exit 2; }
+    exec podman load -i "$img"
+  '';
+
+  squidLoadProdlike = pkgsWithOverlay.writeShellScriptBin "squid-load-prodlike" ''
+    set -euo pipefail
+    img="$(devenv build -q outputs.squidImageProdlike)"
+    [[ -n "$img" ]] || { echo "Failed to build squidImageProdlike" >&2; exit 2; }
+    exec podman load -i "$img"
+  '';
 in {
   cachix.enable = true;
+  # Default package build: Debug + ASan/UBSan, using the same userver build as the dev shell.
+  outputs.webshot = mkWebshotOutput {userverPkg = userverPkgs.userver-debug-addr-ub;};
+  outputs.squidImageDev = squidImageDev;
+  outputs.squidImageProdlike = squidImageProdlike;
   packages =
     buildDeps.native
     ++ buildDeps.runtime
@@ -136,6 +248,8 @@ in {
       userverPkgs.userver-debug-addr-ub
       uniAlgoPkgs.default
       yttsPkgs.default
+      squidLoadDev
+      squidLoadProdlike
     ]
     ++ userverDeps
     ++ [webshotTestSan webshotTestCov]
@@ -151,14 +265,7 @@ in {
         sqlfluff.enable = true;
         yamlfmt.enable = true;
       };
-      settings.global.excludes = [
-        ".git/**"
-        ".devenv/**"
-        ".direnv/**"
-        ".cache/**"
-        ".pytest_cache/**"
-        "secret/**"
-      ];
+      settings.global.excludes = treefmtExcludesFromGitignore;
     };
   };
   difftastic.enable = true;
