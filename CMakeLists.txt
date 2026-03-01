@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.29)
-project(webshot CXX)
+project(webshotd CXX)
 
 include(GNUInstallDirs)
 
@@ -38,7 +38,7 @@ set(USERVER_CHAOTIC_USE_VENV
 
 set(CMAKE_LINKER_TYPE MOLD)
 
-# Ensure the installed `webshot` binary is runnable without extra wrappers like
+# Ensure the installed `webshotd` binary is runnable without extra wrappers like
 # `LD_LIBRARY_PATH` by embedding runtime search paths for linked dependencies.
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
@@ -47,42 +47,42 @@ set(${PROJECT_NAME}_headers
     include/s3/s3_sts_client.hpp
     include/s3/s3_v4_client.hpp
     include/text_postgres_formatter.hpp
-    include/webshot_handler.hpp
-    include/webshot_job_handler.hpp
-    include/webshots_by_prefix_handler.hpp
-    include/webshot_by_id_handler.hpp
-    include/webshot_disallow_and_purge_handler.hpp
-    include/webshot_denylist_check_handler.hpp
-    include/webshot_crud.hpp
-    include/webshot_config.hpp
+    include/handler.hpp
+    include/job_handler.hpp
+    include/by_prefix_handler.hpp
+    include/by_id_handler.hpp
+    include/disallow_and_purge_handler.hpp
+    include/denylist_check_handler.hpp
+    include/crud.hpp
+    include/config.hpp
     include/error_utils.hpp
     include/http_utils.hpp
-    include/webshot_denylist.hpp
+    include/denylist.hpp
     include/link.hpp
-    include/webshot_cursor.hpp
-    include/webshot_pagination.hpp
-    include/webshot_prefix_pagination.hpp
-    include/webshot_prefix_utils.hpp
+    include/cursor.hpp
+    include/pagination.hpp
+    include/prefix_pagination.hpp
+    include/prefix_utils.hpp
     include/text.hpp)
 add_library(
   ${PROJECT_NAME}_objs OBJECT
-  src/webshot_handler.cpp
-  src/webshot_job_handler.cpp
-  src/webshots_by_prefix_handler.cpp
-  src/webshot_by_id_handler.cpp
-  src/webshot_disallow_and_purge_handler.cpp
-  src/webshot_denylist_check_handler.cpp
-  src/webshot_crud.cpp
+  src/handler.cpp
+  src/job_handler.cpp
+  src/by_prefix_handler.cpp
+  src/by_id_handler.cpp
+  src/disallow_and_purge_handler.cpp
+  src/denylist_check_handler.cpp
+  src/crud.cpp
   src/text_postgres_formatter.cpp
   src/error_utils.cpp
-  src/webshot_denylist.cpp
+  src/denylist.cpp
   src/link.cpp
   src/container_guard.cpp
-  src/webshot_config.cpp
-  src/webshot_cursor.cpp
-  src/webshot_pagination.cpp
-  src/webshot_prefix_pagination.cpp
-  src/webshot_prefix_utils.cpp
+  src/config.cpp
+  src/cursor.cpp
+  src/pagination.cpp
+  src/prefix_pagination.cpp
+  src/prefix_utils.cpp
   ${${PROJECT_NAME}_headers})
 
 function(apply_defaults target)
@@ -111,6 +111,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
                                $<TARGET_OBJECTS:${PROJECT_NAME}_objs>)
 apply_defaults(${PROJECT_NAME}_objs)
 apply_defaults(${PROJECT_NAME})
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME webshotd)
 target_precompile_headers(${PROJECT_NAME}_objs PRIVATE include/text.hpp)
 
 if(WEBSHOT_ENABLE_COVERAGE)

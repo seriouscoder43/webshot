@@ -1,6 +1,6 @@
 create extension if not exists ltree;
 
-create table webshot (
+create table capture (
     id uuid primary key,
     created_at timestamptz not null default now(),
     link text collate "C" not null,
@@ -10,7 +10,7 @@ create table webshot (
 );
 
 -- For prefix/paged scans by link
-create index if not exists webshot_link_idx on webshot (link, created_at desc, id);
+create index if not exists capture_link_idx on capture (link, created_at desc, id);
 
 -- For purges and denylist checks via prefix_tree
-create index if not exists webshot_prefix_tree_gist_idx on webshot using gist (prefix_tree);
+create index if not exists capture_prefix_tree_gist_idx on capture using gist (prefix_tree);

@@ -41,7 +41,7 @@
   webshotTestCov = pkgsWithOverlay.writeShellScriptBin "webshot-test-cov" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
-    cmake --build ${buildDirs.cov} --target webshot-coverage-html
+    cmake --build ${buildDirs.cov} --target coverage-html
   '';
 
   userverPkgs = inputs.userver.packages.${system};
@@ -128,7 +128,7 @@
         ];
 
       postFixup = ''
-        wrapProgram "$out/bin/webshot" \
+        wrapProgram "$out/bin/webshotd" \
           --prefix PATH : "${lib.makeBinPath [pkgsWithOverlay.podman]}"
       '';
     };
@@ -209,12 +209,12 @@
     exec = "cmake --build ${buildDir}";
   };
 
-  squidImageDev = import ./container/squid/image/squid.nix {
+  squidImageDev = import ./container/squid/squid.nix {
     pkgs = pkgsWithOverlay;
     tag = "dev";
   };
 
-  squidImageProdlike = import ./container/squid/image/squid.nix {
+  squidImageProdlike = import ./container/squid/squid.nix {
     pkgs = pkgsWithOverlay;
     tag = "prodlike";
   };
@@ -280,7 +280,7 @@ in {
       enable = true;
       args = ["-x"];
     };
-    unicode-hygiene = {
+    unicode_hygiene = {
       enable = true;
       entry = "python3 check_unicode_hygiene.py";
       package = python;
@@ -327,8 +327,8 @@ in {
     yttsPkgs.default
   ];
 
-  env.WEBSHOT_RUNTIME_LD_LIBRARY_PATH = lib.makeLibraryPath testLibs;
-  env.WEBSHOT_BUILD_DIR = buildDirs.san;
+  env.WEBSHOTD_RUNTIME_LD_LIBRARY_PATH = lib.makeLibraryPath testLibs;
+  env.WEBSHOTD_BUILD_DIR = buildDirs.san;
   tasks."webshot:infraDevUp" = {
     exec = "bash container/compose/infra_dev_up.sh";
     cwd = config.devenv.root;

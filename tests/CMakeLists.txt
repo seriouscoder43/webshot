@@ -1,4 +1,4 @@
-function(webshot_add_cpp_test target)
+function(add_cpp_test target)
   cmake_parse_arguments(ARGS "" "" "SOURCES;LIBS;INCLUDE_DIRS" ${ARGN})
 
   add_executable(${target} ${ARGS_SOURCES})
@@ -34,14 +34,14 @@ function(webshot_add_cpp_test target)
   set_property(GLOBAL APPEND PROPERTY WEBSHOT_CPP_TESTS ${target})
 endfunction()
 
-webshot_add_cpp_test(
-  link_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/link_test.cpp
+add_cpp_test(
+  link_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/link.cpp
   ${CMAKE_SOURCE_DIR}/src/link.cpp)
 
-webshot_add_cpp_test(
+add_cpp_test(
   s3_v4_client_test
   SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/s3_v4_client_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/s3_v4_client.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/sigv4_signer.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/s3_v4_client.cpp
   ${CMAKE_SOURCE_DIR}/src/link.cpp
@@ -50,14 +50,14 @@ webshot_add_cpp_test(
   INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/src)
 
-webshot_add_cpp_test(
-  s3_url_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_url_utils_test.cpp
+add_cpp_test(
+  s3_url_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_url_utils.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/s3_url_utils.cpp)
 
-webshot_add_cpp_test(
+add_cpp_test(
   s3_sts_client_test
   SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/s3_sts_client_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/s3_sts_client.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/s3_sts_client.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/sigv4_signer.cpp
   ${CMAKE_SOURCE_DIR}/src/s3/s3_url_utils.cpp
@@ -67,58 +67,56 @@ webshot_add_cpp_test(
   INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/src)
 
-webshot_add_cpp_test(
-  webshot_cursor_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/webshot_cursor_test.cpp
-  ${CMAKE_SOURCE_DIR}/src/webshot_cursor.cpp LIBS ${PROJECT_NAME}-chgen)
+add_cpp_test(
+  cursor_test SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/cursor.cpp ${CMAKE_SOURCE_DIR}/src/cursor.cpp
+  LIBS ${PROJECT_NAME}-chgen)
 
-webshot_add_cpp_test(
-  webshot_pagination_test
+add_cpp_test(
+  pagination_test
   SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/webshot_pagination_test.cpp
-  ${CMAKE_SOURCE_DIR}/src/webshot_cursor.cpp
-  ${CMAKE_SOURCE_DIR}/src/webshot_pagination.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/pagination.cpp ${CMAKE_SOURCE_DIR}/src/cursor.cpp
+  ${CMAKE_SOURCE_DIR}/src/pagination.cpp
   LIBS
   ${PROJECT_NAME}-chgen)
 
-webshot_add_cpp_test(
-  webshot_prefix_pagination_test
+add_cpp_test(
+  prefix_pagination_test
   SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/webshot_prefix_pagination_test.cpp
-  ${CMAKE_SOURCE_DIR}/src/webshot_cursor.cpp
-  ${CMAKE_SOURCE_DIR}/src/webshot_prefix_pagination.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/prefix_pagination.cpp
+  ${CMAKE_SOURCE_DIR}/src/cursor.cpp ${CMAKE_SOURCE_DIR}/src/prefix_pagination.cpp
   LIBS
   ${PROJECT_NAME}-chgen)
 
-webshot_add_cpp_test(
+add_cpp_test(
   container_guard_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/container_guard_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/container_guard.cpp
   ${CMAKE_SOURCE_DIR}/src/container_guard.cpp LIBS userver::core)
 
-webshot_add_cpp_test(
-  error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils_test.cpp
+add_cpp_test(
+  error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
 
-webshot_add_cpp_test(text_test SOURCES
-                     ${CMAKE_CURRENT_SOURCE_DIR}/text_test.cpp)
+add_cpp_test(text_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
 
-webshot_add_cpp_test(
-  s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist_test.cpp LIBS
+add_cpp_test(
+  s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist.cpp LIBS
   userver::core)
 
-webshot_add_cpp_test(s3_refresh_schedule_test SOURCES
-                     ${CMAKE_CURRENT_SOURCE_DIR}/s3_refresh_schedule_test.cpp)
+add_cpp_test(s3_refresh_schedule_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/s3_refresh_schedule.cpp)
 
-webshot_add_cpp_test(deadline_utils_test SOURCES
-                     ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils_test.cpp)
+add_cpp_test(deadline_utils_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils.cpp)
 
-webshot_add_cpp_test(
+add_cpp_test(
   crawler_fallback_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback_test.cpp)
+  ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback.cpp)
 
-webshot_add_cpp_test(
+add_cpp_test(
   handler_simple_server_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/handler_simple_server_test.cpp LIBS userver::core)
+  ${CMAKE_CURRENT_SOURCE_DIR}/handler_simple_server.cpp LIBS userver::core)
 
 get_property(WEBSHOT_CPP_TESTS GLOBAL PROPERTY WEBSHOT_CPP_TESTS)
 set(WEBSHOT_COVERAGE_TARGETS ${PROJECT_NAME} ${WEBSHOT_CPP_TESTS})
@@ -132,12 +130,12 @@ apply_defaults(podman_stub)
 set_target_properties(podman_stub PROPERTIES OUTPUT_NAME podman)
 
 if(USERVER_FEATURE_TESTSUITE)
-  add_custom_target(webshot-testsuite)
-  add_dependencies(webshot-testsuite ${PROJECT_NAME} podman_stub)
+  add_custom_target(testsuite)
+  add_dependencies(testsuite ${PROJECT_NAME} podman_stub)
 
   userver_testsuite_add(
     SERVICE_TARGET
-    webshot-testsuite
+    testsuite
     TEST_SUFFIX
     tests
     $<$<BOOL:WEBSHOT_ENABLE_SQL_COVERAGE>:SQL_LIBRARY>
@@ -154,52 +152,52 @@ if(USERVER_FEATURE_TESTSUITE)
 
   # Ensure the testsuite runner is generated as part of the default build
   # whenever tests (and testsuite support) are enabled, so ctest can run
-  # testsuite-webshot-testsuite-tests without extra manual targets.
-  add_custom_target(webshot-testsuite-build ALL)
-  add_dependencies(webshot-testsuite-build webshot-testsuite)
+  # testsuite-testsuite-tests without extra manual targets.
+  add_custom_target(testsuite-build ALL)
+  add_dependencies(testsuite-build testsuite)
 
   add_custom_target(
-    webshot-coverage
+    coverage
     COMMAND ${CMAKE_COMMAND} -E remove_directory
             ${CMAKE_CURRENT_BINARY_DIR}/coverage
     COMMAND ${CMAKE_COMMAND} -E make_directory
             ${CMAKE_CURRENT_BINARY_DIR}/coverage
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target
-            webshot-testsuite
+            testsuite
     COMMAND
       ${CMAKE_COMMAND} -E env
-      LLVM_PROFILE_FILE=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-%p.profraw
+      LLVM_PROFILE_FILE=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshotd-%p.profraw
       ${CMAKE_CTEST_COMMAND} --output-on-failure
     COMMAND
       bash -lc
-      "llvm-profdata merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata"
+      "llvm-profdata merge -sparse ${CMAKE_CURRENT_BINARY_DIR}/coverage/webshotd-*.profraw -o ${CMAKE_CURRENT_BINARY_DIR}/coverage/coverage.profdata"
     COMMAND
       llvm-cov report ${WEBSHOT_COVERAGE_TARGET_FILES}
-      -instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
-      "-ignore-filename-regex=.*/tests/.*|.*/webshot_config\\.(cpp|hpp)"
+      -instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/coverage.profdata
+      "-ignore-filename-regex=.*/tests/.*|.*/config\\.(cpp|hpp)"
       -show-instantiation-summary
     USES_TERMINAL VERBATIM)
 
   # Skip coverage instrumentation for config glue; track behavior with the
   # reporting regex instead.
   set_source_files_properties(
-    ${CMAKE_SOURCE_DIR}/src/webshot_config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config.cpp
     PROPERTIES COMPILE_OPTIONS
                "-fno-profile-instr-generate;-fno-coverage-mapping")
 
   add_custom_target(
-    webshot-coverage-html
+    coverage-html
     COMMAND ${CMAKE_COMMAND} -E make_directory
             ${CMAKE_CURRENT_BINARY_DIR}/coverage/html
     COMMAND
       llvm-cov show --format=html
       --output-dir=${CMAKE_CURRENT_BINARY_DIR}/coverage/html
-      --instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/webshot.profdata
+      --instr-profile=${CMAKE_CURRENT_BINARY_DIR}/coverage/coverage.profdata
       ${WEBSHOT_COVERAGE_TARGET_FILES}
-      "-ignore-filename-regex=.*/tests/.*|.*/webshot_config\\.(cpp|hpp)"
+      "-ignore-filename-regex=.*/tests/.*|.*/config\\.(cpp|hpp)"
       -show-instantiation-summary
-    DEPENDS webshot-coverage
+    DEPENDS coverage
     USES_TERMINAL VERBATIM)
 
-  add_dependencies(webshot-coverage ${PROJECT_NAME} podman_stub ${WEBSHOT_CPP_TESTS})
+  add_dependencies(coverage ${PROJECT_NAME} podman_stub ${WEBSHOT_CPP_TESTS})
 endif()

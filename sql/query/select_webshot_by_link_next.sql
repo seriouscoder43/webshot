@@ -1,7 +1,7 @@
 select
     id,
     created_at
-from webshot
+from capture
 where
     link = $1
     and (

@@ -68,8 +68,8 @@ services:
       timeout: 5s
       retries: 60
     stop_grace_period: 60s
-  webshot_scalar:
-    container_name: webshot_scalar
+  scalar:
+    container_name: scalar
     image: docker.io/scalarapi/api-reference:latest@sha256:9ae2aa3829488d273de33ebd21a4446a4b0fd19107b355689dca43abfb846ec8
     restart: on-failure
     networks:
@@ -79,8 +79,8 @@ services:
     volumes:
       - ../../schema:/docs:ro
       - ../../container/scalar/Caddyfile:/etc/caddy/Caddyfile:ro
-  webshot_reverse_proxy:
-    container_name: webshot_reverse_proxy
+  reverse_proxy:
+    container_name: reverse_proxy
     image: docker.io/nginx:alpine@sha256:b3c656d55d7ad751196f21b7fd2e8d4da9cb430e32f646adcf92441b72f82b14
     restart: on-failure
     networks:
@@ -94,9 +94,9 @@ services:
       - ../../container/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ../../schema:/data/openapi:ro
     depends_on:
-      - webshot_scalar
-  webshot_test_target:
-    container_name: webshot_test_target
+      - scalar
+  test_target:
+    container_name: test_target
     image: docker.io/nginx:alpine@sha256:b3c656d55d7ad751196f21b7fd2e8d4da9cb430e32f646adcf92441b72f82b14
     restart: on-failure
     networks:

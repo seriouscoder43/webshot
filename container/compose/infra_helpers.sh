@@ -57,7 +57,7 @@ infra_down_compose() {
 
   cd -- "${script_dir}" || return 1
 
-  local timeout_sec="${WEBSHOT_INFRA_DOWN_TIMEOUT_SEC:-90}"
+  local timeout_sec="${INFRA_DOWN_TIMEOUT_SEC:-90}"
   if timeout "${timeout_sec}" compose --in-pod true -f "${compose_file}" down; then
     return 0
   fi

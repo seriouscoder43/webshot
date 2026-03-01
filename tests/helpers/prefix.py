@@ -25,7 +25,7 @@ def _encode_segment_to_ltree_labels(seg: str) -> list[str]:
 
 
 def prefix_tree_from_prefix_key(prefix_key: str) -> str:
-    # Mirrors `prefix::makePrefixTree` in `src/webshot_prefix_utils.cpp`.
+    # Mirrors `prefix::makePrefixTree` in `src/prefix_utils.cpp`.
     if not prefix_key:
         return "h"
     if "/" in prefix_key:

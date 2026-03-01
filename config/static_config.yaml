@@ -2,6 +2,7 @@ components_manager:
   task_processors:
     main-task-processor:
       worker_threads: 4
+      guess-cpu-limit: true
     purge_task_processor:
       worker_threads: 1
       thread_name: purge_task_processor_worker
@@ -23,7 +24,7 @@ components_manager:
     dynamic-config:
       defaults:
         USERVER_RPS_CCONTROL_ENABLED: true
-    webshot_config:
+    config:
       query_part_length_max: 32768
       s3_bucket: $s3_bucket
       s3_endpoint: $s3_endpoint
@@ -54,46 +55,46 @@ components_manager:
       path: /service/monitor
       method: GET
       task_processor: main-task-processor
-    webshot_denylist_check:
+    denylist_check:
       path: /v1/denylist/check
       method: POST
       task_processor: main-task-processor
       request-timeout-ms: 2000
       max_request_size: &max-data-per-request 65536
-    webshot_handler:
+    handler:
       path: /v1/webshot
       method: GET,POST
       task_processor: main-task-processor
       request-timeout-ms: 60000
       max_request_size: *max-data-per-request
-    webshots_by_prefix:
+    by_prefix:
       path: /v1/webshot/prefix
       method: GET
       task_processor: main-task-processor
       request-timeout-ms: 10000
       max_request_size: *max-data-per-request
-    webshot_job_handler:
+    job_handler:
       path: /v1/webshot/jobs/{uuid}
       method: GET
       task_processor: main-task-processor
       request-timeout-ms: 5000
       max_request_size: *max-data-per-request
-    webshot_disallow_and_purge:
+    disallow_and_purge:
       path: /v1/disallow_and_purge
       method: POST
       task_processor: main-task-processor
       request-timeout-ms: 10000
       max_request_size: *max-data-per-request
-    webshot_by_id:
+    by_id:
       path: /v1/webshot/{uuid}
       method: GET
       task_processor: main-task-processor
       request-timeout-ms: 10000
       max_request_size: *max-data-per-request
-    webshot_crud:
-      webshots_page_max: 2
-      webshots_per_link_max: 2
-      webshots_links_per_page_max: 10
+    crud:
+      snapshots_page_max: 2
+      snapshots_per_link_max: 2
+      snapshots_links_per_page_max: 10
       crawler_network: 'crawler_net'
       crawler_proxy_server: $crawler_proxy_server
       link_cooldown_sec: $link_cooldown_sec
@@ -123,9 +124,9 @@ components_manager:
       purge_job_timeout_sec: 300
       purge_delete_batch_size: 1000
     capture_meta_db:
-      dbconnection: $pg_webshot_meta_dsn
+      dbconnection: $pg_capture_meta_db_dsn
       blocking_task_processor: fs-task-processor
     shared_state_db:
-      dbconnection: $pg_shared_state_dsn
+      dbconnection: $pg_shared_state_db_dsn
       blocking_task_processor: fs-task-processor
-    webshot_denylist:
+    denylist:

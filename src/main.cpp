@@ -2,15 +2,15 @@
  * @file
  * @brief Service entry point wiring userver components and HTTP handlers.
  */
-#include "webshot_by_id_handler.hpp"
-#include "webshot_config.hpp"
-#include "webshot_crud.hpp"
-#include "webshot_denylist.hpp"
-#include "webshot_denylist_check_handler.hpp"
-#include "webshot_disallow_and_purge_handler.hpp"
-#include "webshot_handler.hpp"
-#include "webshot_job_handler.hpp"
-#include "webshots_by_prefix_handler.hpp"
+#include "by_id_handler.hpp"
+#include "by_prefix_handler.hpp"
+#include "config.hpp"
+#include "crud.hpp"
+#include "denylist.hpp"
+#include "denylist_check_handler.hpp"
+#include "disallow_and_purge_handler.hpp"
+#include "handler.hpp"
+#include "job_handler.hpp"
 
 #include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component.hpp>
@@ -35,15 +35,15 @@ int main(int argc, char *argv[])
                               .Append<us::components::Postgres>("capture_meta_db")
                               .Append<us::components::Postgres>("shared_state_db")
                               .Append<us::congestion_control::Component>()
-                              .Append<v1::WebshotDenylist>()
-                              .Append<v1::WebshotConfig>()
-                              .Append<v1::WebshotCrud>()
-                              .Append<v1::WebshotsByPrefixHandler>()
-                              .Append<v1::WebshotHandler>()
-                              .Append<v1::WebshotJobHandler>()
-                              .Append<v1::WebshotDisallowAndPurgeHandler>()
-                              .Append<v1::WebshotDenylistCheckHandler>()
-                              .Append<v1::WebshotById>()
+                              .Append<v1::Denylist>()
+                              .Append<v1::Config>()
+                              .Append<v1::Crud>()
+                              .Append<v1::ByPrefixHandler>()
+                              .Append<v1::Handler>()
+                              .Append<v1::JobHandler>()
+                              .Append<v1::DisallowAndPurgeHandler>()
+                              .Append<v1::DenylistCheckHandler>()
+                              .Append<v1::ById>()
                               .Append<us::server::handlers::ServerMonitor>();
     return us::utils::DaemonMain(argc, argv, component_list);
 }

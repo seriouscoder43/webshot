@@ -18,7 +18,7 @@ elif [[ -n "${2:-}" ]]; then
 fi
 
 case "${mode}" in
-  dev) names=(egress_proxy servicedb seaweedfs webshot_scalar webshot_reverse_proxy webshot_test_target) ;;
+  dev) names=(egress_proxy servicedb seaweedfs scalar reverse_proxy test_target) ;;
   prodlike) names=(egress_proxy servicedb) ;;
   *)
     echo "Usage: infra_ready.sh <dev|prodlike> [--verbose]" >&2
