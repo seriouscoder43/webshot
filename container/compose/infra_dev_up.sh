@@ -10,22 +10,18 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 need podman
 need_compose
 need timeout
-need squid-load-dev
+need squid_load_dev
 
 cd -- "${script_dir}"
 compose_file="infra_dev.yaml"
 
 bash "${script_dir}/ensure_networks.sh"
 
-if ! podman image inspect localhost/squid:dev >/dev/null 2>&1; then
-  squid-load-dev
-fi
-
 compose --in-pod true -f "${compose_file}" up -d
 
 wait_healthy egress_proxy 120
 wait_healthy servicedb 120
-ensure_servicedb_timezone_utc_or_down "${script_dir}" "${compose_file}" servicedb || exit 1
+ensure_servicedb_timezone_utc_or_down "${script_dir}" "${compose_file}" servicedb
 wait_healthy seaweedfs 120
 
 bash "${script_dir}/ensure_s3_bucket_dev.sh"

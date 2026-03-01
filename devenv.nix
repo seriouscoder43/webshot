@@ -29,14 +29,14 @@
 
   testLibs = userverDeps ++ [pkgsWithOverlay.stdenv.cc.cc];
 
-  webshotTestSan = pkgsWithOverlay.writeShellScriptBin "webshot-test-san" ''
+  webshotTestSan = pkgsWithOverlay.writeShellScriptBin "webshot_test_san" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
     cd ${buildDirs.san}
     ctest --output-on-failure
   '';
 
-  webshotTestCov = pkgsWithOverlay.writeShellScriptBin "webshot-test-cov" ''
+  webshotTestCov = pkgsWithOverlay.writeShellScriptBin "webshot_test_cov" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
     cmake --build ${buildDirs.cov} --target coverage-html
@@ -233,18 +233,18 @@
     cd -- "$root"
   '';
 
-  squidLoadDev = pkgsWithOverlay.writeShellScriptBin "squid-load-dev" ''
+  squidLoadDev = pkgsWithOverlay.writeShellScriptBin "squid_load_dev" ''
     ${squidLoadPreamble}
     img="$(devenv build -q outputs.squidImageDev)"
     [[ -n "$img" ]] || { echo "Failed to build squidImageDev" >&2; exit 2; }
-    exec podman load -i "$img"
+    exec podman load --quiet -i "$img"
   '';
 
-  squidLoadProdlike = pkgsWithOverlay.writeShellScriptBin "squid-load-prodlike" ''
+  squidLoadProdlike = pkgsWithOverlay.writeShellScriptBin "squid_load_prodlike" ''
     ${squidLoadPreamble}
     img="$(devenv build -q outputs.squidImageProdlike)"
     [[ -n "$img" ]] || { echo "Failed to build squidImageProdlike" >&2; exit 2; }
-    exec podman load -i "$img"
+    exec podman load --quiet -i "$img"
   '';
 in {
   cachix.enable = true;
@@ -428,11 +428,11 @@ in {
 
   tasks."webshot:testSan" = {
     package = webshotTestSan;
-    exec = "webshot-test-san";
+    exec = "webshot_test_san";
   };
 
   tasks."webshot:testCov" = {
     package = webshotTestCov;
-    exec = "webshot-test-cov";
+    exec = "webshot_test_cov";
   };
 }

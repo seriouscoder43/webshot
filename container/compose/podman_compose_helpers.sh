@@ -70,7 +70,6 @@ wait_healthy() {
 
     if [[ "${state}" != "running" && -n "${state}" ]]; then
       echo "Container '${name}' is not running (state='${state}', exit_code='${exit_code}')." >&2
-      podman logs --tail=200 "${name}" || true
       return 1
     fi
 
@@ -98,13 +97,11 @@ wait_healthy() {
     fi
     if [[ "${health}" == "unhealthy" ]]; then
       echo "Container '${name}' is unhealthy" >&2
-      podman logs --tail=200 "${name}" || true
       return 1
     fi
 
     if ((SECONDS >= deadline)); then
       echo "Timed out waiting for '${name}' to become healthy (health='${health:-unknown}', state='${state:-unknown}')" >&2
-      podman logs --tail=200 "${name}" || true
       return 1
     fi
 
@@ -146,14 +143,12 @@ wait_running() {
     fi
     if [[ "${state}" == "exited" || "${state}" == "stopped" || "${state}" == "dead" ]]; then
       echo "Container '${name}' is not running (state='${state}', exit_code='${exit_code}')." >&2
-      podman logs --tail=200 "${name}" 2>/dev/null || true
       return 1
     fi
 
     if ((SECONDS >= deadline)); then
       echo "Timed out waiting for '${name}' to be running (state='${state:-unknown}')" >&2
       podman ps -a --filter "name=^${name}$" --format '{{.Names}} {{.Status}}' 2>/dev/null || true
-      podman logs --tail=200 "${name}" 2>/dev/null || true
       return 1
     fi
 
