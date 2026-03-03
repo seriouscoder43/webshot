@@ -80,7 +80,7 @@ components_manager:
       request-timeout-ms: 5000
       max_request_size: *max-data-per-request
     disallow_and_purge:
-      path: /v1/disallow_and_purge
+      path: /v1/denylist/disallow_and_purge
       method: POST
       task_processor: main-task-processor
       request-timeout-ms: 10000

@@ -259,7 +259,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-  /v1/disallow_and_purge:
+  /v1/denylist/disallow_and_purge:
     post:
       operationId: disallowAndPurgePrefix
       summary: Disallow a host prefix and enqueue purge
