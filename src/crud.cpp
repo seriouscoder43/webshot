@@ -8,6 +8,7 @@
  */
 #include "config.hpp"
 #include "container_guard.hpp"
+#include "crawler_failure.hpp"
 #include "crawler_fallback.hpp"
 #include "denylist.hpp"
 #include "link.hpp"
@@ -34,6 +35,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
@@ -791,9 +793,15 @@ crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(
     );
     ContainerGuard ctrGuard(starter, cname, createArgs);
 
+    const auto stdoutPath = fmt::format("{}/browsertrix.stdout.log", archiveRoot.GetPath());
+    const auto stderrPath = fmt::format("{}/browsertrix.stderr.log", archiveRoot.GetPath());
     auto startProc = starter.Exec(
         "podman", std::vector<std::string>{"start", "-a", std::string(cname.view())},
-        engine::subprocess::ExecOptions{.use_path = true}
+        engine::subprocess::ExecOptions{
+            .stdout_file = stdoutPath,
+            .stderr_file = stderrPath,
+            .use_path = true,
+        }
     );
     auto status = startProc.Get();
 
@@ -801,17 +809,28 @@ crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(
     res.exited = status.IsExited();
     res.exitCode = res.exited ? status.GetExitCode() : -1;
     res.waczExists = false;
+    res.failureDetail = crawler::summarizeProcessOutputs(stdoutPath, stderrPath);
 
     const auto pagesJsonlPath = text::format(
         "{0}/collections/{1}/pages/pages.jsonl", archiveRoot.GetPath(), collection
     );
     res.seedProbe = probeSeedPageFromPagesJsonl(pagesJsonlPath, seedUrl);
 
-    if (!res.exited)
+    if (!res.exited) {
+        const auto attemptContext = crawler::formatAttemptContext(res);
+        LOG_INFO() << fmt::format(
+            "Crawler attempt failed for {}{}", seedUrl,
+            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
+        );
         return res;
+    }
 
-    if (res.exitCode != static_cast<int>(crawler::CrawlerExitCode::kSuccess))
+    if (res.exitCode != static_cast<int>(crawler::CrawlerExitCode::kSuccess)) {
+        LOG_INFO() << fmt::format(
+            "Crawler attempt failed for {} ({})", seedUrl, crawler::formatAttemptStatus({}, res)
+        );
         return res;
+    }
 
     // do eagerly
     ctrGuard.remove();
@@ -872,39 +891,44 @@ void Crud::Impl::runCrawlerForContext(
     if (result.outcome == crawler::RunOutcome::kFailedSizeLimit) {
         const auto attempt = result.httpAttempt ? *result.httpAttempt : result.httpsAttempt;
         const auto msg = fmt::format(
-            "Failed to crawl {} (exit code {}: {})",
-            result.httpAttempt ? httpSeedUrl : httpsSeedUrl, attempt.exitCode,
-            crawler::crawlerFailureReason(attempt.exitCode)
+            "Failed to crawl {} ({})", result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
+            crawler::formatAttemptStatus(result.httpAttempt ? "http" : "https", attempt)
         );
         LOG_INFO() << msg;
         throw errors::CrawlerSizeLimitException(msg);
     }
 
     if (result.outcome == crawler::RunOutcome::kFailedChildNoExit) {
+        const auto attempt = result.httpAttempt ? *result.httpAttempt : result.httpsAttempt;
+        const auto attemptContext = crawler::formatAttemptContext(attempt);
         const auto msg = fmt::format(
-            "Failed to crawl {}, child process did not exit cleanly",
-            result.httpAttempt ? httpSeedUrl : httpsSeedUrl
+            "Failed to crawl {}, child process did not exit cleanly{}",
+            result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
+            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
         );
         LOG_INFO() << msg;
         throw errors::CrawlerFailedException(msg);
     }
 
     if (result.outcome == crawler::RunOutcome::kFailedNoWacz) {
+        const auto attempt = result.httpAttempt ? *result.httpAttempt : result.httpsAttempt;
+        const auto attemptContext = crawler::formatAttemptContext(attempt);
         const auto msg = fmt::format(
-            "Failed to crawl {}, no WACZ", result.httpAttempt ? httpSeedUrl : httpsSeedUrl
+            "Failed to crawl {}, no WACZ{}", result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
+            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
         );
         LOG_INFO() << msg;
         throw errors::CrawlerFailedException(msg);
     }
 
     const auto msg = fmt::format(
-        "Failed to crawl {} (https exit code {}: {}{})", ctx.link.normalized(),
-        result.httpsAttempt.exitCode, crawler::crawlerFailureReason(result.httpsAttempt.exitCode),
-        result.httpAttempt ? fmt::format(
-                                 ", http exit code {}: {}", result.httpAttempt->exitCode,
-                                 crawler::crawlerFailureReason(result.httpAttempt->exitCode)
-                             )
-                           : std::string()
+        "Failed to crawl {} ({})", ctx.link.normalized(),
+        result.httpAttempt
+            ? fmt::format(
+                  "{}, {}", crawler::formatAttemptStatus("https", result.httpsAttempt),
+                  crawler::formatAttemptStatus("http", *result.httpAttempt)
+              )
+            : std::string(crawler::formatAttemptStatus("https", result.httpsAttempt).view())
     );
     LOG_INFO() << msg;
     throw errors::CrawlerFailedException(msg);
@@ -1020,7 +1044,9 @@ dto::CaptureJob Crud::createCaptureJob(Link link)
         } catch (const errors::CrawlerSizeLimitException &e) {
             implPtr->markJobFailed(id, "size_limit"_t, "capture exceeded archive size limit"_t);
         } catch (const errors::CrawlerFailedException &e) {
-            implPtr->markJobFailed(id, "crawler_failed"_t, "internal crawler error"_t);
+            implPtr->markJobFailed(
+                id, "crawler_failed"_t, String::fromBytesThrow(std::string_view(e.what()))
+            );
         } catch (const std::exception &e) {
             implPtr->markJobFailed(id, "internal_server_error"_t, "internal server error"_t);
         }

@@ -33,6 +33,7 @@ struct [[nodiscard]] AttemptSummary {
     int exitCode;
     bool waczExists;
     std::optional<SeedPageProbe> seedProbe;
+    std::optional<String> failureDetail;
 };
 
 enum class RunOutcome {

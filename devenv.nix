@@ -32,8 +32,91 @@
   webshotTestSan = pkgsWithOverlay.writeShellScriptBin "webshot_test_san" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath testLibs}'
+    export WEBSHOT_TEST_RUN_ID="webshot-test-san-$$-$(date +%s)"
+    ctest_timeout_sec="''${WEBSHOT_TEST_SAN_TIMEOUT_SEC:-1800}"
+    ctest_pid=""
+    watchdog_pid=""
+
+    find_tagged_pids() {
+      local pid
+      for envfile in /proc/[0-9]*/environ; do
+        pid="''${envfile#/proc/}"
+        pid="''${pid%/environ}"
+        if [[ "$pid" == "$$" ]]; then
+          continue
+        fi
+        if [[ ! -r "$envfile" ]]; then
+          continue
+        fi
+        if tr '\0' '\n' <"$envfile" | grep -Fxq "WEBSHOT_TEST_RUN_ID=$WEBSHOT_TEST_RUN_ID"; then
+          printf '%s\n' "$pid"
+        fi
+      done
+    }
+
+    cleanup_tagged_processes() {
+      local status="$1"
+      if [[ -n "$watchdog_pid" ]]; then
+        kill "$watchdog_pid" 2>/dev/null || true
+        wait "$watchdog_pid" 2>/dev/null || true
+      fi
+      local pids
+      pids="$(find_tagged_pids)"
+      if [[ -n "$pids" ]]; then
+        echo "webshot_test_san: terminating leaked tagged processes" >&2
+        ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,cmd= -p "$(paste -sd, <<<"$pids")" >&2 || true
+        kill -TERM $pids 2>/dev/null || true
+        sleep 2
+
+        pids="$(find_tagged_pids)"
+        if [[ -n "$pids" ]]; then
+          echo "webshot_test_san: killing unresponsive tagged processes" >&2
+          ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,cmd= -p "$(paste -sd, <<<"$pids")" >&2 || true
+          kill -KILL $pids 2>/dev/null || true
+        fi
+      fi
+      exit "$status"
+    }
+
+    watchdog_ctest() {
+      while kill -0 "$ctest_pid" 2>/dev/null; do
+        sleep "$ctest_timeout_sec" || return 0
+        if ! kill -0 "$ctest_pid" 2>/dev/null; then
+          return 0
+        fi
+
+        echo "webshot_test_san: ctest exceeded outer timeout of $ctest_timeout_sec seconds" >&2
+        ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,cmd= -p "$ctest_pid" >&2 || true
+
+        local pids
+        pids="$(find_tagged_pids)"
+        if [[ -n "$pids" ]]; then
+          echo "webshot_test_san: tagged processes still alive at timeout" >&2
+          ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,cmd= -p "$(paste -sd, <<<"$pids")" >&2 || true
+        fi
+
+        kill -TERM "$ctest_pid" 2>/dev/null || true
+        if [[ -n "$pids" ]]; then
+          kill -TERM $pids 2>/dev/null || true
+        fi
+        sleep 10
+
+        kill -KILL "$ctest_pid" 2>/dev/null || true
+        pids="$(find_tagged_pids)"
+        if [[ -n "$pids" ]]; then
+          kill -KILL $pids 2>/dev/null || true
+        fi
+        return 0
+      done
+    }
+
+    trap 'cleanup_tagged_processes "$?"' EXIT
     cd ${buildDirs.san}
-    ctest --output-on-failure
+    ctest --progress --output-on-failure -V &
+    ctest_pid="$!"
+    watchdog_ctest &
+    watchdog_pid="$!"
+    wait "$ctest_pid"
   '';
 
   webshotTestCov = pkgsWithOverlay.writeShellScriptBin "webshot_test_cov" ''

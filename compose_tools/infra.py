@@ -626,8 +626,6 @@ def infra_up(*, mode: str, compose_dir: Path, repo_root: Path) -> None:
             print("infra: ensuring dev S3 bucket...", file=sys.stderr, flush=True)
             _ensure_s3_bucket_dev(repo_root=repo_root)
 
-        print("infra: starting supervisor...", file=sys.stderr, flush=True)
-        infra_supervisor_start(mode=mode, compose_dir=compose_dir, repo_root=repo_root)
     except ToolError:
         if compose_attempted:
             print("infra: failed; bringing infra down...", file=sys.stderr, flush=True)

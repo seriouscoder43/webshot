@@ -10,6 +10,8 @@ from testsuite.databases.pgsql import discover
 
 from compose_tools.s3_bucket import ensure_s3_bucket_exists
 
+_S3_GATE_HOST = "localhost"
+
 pytest_plugins = [
     "pytest_userver.plugins.core",
     "pytest_userver.plugins.postgresql",
@@ -23,11 +25,13 @@ psycopg2.extras.register_uuid()
 
 @pytest.fixture(scope="session")
 def service_port() -> int:
+    # Infra containers reach the testsuite service via host.containers.internal:8080.
     return 8080
 
 
 @pytest.fixture(scope="session")
 def monitor_port() -> int:
+    # The dev reverse proxy and metrics path expect the testsuite monitor on 8081.
     return 8081
 
 
@@ -64,14 +68,14 @@ async def pg_gate(pgsql_local):
 
 
 @pytest.fixture(scope="session")
-async def s3_gate():
-    # Proxy between service and local S3 (SeaweedFS): service -> gate :8334 -> S3 :8333.
+async def s3_gate(s3_gate_port):
+    # Proxy between service and local S3 (SeaweedFS) through a per-run local port.
     route = chaos.GateRoute(
         name="s3",
-        host_to_server="localhost",
+        host_to_server=_S3_GATE_HOST,
         port_to_server=8333,
-        host_for_client="localhost",
-        port_for_client=8334,
+        host_for_client=_S3_GATE_HOST,
+        port_for_client=s3_gate_port,
     )
     loop = asyncio.get_event_loop()
     gate = chaos.TcpGate(route, loop)
@@ -80,6 +84,11 @@ async def s3_gate():
         yield gate
     finally:
         await gate.stop()
+
+
+@pytest.fixture(scope="session")
+def s3_gate_port(choose_free_port):
+    return choose_free_port(8334)
 
 
 @pytest.fixture
@@ -143,15 +152,19 @@ def service_env(service_source_dir: pathlib.Path):
 
 
 @pytest.fixture(scope="session")
-def allowed_url_prefixes_extra():
+def allowed_url_prefixes_extra(s3_gate_port):
     # Permit S3 uploads to the chaos gate in front of the local SeaweedFS endpoint.
-    return ["http://localhost:8334/"]
+    return [f"http://{_S3_GATE_HOST}:{s3_gate_port}/"]
 
 
-def patch_s3_config(config_yaml, _config_vars):
-    components = config_yaml["components_manager"]["components"]
-    cfg = components["config"]
-    cfg["s3_endpoint"] = "http://localhost:8334"
+@pytest.fixture(scope="session")
+def patch_s3_config(s3_gate_port):
+    def _patch(config_yaml, _config_vars):
+        components = config_yaml["components_manager"]["components"]
+        cfg = components["config"]
+        cfg["s3_endpoint"] = f"http://{_S3_GATE_HOST}:{s3_gate_port}"
+
+    return _patch
 
 
-USERVER_CONFIG_HOOKS = [patch_s3_config]
+USERVER_CONFIG_HOOKS = ["patch_s3_config"]

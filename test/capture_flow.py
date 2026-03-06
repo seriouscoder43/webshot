@@ -191,6 +191,8 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
         pytest.fail("job did not fail in time")
 
     db = pgsql["capture_meta_db"]
+    assert job["error"]["error"]["message"] != "internal crawler error"
+    assert job["error"]["error"]["message"].startswith("Failed to crawl ")
     with db.cursor() as cur:
         cur.execute("select 1 from capture where id = %s", (uuid.UUID(job_id),))
         assert cur.fetchone() is None

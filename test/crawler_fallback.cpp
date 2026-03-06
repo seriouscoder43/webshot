@@ -12,7 +12,13 @@ namespace {
 
 [[nodiscard]] AttemptSummary makeSuccessAttempt()
 {
-    return {.exited = true, .exitCode = 0, .waczExists = true, .seedProbe = {}};
+    return {
+        .exited = true,
+        .exitCode = 0,
+        .waczExists = true,
+        .seedProbe = {},
+        .failureDetail = {},
+    };
 }
 
 [[nodiscard]] AttemptSummary makeNoResponseFailureAttempt()
@@ -22,6 +28,7 @@ namespace {
         .exitCode = 9,
         .waczExists = false,
         .seedProbe = SeedPageProbe{.status = 0, .loadState = 0},
+        .failureDetail = {},
     };
 }
 

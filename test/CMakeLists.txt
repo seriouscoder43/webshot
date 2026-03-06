@@ -111,6 +111,11 @@ add_cpp_test(deadline_utils_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils.cpp)
 
 add_cpp_test(
+  crawler_failure_test SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/crawler_failure.cpp
+  ${CMAKE_SOURCE_DIR}/src/crawler_failure.cpp)
+
+add_cpp_test(
   crawler_fallback_test SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback.cpp)
 
