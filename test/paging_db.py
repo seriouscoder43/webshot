@@ -6,8 +6,8 @@ from helper.prefix import prefix_key_from_link, prefix_tree_from_prefix_key
 from helper.sql_loader import _adapt_positional_to_psycopg
 
 _SQL_QUERIES_DIR = pathlib.Path(__file__).resolve().parents[1] / "sql" / "query"
-INSERT_WEBSHOT_SQL = _adapt_positional_to_psycopg(
-    (_SQL_QUERIES_DIR / "insert_webshot.sql").read_text()
+INSERT_CAPTURE_SQL = _adapt_positional_to_psycopg(
+    (_SQL_QUERIES_DIR / "insert_capture.sql").read_text()
 )
 
 
@@ -15,7 +15,7 @@ async def test_list_captures_orders_by_created_at(
     service_client,
     pgsql,
 ):
-    """Insert rows via pgsql and verify ordering for /v1/webshot."""
+    """Insert rows via pgsql and verify ordering for /v1/capture."""
 
     db = pgsql["capture_meta_db"]
 
@@ -27,7 +27,7 @@ async def test_list_captures_orders_by_created_at(
         prefix_key = prefix_key_from_link(f"{TEST_HOST}/a")
         prefix_tree = prefix_tree_from_prefix_key(prefix_key)
         cur.execute(
-            INSERT_WEBSHOT_SQL,
+            INSERT_CAPTURE_SQL,
             (
                 newer_id,
                 f"{TEST_HOST}/a",
@@ -37,7 +37,7 @@ async def test_list_captures_orders_by_created_at(
             ),
         )
         cur.execute(
-            INSERT_WEBSHOT_SQL,
+            INSERT_CAPTURE_SQL,
             (
                 older_id,
                 f"{TEST_HOST}/a",
@@ -50,7 +50,7 @@ async def test_list_captures_orders_by_created_at(
         cur.close()
 
     response = await service_client.get(
-        "/v1/webshot",
+        "/v1/capture",
         params={"link": f"{TEST_HOST}/a"},
     )
 
@@ -73,7 +73,7 @@ async def test_list_captures_prefix_sees_inserted_links(
         prefix_key_a = prefix_key_from_link(f"{TEST_HOST}/prefix/a")
         prefix_tree_a = prefix_tree_from_prefix_key(prefix_key_a)
         cur.execute(
-            INSERT_WEBSHOT_SQL,
+            INSERT_CAPTURE_SQL,
             (
                 uuid.uuid4(),
                 f"{TEST_HOST}/prefix/a",
@@ -85,7 +85,7 @@ async def test_list_captures_prefix_sees_inserted_links(
         prefix_key_b = prefix_key_from_link(f"{TEST_HOST}/prefix/b")
         prefix_tree_b = prefix_tree_from_prefix_key(prefix_key_b)
         cur.execute(
-            INSERT_WEBSHOT_SQL,
+            INSERT_CAPTURE_SQL,
             (
                 uuid.uuid4(),
                 f"{TEST_HOST}/prefix/b",
@@ -98,7 +98,7 @@ async def test_list_captures_prefix_sees_inserted_links(
         cur.close()
 
     response = await service_client.get(
-        "/v1/webshot/prefix",
+        "/v1/capture/prefix",
         params={"prefix": f"{TEST_HOST}/prefix"},
     )
 
@@ -112,7 +112,7 @@ async def test_list_captures_paged_two_pages(
     service_client,
     pgsql,
 ):
-    """Verify /v1/webshot uses page_token to paginate link results."""
+    """Verify /v1/capture uses page_token to paginate link results."""
 
     db = pgsql["capture_meta_db"]
 
@@ -123,15 +123,15 @@ async def test_list_captures_paged_two_pages(
         prefix_key = prefix_key_from_link(f"{TEST_HOST}/a")
         prefix_tree = prefix_tree_from_prefix_key(prefix_key)
         # Three rows for the same link; created_at uses default now().
-        for webshot_id in ids:
+        for capture_id in ids:
             cur.execute(
-                INSERT_WEBSHOT_SQL,
+                INSERT_CAPTURE_SQL,
                 (
-                    webshot_id,
+                    capture_id,
                     f"{TEST_HOST}/a",
                     prefix_key,
                     prefix_tree,
-                    f"http://{TEST_HOST}/{webshot_id}",
+                    f"http://{TEST_HOST}/{capture_id}",
                 ),
             )
     finally:
@@ -139,7 +139,7 @@ async def test_list_captures_paged_two_pages(
 
     # First page: 2 items (page size), next_page_token present.
     resp1 = await service_client.get(
-        "/v1/webshot",
+        "/v1/capture",
         params={"link": f"{TEST_HOST}/a"},
     )
     assert resp1.status == 200
@@ -151,12 +151,12 @@ async def test_list_captures_paged_two_pages(
 
     # Second page: remaining 1 item, next_page_token is null/absent.
     resp2 = await service_client.get(
-        "/v1/webshot",
+        "/v1/capture",
         params={"link": f"{TEST_HOST}/a", "page_token": next_token},
     )
     assert resp2.status == 200
     body2 = resp2.json()
     uuids2 = [item["uuid"] for item in body2["items"]]
     assert len(uuids2) == 1
-    assert set(uuids1 + uuids2) == {str(webshot_id) for webshot_id in ids}
+    assert set(uuids1 + uuids2) == {str(capture_id) for capture_id in ids}
     assert body2.get("next_page_token") in (None, "")

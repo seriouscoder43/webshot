@@ -334,11 +334,11 @@ public:
 
     [[nodiscard]] dto::UuidWithTimeLink runCrawlJob(Uuid id, Link link);
     [[nodiscard]] us::utils::datetime::TimePointTz insertJob(Uuid id, String link);
-    [[nodiscard]] std::optional<dto::WebshotJob> findLatestJobForLink(const String &link);
+    [[nodiscard]] std::optional<dto::CaptureJob> findLatestJobForLink(const String &link);
     void markJobRunning(Uuid id);
     void markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt);
     void markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
-    [[nodiscard]] std::optional<dto::WebshotJob> loadJob(Uuid id);
+    [[nodiscard]] std::optional<dto::CaptureJob> loadJob(Uuid id);
     void runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
     [[nodiscard]] crawler::AttemptSummary runCrawlerAttempt(
         CrawlContext &ctx, engine::subprocess::ProcessStarter &starter, const String &seedUrl
@@ -530,7 +530,7 @@ void Crud::Impl::markJobFailed(Uuid id, const String &errorCategory, const Strin
     static_cast<void>(sharedReadwrite(sql::kUpdateCrawlJobFailed, id, errorCategory, errorMessage));
 }
 
-std::optional<dto::WebshotJob> Crud::Impl::loadJob(Uuid id)
+std::optional<dto::CaptureJob> Crud::Impl::loadJob(Uuid id)
 {
     struct Row {
         Uuid uuid;
@@ -547,17 +547,17 @@ std::optional<dto::WebshotJob> Crud::Impl::loadJob(Uuid id)
     if (!rowOpt)
         return {};
 
-    dto::WebshotJob job;
+    dto::CaptureJob job;
     job.uuid = rowOpt->uuid;
     job.link = std::string(rowOpt->link.view());
     if (rowOpt->status == "pending")
-        job.status = dto::WebshotJob::Status::kPending;
+        job.status = dto::CaptureJob::Status::kPending;
     else if (rowOpt->status == "running")
-        job.status = dto::WebshotJob::Status::kRunning;
+        job.status = dto::CaptureJob::Status::kRunning;
     else if (rowOpt->status == "succeeded")
-        job.status = dto::WebshotJob::Status::kSucceeded;
+        job.status = dto::CaptureJob::Status::kSucceeded;
     else
-        job.status = dto::WebshotJob::Status::kFailed;
+        job.status = dto::CaptureJob::Status::kFailed;
     job.created_at = us::utils::datetime::TimePointTz(
         static_cast<system_clock::time_point>(rowOpt->createdAt)
     );
@@ -573,11 +573,11 @@ std::optional<dto::WebshotJob> Crud::Impl::loadJob(Uuid id)
         job.result_created_at = us::utils::datetime::TimePointTz(
             static_cast<system_clock::time_point>(*rowOpt->resultCreatedAt)
         );
-    if (job.status == dto::WebshotJob::Status::kFailed && rowOpt->errorMessage) {
+    if (job.status == dto::CaptureJob::Status::kFailed && rowOpt->errorMessage) {
         dto::ErrorEnvelope::Error err{*rowOpt->errorMessage};
         job.error = dto::ErrorEnvelope{err};
     }
-    if (job.status == dto::WebshotJob::Status::kSucceeded && job.result_created_at)
+    if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at)
         job.result = dto::UuidWithTimeLink(job.uuid, *job.result_created_at, job.link);
     return job;
 }
@@ -614,7 +614,7 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts() const
     return state;
 }
 
-std::optional<dto::WebshotJob> Crud::Impl::findLatestJobForLink(const String &link)
+std::optional<dto::CaptureJob> Crud::Impl::findLatestJobForLink(const String &link)
 {
     auto idOpt = sharedReadonly(sql::kSelectLatestCrawlJobByLink, link).AsOptionalSingleRow<Uuid>();
     if (!idOpt)
@@ -934,7 +934,7 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
             pg::TimePointTz createdAt;
         };
         auto row = readwrite(
-                       sql::kInsertWebshot, ctx.id, ctx.link.normalized(), prefixKey, prefixTree,
+                       sql::kInsertCapture, ctx.id, ctx.link.normalized(), prefixKey, prefixTree,
                        ctx.location
         )
                        .AsSingleRow<Row>(pg::kRowTag);
@@ -976,7 +976,7 @@ void Crud::Impl::purgePrefix(const String &prefixKey)
                     LOG_ERROR() << fmt::format("S3 delete failed for key {}: {}", key, e.what());
                 }
             }
-            static_cast<void>(readwrite(sql::kDeleteWebshotsByIds, ids));
+            static_cast<void>(readwrite(sql::kDeleteCapturesByIds, ids));
         } catch (const std::exception &e) {
             LOG_ERROR() << fmt::format("denylist purge failed for {}: {}", prefixKey, e.what());
             throw;
@@ -984,17 +984,17 @@ void Crud::Impl::purgePrefix(const String &prefixKey)
     }
 }
 
-dto::UuidWithTimeLink Crud::createWebshot(Link link)
+dto::UuidWithTimeLink Crud::createCapture(Link link)
 {
     auto *implPtr = impl.get();
     auto id = us::utils::generators::GenerateBoostUuid();
     return us::utils::Async(
-               "create_webshot",
+               "create_capture",
                [implPtr, id, link = std::move(link)]() { return implPtr->runCrawlJob(id, link); }
     ).Get();
 }
 
-dto::WebshotJob Crud::createWebshotJob(Link link)
+dto::CaptureJob Crud::createCaptureJob(Link link)
 {
     auto *implPtr = impl.get();
     const auto normalizedLink = link.normalized();
@@ -1026,10 +1026,10 @@ dto::WebshotJob Crud::createWebshotJob(Link link)
         }
     });
 
-    dto::WebshotJob job;
+    dto::CaptureJob job;
     job.uuid = id;
     job.link = std::string(normalizedLink.view());
-    job.status = dto::WebshotJob::Status::kPending;
+    job.status = dto::CaptureJob::Status::kPending;
     job.created_at = createdAt;
     job.started_at = {};
     job.finished_at = {};
@@ -1039,10 +1039,10 @@ dto::WebshotJob Crud::createWebshotJob(Link link)
     return job;
 }
 
-std::optional<Link> Crud::findWebshot(Uuid uuid)
+std::optional<Link> Crud::findCapture(Uuid uuid)
 {
     const auto location =
-        impl->readonly(sql::kSelectWebshot, uuid).AsOptionalSingleRow<std::string>();
+        impl->readonly(sql::kSelectCapture, uuid).AsOptionalSingleRow<std::string>();
     if (!location) {
         LOG_INFO() << fmt::format("UUID not found: {}", us::utils::ToString(uuid));
         return {};
@@ -1050,9 +1050,9 @@ std::optional<Link> Crud::findWebshot(Uuid uuid)
     return {Link::fromText(String::fromBytesThrow(*location), impl->svcCfg.queryPartLengthMax())};
 }
 
-std::optional<dto::WebshotJob> Crud::findCrawlJob(Uuid uuid) { return impl->loadJob(uuid); }
+std::optional<dto::CaptureJob> Crud::findCaptureJob(Uuid uuid) { return impl->loadJob(uuid); }
 
-dto::PagedFindWebshotByUrlResponse Crud::findWebshotByLinkPage(const Link &link, String pageToken)
+dto::PagedFindCapturesByUrlResponse Crud::findCapturesByLinkPage(const Link &link, String pageToken)
 {
     namespace crud = v1::crud;
 
@@ -1062,14 +1062,14 @@ dto::PagedFindWebshotByUrlResponse Crud::findWebshotByLinkPage(const Link &link,
     };
     std::vector<Row> dbRows;
     if (pageToken.empty()) {
-        dbRows = impl->readonly(sql::kSelectWebshotByLinkFirst, link.normalized(), impl->pageMax)
+        dbRows = impl->readonly(sql::kSelectCaptureByLinkFirst, link.normalized(), impl->pageMax)
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
     } else {
         auto cur = crud::decodeCursor(pageToken);
         if (!cur)
             throw errors::InvalidPageTokenException("invalid page_token");
         dbRows = impl->readonly(
-                         sql::kSelectWebshotByLinkNext, link.normalized(), impl->pageMax,
+                         sql::kSelectCaptureByLinkNext, link.normalized(), impl->pageMax,
                          pg::TimePointTz(cur->createdAt), cur->id
         )
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
@@ -1091,8 +1091,8 @@ dto::PagedFindWebshotByUrlResponse Crud::findWebshotByLinkPage(const Link &link,
     return {items, {}};
 }
 
-dto::PagedFindWebshotByPrefixResponse
-Crud::findWebshotsByPrefixPage(String normalizedPrefix, String pageToken)
+dto::PagedFindCapturesByPrefixResponse
+Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
 {
     namespace crud = v1::crud;
 
@@ -1151,12 +1151,12 @@ Crud::findWebshotsByPrefixPage(String normalizedPrefix, String pageToken)
         if (idx == 0 && cur && cur->createdAt && cur->id) {
             return impl
                 ->readonly(
-                    sql::kSelectWebshotByLinkNext, link, impl->perLinkMax,
+                    sql::kSelectCaptureByLinkNext, link, impl->perLinkMax,
                     pg::TimePointTz(*cur->createdAt), *cur->id
                 )
                 .AsContainer<std::vector<Row>>(pg::kRowTag);
         }
-        return impl->readonly(sql::kSelectWebshotByLinkFirst, link, impl->perLinkMax)
+        return impl->readonly(sql::kSelectCaptureByLinkFirst, link, impl->perLinkMax)
             .AsContainer<std::vector<Row>>(pg::kRowTag);
     };
 

@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Webshot Service API
+  title: Capture Service API
   version: 0.1.0
 servers:
   - url: /
@@ -37,9 +37,9 @@ paths:
           description: Link is denylisted.
         '500':
           description: Internal server error.
-  /v1/webshot:
+  /v1/capture:
     get:
-      operationId: listWebshotsByUrl
+      operationId: listCapturesByUrl
       summary: List captures by exact link (paged)
       description: |
         Returns a paged list of captures for the exact normalized link.
@@ -71,7 +71,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PagedFindWebshotByUrlResponse'
+                $ref: '#/components/schemas/PagedFindCapturesByUrlResponse'
         '400':
           description: Bad request (invalid URL or pagination parameters).
           content:
@@ -94,19 +94,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
     post:
-      operationId: createWebshot
+      operationId: createCapture
       summary: Enqueue a capture job and return its status
       description: |
         Enqueues a background capture job for the provided URL and returns an initial
         job descriptor. The returned UUID is the same identifier that will be used
         for the stored capture once the job succeeds. Clients should poll
-        `/v1/webshot/jobs/{uuid}` to observe completion.
+        `/v1/capture/jobs/{uuid}` to observe completion.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateWebshotRequest'
+              $ref: '#/components/schemas/CreateCaptureRequest'
             examples:
               full-url:
                 summary: Full HTTP URL
@@ -122,7 +122,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebshotJob'
+                $ref: '#/components/schemas/CaptureJob'
         '400':
           description: Invalid JSON or URL supplied.
           content:
@@ -155,9 +155,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-  /v1/webshot/prefix:
+  /v1/capture/prefix:
     get:
-      operationId: listWebshotsByPrefix
+      operationId: listCapturesByPrefix
       summary: List capture UUIDs by link prefix
       description: |
         Returns captures for links whose normalized scheme-less form starts with the provided prefix.
@@ -190,7 +190,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PagedFindWebshotByPrefixResponse'
+                $ref: '#/components/schemas/PagedFindCapturesByPrefixResponse'
         '400':
           description: Bad request (invalid prefix or pagination parameters).
           content:
@@ -212,9 +212,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-  /v1/webshot/jobs/{uuid}:
+  /v1/capture/jobs/{uuid}:
     get:
-      operationId: getWebshotJob
+      operationId: getCaptureJob
       summary: Get capture job status by UUID
       parameters:
         - in: path
@@ -230,7 +230,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebshotJob'
+                $ref: '#/components/schemas/CaptureJob'
         '400':
           description: Bad request (missing or invalid UUID path parameter).
           content:
@@ -306,9 +306,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-  /v1/webshot/{uuid}:
+  /v1/capture/{uuid}:
     get:
-      operationId: getWebshotByUuid
+      operationId: getCaptureByUuid
       summary: Redirect to stored WACZ by UUID
       parameters:
         - in: path
@@ -340,7 +340,7 @@ paths:
                     error:
                       message: "uuid: missing parameter"
         '404':
-          description: Webshot not found.
+          description: Capture not found.
           content:
             application/json:
               schema:
@@ -349,7 +349,7 @@ paths:
                 not_found:
                   value:
                     error:
-                      message: webshot not found
+                      message: capture not found
         '500':
           description: Internal server error.
           content:
@@ -388,7 +388,7 @@ components:
       example:
         error:
           message: internal server error
-    CreateWebshotRequest:
+    CreateCaptureRequest:
       type: object
       additionalProperties: false
       required: [link]
@@ -412,7 +412,7 @@ components:
           type: string
           format: date-time
           example: 2025-11-11T12:34:56+00:00
-    PagedFindWebshotByUrlResponse:
+    PagedFindCapturesByUrlResponse:
       type: object
       additionalProperties: false
       properties:
@@ -446,7 +446,7 @@ components:
         uuid: 123e4567-e89b-12d3-a456-426614174000
         created_at: 2025-11-11T12:34:56+00:00
         link: example.com/a
-    WebshotJob:
+    CaptureJob:
       type: object
       additionalProperties: false
       required: [uuid, link, status, created_at]
@@ -486,7 +486,7 @@ components:
         link: example.com/a
         status: pending
         created_at: 2025-11-11T12:34:56+00:00
-    PagedFindWebshotByPrefixResponse:
+    PagedFindCapturesByPrefixResponse:
       type: object
       additionalProperties: false
       properties:

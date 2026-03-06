@@ -79,7 +79,7 @@ async def test_capture_and_query_roundtrip(service_client, pgsql):
     link = f"https://{TEST_HOST}/webshot-capture-path"
 
     # Create capture
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_body = resp.json()
     uuid_str = job_body["uuid"]
@@ -87,7 +87,7 @@ async def test_capture_and_query_roundtrip(service_client, pgsql):
 
     # Wait for job completion
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{uuid_str}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{uuid_str}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -101,20 +101,20 @@ async def test_capture_and_query_roundtrip(service_client, pgsql):
         pytest.fail("job did not complete in time")
 
     # Resolve by id (redirect)
-    resp = await service_client.get(f"/v1/webshot/{uuid_str}", allow_redirects=False)
+    resp = await service_client.get(f"/v1/capture/{uuid_str}", allow_redirects=False)
     assert resp.status == 302
     loc = resp.headers.get("Location", "")
     assert loc.endswith(uuid_str)
 
     # List by exact link
-    resp = await service_client.get("/v1/webshot", params={"link": normalized_link})
+    resp = await service_client.get("/v1/capture", params={"link": normalized_link})
     assert resp.status == 200
     items = resp.json()["items"]
     assert any(item["uuid"] == uuid_str for item in items)
 
     # List by prefix (use host prefix)
     prefix = urlparse(normalized_link).hostname or TEST_HOST
-    resp = await service_client.get("/v1/webshot/prefix", params={"prefix": prefix})
+    resp = await service_client.get("/v1/capture/prefix", params={"prefix": prefix})
     assert resp.status == 200
     prefix_items = resp.json()["items"]
     assert any(
@@ -142,11 +142,11 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
     prefix_key = prefix_key_from_link(link)
 
     # Ensure at least one capture exists before purge
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     first_job_id = resp.json()["uuid"]
     for _ in range(60):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{first_job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{first_job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -166,7 +166,7 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
     await _wait_for_purge(db, prefix_key)
 
     # Attempt new capture should be blocked by denylist
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 403
     err = resp.json()["error"]["message"]
     assert err == "host in denylist"
@@ -174,12 +174,12 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
 
 @pytest.mark.asyncio
 async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
-    resp = await service_client.post("/v1/webshot", json={"link": "http://localhost/"})
+    resp = await service_client.post("/v1/capture", json={"link": "http://localhost/"})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(160):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "failed":
@@ -200,12 +200,12 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
 async def test_capture_depth_fetches_additional_resources(service_client, service_secdist_path):
     link = f"https://{TEST_HOST}/with-subresource"
 
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -236,12 +236,12 @@ async def test_denylist_blocks_subresource_fetch(service_client, service_secdist
     assert deny_resp.status == 202
 
     link = f"https://{TEST_HOST}/with-subresource-denylist"
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -271,12 +271,12 @@ async def test_denylist_blocks_subresource_fetch(service_client, service_secdist
 async def test_capture_fetches_https_subresource_assets(service_client, service_secdist_path):
     link = f"https://{TEST_HOST}/with-https-asset-subresource"
 
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -309,12 +309,12 @@ async def test_denylist_blocks_https_subresource_fetch(service_client, service_s
     assert deny_resp.status == 202
 
     link = f"https://{TEST_HOST}/with-https-asset-subresource-denylist"
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -344,12 +344,12 @@ async def test_denylist_blocks_https_subresource_fetch(service_client, service_s
 async def test_https_first_succeeds_when_http_fails(service_client, service_secdist_path):
     link = f"http://{TEST_HOST}/https-first-http-fails"
 
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -371,12 +371,12 @@ async def test_https_first_falls_back_to_http_when_https_no_response(
 ):
     link = f"http://{TEST_HOST}/http-fallback-success"
 
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
@@ -398,12 +398,12 @@ async def test_https_first_falls_back_to_http_when_https_no_response(
 async def test_https_first_falls_back_to_http_and_fails_when_http_fails(service_client):
     link = f"http://{TEST_HOST}/http-fallback-fail"
 
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(160):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "failed":

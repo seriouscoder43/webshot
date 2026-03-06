@@ -9,7 +9,7 @@ from helper.prefix import prefix_key_from_link
 async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
     link = f"https://{TEST_HOST}/concurrent-cooldown-path"
 
-    tasks = [service_client.post("/v1/webshot", json={"link": link}) for _ in range(20)]
+    tasks = [service_client.post("/v1/capture", json={"link": link}) for _ in range(20)]
     responses = await asyncio.gather(*tasks)
 
     for resp in responses:
@@ -26,7 +26,7 @@ async def test_concurrent_different_links_create_jobs(service_client, pgsql):
     links = [f"https://{TEST_HOST}/concurrent-{i}" for i in range(12)]
 
     responses = await asyncio.gather(
-        *[service_client.post("/v1/webshot", json={"link": link_value}) for link_value in links]
+        *[service_client.post("/v1/capture", json={"link": link_value}) for link_value in links]
     )
     for resp in responses:
         assert resp.status == 202
@@ -56,7 +56,7 @@ async def test_disallow_and_purge_blocks_concurrent_new_captures(service_client,
     resp = await service_client.post("/v1/denylist/disallow_and_purge", params={"host": link})
     assert resp.status == 202
 
-    tasks = [service_client.post("/v1/webshot", json={"link": link}) for _ in range(16)]
+    tasks = [service_client.post("/v1/capture", json={"link": link}) for _ in range(16)]
     responses = await asyncio.gather(*tasks)
     for r in responses:
         assert r.status == 403

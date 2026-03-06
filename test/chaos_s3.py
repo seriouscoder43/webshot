@@ -11,13 +11,13 @@ async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
     await s3_gate.stop_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-failure"
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     job = None
     for _ in range(60):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] in ("succeeded", "failed"):
@@ -46,12 +46,12 @@ async def test_s3_recovers_after_outage(service_client, s3_gate):
     s3_gate.start_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-recover"
-    resp = await service_client.post("/v1/webshot", json={"link": link})
+    resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
     for _ in range(120):
-        status_resp = await service_client.get(f"/v1/webshot/jobs/{job_id}")
+        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":

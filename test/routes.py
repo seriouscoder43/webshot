@@ -4,7 +4,7 @@ INVALID_PAGE_TOKEN_MSG = "page_token: invalid page_token"
 
 
 async def test_list_captures_missing_link(service_client):
-    response = await service_client.get("/v1/webshot")
+    response = await service_client.get("/v1/capture")
 
     assert response.status == 400
     body = response.json()
@@ -13,7 +13,7 @@ async def test_list_captures_missing_link(service_client):
 
 async def test_list_captures_invalid_page_token(service_client):
     response = await service_client.get(
-        "/v1/webshot",
+        "/v1/capture",
         params={"link": f"{TEST_HOST}/a", "page_token": "not-a-token"},
     )
 
@@ -24,7 +24,7 @@ async def test_list_captures_invalid_page_token(service_client):
 
 async def test_list_captures_empty_result(service_client):
     response = await service_client.get(
-        "/v1/webshot",
+        "/v1/capture",
         params={"link": f"{TEST_HOST}/a"},
     )
 
@@ -36,7 +36,7 @@ async def test_list_captures_empty_result(service_client):
 
 
 async def test_list_captures_prefix_missing_prefix(service_client):
-    response = await service_client.get("/v1/webshot/prefix")
+    response = await service_client.get("/v1/capture/prefix")
 
     assert response.status == 400
     body = response.json()
@@ -45,7 +45,7 @@ async def test_list_captures_prefix_missing_prefix(service_client):
 
 async def test_list_captures_prefix_invalid_page_token(service_client):
     response = await service_client.get(
-        "/v1/webshot/prefix",
+        "/v1/capture/prefix",
         params={"prefix": f"{TEST_HOST}/a", "page_token": "not-a-token"},
     )
 
@@ -56,7 +56,7 @@ async def test_list_captures_prefix_invalid_page_token(service_client):
 
 async def test_list_captures_prefix_empty_result(service_client):
     response = await service_client.get(
-        "/v1/webshot/prefix",
+        "/v1/capture/prefix",
         params={"prefix": f"{TEST_HOST}/a"},
     )
 
@@ -86,15 +86,15 @@ async def test_disallow_and_purge_invalid_host(service_client):
     assert body["error"]["message"] == "host: invalid parameter"
 
 
-async def test_create_webshot_missing_body(service_client):
-    response = await service_client.post("/v1/webshot")
+async def test_create_capture_missing_body(service_client):
+    response = await service_client.post("/v1/capture")
 
     assert response.status == 400
     body = response.json()
     assert body["error"]["message"] == "invalid request body"
 
 
-async def test_create_webshot_denylisted_host(service_client):
+async def test_create_capture_denylisted_host(service_client):
     # Insert host into denylist via dedicated endpoint.
     deny_resp = await service_client.post(
         "/v1/denylist/disallow_and_purge",
@@ -103,7 +103,7 @@ async def test_create_webshot_denylisted_host(service_client):
     assert deny_resp.status == 202
 
     response = await service_client.post(
-        "/v1/webshot",
+        "/v1/capture",
         json={"link": f"https://{TEST_HOST}/"},
     )
 
@@ -112,7 +112,7 @@ async def test_create_webshot_denylisted_host(service_client):
     assert body["error"]["message"] == "host in denylist"
 
 
-async def test_create_webshot_denylisted_path_blocks_subpaths(service_client):
+async def test_create_capture_denylisted_path_blocks_subpaths(service_client):
     deny_resp = await service_client.post(
         "/v1/denylist/disallow_and_purge",
         params={"host": f"https://{TEST_HOST}/a"},
@@ -120,7 +120,7 @@ async def test_create_webshot_denylisted_path_blocks_subpaths(service_client):
     assert deny_resp.status == 202
 
     response = await service_client.post(
-        "/v1/webshot",
+        "/v1/capture",
         json={"link": f"https://{TEST_HOST}/a/b"},
     )
 
@@ -129,7 +129,7 @@ async def test_create_webshot_denylisted_path_blocks_subpaths(service_client):
     assert body["error"]["message"] == "host in denylist"
 
 
-async def test_create_webshot_denylisted_path_does_not_block_sibling_path(service_client):
+async def test_create_capture_denylisted_path_does_not_block_sibling_path(service_client):
     deny_resp = await service_client.post(
         "/v1/denylist/disallow_and_purge",
         params={"host": f"https://{TEST_HOST}/a"},
@@ -137,7 +137,7 @@ async def test_create_webshot_denylisted_path_does_not_block_sibling_path(servic
     assert deny_resp.status == 202
 
     response = await service_client.post(
-        "/v1/webshot",
+        "/v1/capture",
         json={"link": f"https://{TEST_HOST}/ab"},
     )
 
