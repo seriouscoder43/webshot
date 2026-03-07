@@ -4,6 +4,8 @@ services:
     container_name: egress_proxy
     image: localhost/squid:prodlike
     command: ["/bin/sh", "/usr/local/bin/squid_start.sh"]
+    ports:
+      - "127.0.0.1:3128:3128"
     networks:
       - egress_net
       - crawler_net
@@ -31,7 +33,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - ../../sql/schema:/docker-entrypoint-initdb.d/schema:ro
+      - ../../webshotd/sql/schema:/docker-entrypoint-initdb.d/schema:ro
       - ../../container/service_db_init_multi_db.sh:/docker-entrypoint-initdb.d/10_service_db_init_multi_db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres"]

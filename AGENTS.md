@@ -8,9 +8,12 @@ Reminder:
 - Use `webshot-contracts` for API/schema/DTO changes and commits/PRs.
 - Use `webshot-docs` for docs lookup and upstream research.
 
-# Response discipline
+# General rules
 - Never implement backwards compatibility or silent fallbacks unless told to do so.
 - Prefer failing hard over silent fallbacks.
+- Never introduce environment variables unless told to do so.
+
+# Response discipline
 - Do not respond with large blocks of code; show only short, focused snippets when necessary, or omit code entirely and describe changes instead.
 - Verify, don't recall: reread active code/logs; test exact endpoints.
 - Prefer authoritative data: no guessing or fallback to stale/synthetic for critical logic.

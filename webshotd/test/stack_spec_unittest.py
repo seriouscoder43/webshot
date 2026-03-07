@@ -8,7 +8,7 @@ from compose_tools.stack_spec import _parse_services, loadStackSpec
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 class StackSpecTest(unittest.TestCase):

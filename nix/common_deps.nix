@@ -6,6 +6,8 @@
     pkg-config
     ccache
     boost183
+    libarchive
+    libarchive.dev
     openssl.dev
     jemalloc
     mold

@@ -7,9 +7,8 @@
  * metadata writes, and various paged queries.
  */
 #include "config.hpp"
-#include "container_guard.hpp"
 #include "crawler_failure.hpp"
-#include "crawler_fallback.hpp"
+#include "crawlerd_client.hpp"
 #include "denylist.hpp"
 #include "link.hpp"
 #include "pagination.hpp"
@@ -19,7 +18,6 @@
 #include "s3/s3_v4_client.hpp"
 #include "s3_refresh_utils.hpp"
 #include "s3_secdist.hpp"
-#include "schema/browsertrix_pages.hpp"
 #include "schema/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
@@ -49,16 +47,9 @@
 #include <userver/crypto/base64.hpp>
 #include <userver/engine/semaphore.hpp>
 #include <userver/engine/sleep.hpp>
-#include <userver/engine/subprocess/process_starter.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/engine/task/task_processor_fwd.hpp>
 #include <userver/formats/json.hpp>
-#include <userver/fs/blocking/read.hpp>
-#include <userver/fs/blocking/temp_directory.hpp>
-#include <userver/fs/blocking/write.hpp>
-#include <userver/fs/read.hpp>
-#include <userver/fs/write.hpp>
-#include <userver/http/common_headers.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/rcu/rcu.hpp>
 #include <userver/storages/postgres/cluster.hpp>
@@ -90,72 +81,8 @@ using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 namespace {
 constexpr int64_t kCrawlerSeedAttemptsMax = 2;
-
-[[nodiscard]] bool urlsMatchAllowTrailingSlash(const String &a, const String &b) noexcept
-{
-    const auto av = a.view();
-    const auto bv = b.view();
-    if (av == bv)
-        return true;
-    if (!av.empty() && av.back() == '/' && av.substr(0, av.size() - 1) == bv)
-        return true;
-    if (!bv.empty() && bv.back() == '/' && bv.substr(0, bv.size() - 1) == av)
-        return true;
-    return false;
-}
-
-[[nodiscard]] std::optional<crawler::SeedPageProbe>
-probeSeedPageFromPagesJsonl(const String &path, const String &expectedSeedUrl)
-{
-    std::string bytes;
-    try {
-        bytes = us::fs::blocking::ReadFileContents(std::string(path.view()));
-    } catch (const std::exception &) {
-        return {};
-    }
-
-    if (!una::is_valid_utf8(bytes)) {
-        LOG_ERROR() << fmt::format("pages.jsonl is not valid UTF-8: {}", path);
-        return {};
-    }
-
-    std::string_view sv(bytes);
-    while (!sv.empty()) {
-        const auto pos = sv.find('\n');
-        auto line = (pos == std::string_view::npos) ? sv : sv.substr(0, pos);
-        sv = (pos == std::string_view::npos) ? std::string_view() : sv.substr(pos + 1);
-
-        if (line.empty())
-            continue;
-        if (!line.empty() && line.back() == '\r')
-            line.remove_suffix(1);
-        if (line.empty())
-            continue;
-
-        dto::BrowsertrixPageEntry entry;
-        try {
-            entry = us::formats::json::FromString(line).As<dto::BrowsertrixPageEntry>();
-        } catch (const std::exception &) {
-            continue;
-        }
-
-        auto url = String::fromBytes(entry.url);
-        if (!url)
-            continue;
-        if (!entry.seed.value_or(false))
-            continue;
-        if (!urlsMatchAllowTrailingSlash(*url, expectedSeedUrl))
-            continue;
-        if (entry.depth.value_or(0) != 0)
-            continue;
-
-        crawler::SeedPageProbe out;
-        out.status = entry.status;
-        out.loadState = entry.loadState;
-        return out;
-    }
-    return {};
-}
+constexpr std::string_view kCrawlerdBaseUrl = "http://localhost";
+constexpr std::string_view kCrawlerdSocketPath = "../.crawlerd.sock";
 } // namespace
 
 us::yaml_config::Schema Crud::GetStaticConfigSchema()
@@ -177,53 +104,14 @@ properties:
         type: integer
         minimum: 1
         description: 'Max distinct links in a prefix page'
-    crawler_network:
-        type: string
-        description: 'Name of the network to run crawlers on (scoped egress rules)'
-    crawler_proxy_server:
-        type: string
-        description: 'HTTP proxy URL for Chrome inside the crawler container (mandatory)'
-    crawler_image:
-        type: string
-        description: 'image used for the crawl container'
-    crawler_workers:
+    crawlerd_run_timeout_sec:
         type: integer
         minimum: 1
-        description: 'Number of crawler workers per job'
-    crawler_page_load_timeout_sec:
+        description: 'Timeout sent to a single blocking crawlerd /run request in seconds'
+    crawler_job_overhead_timeout_sec:
         type: integer
         minimum: 1
-        description: 'Page load timeout in seconds'
-    crawler_post_load_delay_sec:
-        type: integer
-        minimum: 0
-        description: 'Post-load delay in seconds'
-    crawler_net_idle_wait_sec:
-        type: integer
-        minimum: 0
-        description: 'Extra wait for network idleness in seconds'
-    crawler_page_extra_delay_sec:
-        type: integer
-        minimum: 0
-        description: 'Extra delay before snapshot in seconds'
-    crawler_behavior_timeout_sec:
-        type: integer
-        minimum: 1
-        description: 'Behavior script timeout in seconds'
-    crawler_container_timeout_sec:
-        type: integer
-        minimum: 1
-        description: 'Max lifetime of the crawler container (passed as Browsertrix --timeLimit) in seconds'
-    crawler_overhead_timeout_sec:
-        type: integer
-        minimum: 1
-        description: 'Overhead timeout added to crawler stage timeouts in seconds'
-    crawler_lang:
-        type: string
-        description: 'Language hint passed to the crawler'
-    crawler_scope_type:
-        type: string
-        description: 'Scope type passed to the crawler (e.g. page-spa)'
+        description: 'Extra timeout budget added around crawlerd requests for upload and metadata persistence'
     s3_credentials_endpoint:
         type: string
         description: 'STS endpoint used to obtain temporary S3 credentials; S3 data endpoint s3_endpoint (in config) must be http(s)://host[:port] with optional trailing slash and no additional path or query'
@@ -262,10 +150,6 @@ properties:
         type: integer
         minimum: 1
         description: 'Number of objects to delete per purge batch'
-    crawler_size_limit_mib:
-        type: integer
-        minimum: 0
-        description: 'Per-capture WARC size limit in MiB; 0 disables size limiting'
 )");
 }
 
@@ -287,20 +171,8 @@ public:
     const int64_t pageMax;
     const int64_t perLinkMax;
     const int64_t linksPerPageMax;
-    const String crawlerNetwork;
-    const String crawlerProxyServer;
-    const int64_t crawlerWorkers;
-    const String crawlerImage;
-    const int64_t crawlerPageLoadTimeoutSec;
-    const int64_t crawlerPostLoadDelaySec;
-    const int64_t crawlerNetIdleWaitSec;
-    const int64_t crawlerPageExtraDelaySec;
-    const int64_t crawlerBehaviorTimeoutSec;
-    const int64_t crawlerContainerTimeoutSec;
-    const int64_t crawlerOverheadTimeoutSec;
-    const String crawlerLang;
-    const String crawlerScopeType;
-    const int64_t crawlerSizeLimitMiB;
+    const int64_t crawlerdRunTimeoutSec;
+    const int64_t crawlerJobOverheadTimeoutSec;
     const int64_t linkCooldownSec;
     const int64_t crawlJobRetentionSec;
     const int64_t crawlJobCleanupIntervalSec;
@@ -315,6 +187,7 @@ public:
     pg::ClusterPtr cluster;
     pg::ClusterPtr sharedCluster;
     us::clients::http::Client &httpClient;
+    CrawlerdClient crawlerClient;
     struct [[nodiscard]] S3ClientState {
         s3v4::S3Credentials creds;
         system_clock::time_point expiresAt;
@@ -341,10 +214,9 @@ public:
     void markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt);
     void markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
     [[nodiscard]] std::optional<dto::CaptureJob> loadJob(Uuid id);
-    void runCrawlerForContext(CrawlContext &ctx, engine::subprocess::ProcessStarter &starter);
-    [[nodiscard]] crawler::AttemptSummary runCrawlerAttempt(
-        CrawlContext &ctx, engine::subprocess::ProcessStarter &starter, const String &seedUrl
-    );
+    void runCrawlerForContext(CrawlContext &ctx);
+    [[nodiscard]] crawler::AttemptSummary
+    runCrawlerAttempt(CrawlContext &ctx, const String &seedUrl);
     [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
     persistMetadataForContext(const CrawlContext &ctx);
     void purgePrefix(const String &prefixKey);
@@ -359,20 +231,8 @@ public:
         : pageMax(cfg["snapshots_page_max"].As<int64_t>()),
           perLinkMax(cfg["snapshots_per_link_max"].As<int64_t>()),
           linksPerPageMax(cfg["snapshots_links_per_page_max"].As<int64_t>()),
-          crawlerNetwork(String::fromBytesThrow(cfg["crawler_network"].As<std::string>())),
-          crawlerProxyServer(String::fromBytesThrow(cfg["crawler_proxy_server"].As<std::string>())),
-          crawlerWorkers(cfg["crawler_workers"].As<int64_t>()),
-          crawlerImage(String::fromBytesThrow(cfg["crawler_image"].As<std::string>())),
-          crawlerPageLoadTimeoutSec(cfg["crawler_page_load_timeout_sec"].As<int64_t>()),
-          crawlerPostLoadDelaySec(cfg["crawler_post_load_delay_sec"].As<int64_t>()),
-          crawlerNetIdleWaitSec(cfg["crawler_net_idle_wait_sec"].As<int64_t>()),
-          crawlerPageExtraDelaySec(cfg["crawler_page_extra_delay_sec"].As<int64_t>()),
-          crawlerBehaviorTimeoutSec(cfg["crawler_behavior_timeout_sec"].As<int64_t>()),
-          crawlerContainerTimeoutSec(cfg["crawler_container_timeout_sec"].As<int64_t>()),
-          crawlerOverheadTimeoutSec(cfg["crawler_overhead_timeout_sec"].As<int64_t>()),
-          crawlerLang(String::fromBytesThrow(cfg["crawler_lang"].As<std::string>())),
-          crawlerScopeType(String::fromBytesThrow(cfg["crawler_scope_type"].As<std::string>())),
-          crawlerSizeLimitMiB(cfg["crawler_size_limit_mib"].As<int64_t>()),
+          crawlerdRunTimeoutSec(cfg["crawlerd_run_timeout_sec"].As<int64_t>()),
+          crawlerJobOverheadTimeoutSec(cfg["crawler_job_overhead_timeout_sec"].As<int64_t>()),
           linkCooldownSec(cfg["link_cooldown_sec"].As<int64_t>()),
           crawlJobRetentionSec(cfg["crawl_job_retention_sec"].As<int64_t>()),
           crawlJobCleanupIntervalSec(cfg["crawl_job_cleanup_interval_sec"].As<int64_t>()),
@@ -391,6 +251,10 @@ public:
               ctx.FindComponent<us::components::Postgres>("shared_state_db").GetCluster()
           ),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
+          crawlerClient(
+              httpClient, String::fromBytesThrow(kCrawlerdBaseUrl),
+              String::fromBytesThrow(kCrawlerdSocketPath), crawlerdRunTimeoutSec
+          ),
           denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
           crawlSlots(engine::GetWorkerCount(mainTaskProcessor)),
@@ -399,16 +263,6 @@ public:
           s3RefreshTask(), crawlJobCleanupTask(), purgeBackground(purgeTaskProcessor),
           crawlBackground(mainTaskProcessor)
     {
-        UINVARIANT(!crawlerProxyServer.empty(), "crawler_proxy_server must not be empty");
-
-        const auto crawlerStageTotalTimeoutSec = crawlerPageLoadTimeoutSec +
-                                                 crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
-                                                 crawlerPageExtraDelaySec +
-                                                 crawlerBehaviorTimeoutSec;
-        UINVARIANT(
-            crawlerStageTotalTimeoutSec <= crawlerContainerTimeoutSec,
-            "crawler_container_timeout_sec must be >= sum of crawler stage timeouts"
-        );
         UINVARIANT(
             s3CredentialsDurationSec > s3CredentialsRefreshMarginSec,
             "s3_credentials_duration_sec must be greater than s3_credentials_refresh_margin_sec"
@@ -486,19 +340,17 @@ struct [[nodiscard]] CrawlContext {
 
 [[nodiscard]] dto::UuidWithTimeLink Crud::Impl::runCrawlJob(Uuid id, Link link)
 {
-    const auto totalCrawlTimeLimitSec = crawlerOverheadTimeoutSec +
-                                        crawlerContainerTimeoutSec * kCrawlerSeedAttemptsMax;
+    const auto totalCrawlTimeLimitSec = crawlerJobOverheadTimeoutSec +
+                                        crawlerdRunTimeoutSec * kCrawlerSeedAttemptsMax;
     engine::current_task::SetDeadline(
         engine::Deadline::FromDuration(chrono::seconds(totalCrawlTimeLimitSec))
     );
 
     std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
 
-    engine::subprocess::ProcessStarter starter(engine::current_task::GetBlockingTaskProcessor());
-
     CrawlContext ctx(id, std::move(link), svcCfg);
 
-    runCrawlerForContext(ctx, starter);
+    runCrawlerForContext(ctx);
 
     auto createdAt = persistMetadataForContext(ctx);
     if (!createdAt)
@@ -702,175 +554,42 @@ void Crud::Impl::cleanupOldJobs()
     }
 }
 
-crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(
-    CrawlContext &ctx, engine::subprocess::ProcessStarter &starter, const String &seedUrl
-)
+crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(CrawlContext &ctx, const String &seedUrl)
 {
-    auto archiveRoot = us::fs::blocking::TempDirectory::Create();
-    const auto cname = text::format(
-        "btcx-{}", us::utils::ToString(us::utils::generators::GenerateBoostUuid())
+    LOG_INFO() << fmt::format(
+        "Submitting crawl for {} to crawlerd with timeout={}s", seedUrl, crawlerdRunTimeoutSec
     );
 
-    const auto chromeFlags = text::format(
-        "--dns-over-https-mode=off --disable-quic --ignore-certificate-errors --proxy-server={} "
-        "--proxy-bypass-list=<-loopback>",
-        crawlerProxyServer
-    );
-
-    std::vector<String> createArgs = {
-        "create"_t, "-e"_t, text::format("CHROME_FLAGS={}", chromeFlags), "--shm-size"_t, "1g"_t
-    };
-    createArgs.insert(
-        std::end(createArgs),
-        {"-e"_t, "HOME=/crawls/home"_t, "-e"_t, "XDG_CONFIG_HOME=/crawls/home/.config"_t, "-e"_t,
-         "XDG_CACHE_HOME=/crawls/home/.cache"_t, "-e"_t,
-         "XDG_DATA_HOME=/crawls/home/.local/share"_t}
-    );
-    createArgs.push_back("-v"_t);
-    createArgs.push_back(text::format("{}:/crawls", archiveRoot.GetPath()));
-    createArgs.push_back("--network"_t);
-    createArgs.push_back(crawlerNetwork);
-    const auto collection = "1"_t;
-    createArgs.push_back("--name"_t);
-    createArgs.push_back(cname);
-    createArgs.push_back(crawlerImage);
-    std::vector<String> crawlArgs = {
-        "crawl"_t,
-        "--collection"_t,
-        collection,
-        "--generateWACZ"_t,
-        "--workers"_t,
-        text::format("{}", crawlerWorkers),
-        "--headless"_t,
-        "--scopeType"_t,
-        crawlerScopeType,
-        "--pageLimit"_t,
-        "1"_t,
-        "--pageLoadTimeout"_t,
-        text::format("{}", crawlerPageLoadTimeoutSec),
-        "--postLoadDelay"_t,
-        text::format("{}", crawlerPostLoadDelaySec),
-        "--netIdleWait"_t,
-        text::format("{}", crawlerNetIdleWaitSec),
-        "--pageExtraDelay"_t,
-        text::format("{}", crawlerPageExtraDelaySec),
-        "--behaviorTimeout"_t,
-        text::format("{}", crawlerBehaviorTimeoutSec),
-        "--timeLimit"_t,
-        text::format("{}", crawlerContainerTimeoutSec),
-        "--waitUntil"_t,
-        "load"_t,
-        "--blockAds"_t,
-        "--behaviors"_t,
-        "siteSpecific"_t,
-        "--failOnFailedSeed"_t,
-        "--failOnInvalidStatus"_t,
-        "--lang"_t,
-        crawlerLang,
-        "--context"_t,
-        "general,worker,pageStatus,writer,storage,jsError,state,crawlStatus,fetch"_t,
-        "wacz"_t,
-        "--logLevel"_t,
-        "debug,info"_t,
-        "--logging"_t,
-        "debug,stats,jserrors"_t,
-        "--url"_t,
-        seedUrl
-    };
-    createArgs.insert(
-        std::end(createArgs),
-        {"/bin/sh"_t, "-c"_t, "set -eu; mkdir -p \"$HOME\"; exec \"$@\""_t, "_"_t}
-    );
-    createArgs.insert(std::end(createArgs), std::begin(crawlArgs), std::end(crawlArgs));
-    if (crawlerSizeLimitMiB > 0) {
-        const int64_t sizeLimitBytes = crawlerSizeLimitMiB * 1024 * 1024;
-        createArgs.push_back("--sizeLimit"_t);
-        createArgs.push_back(text::format("{}", sizeLimitBytes));
-    }
-
-    LOG_INFO() << text::format(
-        "Starting crawl for {} with timeLimit={}s", seedUrl, crawlerContainerTimeoutSec
-    );
-    ContainerGuard ctrGuard(starter, cname, createArgs);
-
-    const auto stdoutPath = fmt::format("{}/browsertrix.stdout.log", archiveRoot.GetPath());
-    const auto stderrPath = fmt::format("{}/browsertrix.stderr.log", archiveRoot.GetPath());
-    auto startProc = starter.Exec(
-        "podman", std::vector<std::string>{"start", "-a", std::string(cname.view())},
-        engine::subprocess::ExecOptions{
-            .stdout_file = stdoutPath,
-            .stderr_file = stderrPath,
-            .use_path = true,
-        }
-    );
-    auto status = startProc.Get();
-
-    crawler::AttemptSummary res;
-    res.exited = status.IsExited();
-    res.exitCode = res.exited ? status.GetExitCode() : -1;
-    res.waczExists = false;
-    res.failureDetail = crawler::summarizeProcessOutputs(stdoutPath, stderrPath);
-
-    const auto pagesJsonlPath = text::format(
-        "{0}/collections/{1}/pages/pages.jsonl", archiveRoot.GetPath(), collection
-    );
-    res.seedProbe = probeSeedPageFromPagesJsonl(pagesJsonlPath, seedUrl);
-
-    if (!res.exited) {
-        const auto attemptContext = crawler::formatAttemptContext(res);
+    const auto run = crawlerClient.run(seedUrl);
+    if (!run.attempt.waczExists) {
+        const auto attemptContext = crawler::formatAttemptContext(run.attempt);
         LOG_INFO() << fmt::format(
             "Crawler attempt failed for {}{}", seedUrl,
             attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
         );
-        return res;
+        return run.attempt;
     }
-
-    if (res.exitCode != static_cast<int>(crawler::CrawlerExitCode::kSuccess)) {
-        LOG_INFO() << fmt::format(
-            "Crawler attempt failed for {} ({})", seedUrl, crawler::formatAttemptStatus({}, res)
-        );
-        return res;
-    }
-
-    // do eagerly
-    ctrGuard.remove();
-
-    const auto pathToArchive = text::format(
-        "{0}/collections/{1}/{1}.wacz", archiveRoot.GetPath(), collection
-    );
-
-    res.waczExists = us::fs::FileExists(
-        engine::current_task::GetBlockingTaskProcessor(), std::string(pathToArchive.view())
-    );
-    if (!res.waczExists)
-        return res;
 
     try {
         auto snapshot = s3State.Read();
-        snapshot->client->PutObject(
-            ctx.s3Key.view(), us::fs::blocking::ReadFileContents(std::string(pathToArchive.view())),
-            {}, "application/zip", {}, {}
-        );
+        snapshot->client->PutObject(ctx.s3Key.view(), *run.wacz, {}, "application/zip", {}, {});
     } catch (const std::exception &e) {
         const auto msg = fmt::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
         LOG_ERROR() << msg;
         throw;
     }
 
-    return res;
+    return run.attempt;
 }
 
-void Crud::Impl::runCrawlerForContext(
-    CrawlContext &ctx, engine::subprocess::ProcessStarter &starter
-)
+void Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
 {
     const auto httpsSeedUrl = ctx.link.httpsUrl();
     const auto httpSeedUrl = ctx.link.httpUrl();
 
     auto result = crawler::runHttpsFirstWithHttpFallback(
-        httpsSeedUrl, httpSeedUrl, [&ctx, &starter, this](const String &seedUrlIn) {
-            return runCrawlerAttempt(ctx, starter, seedUrlIn);
-        }
+        httpsSeedUrl, httpSeedUrl,
+        [&ctx, this](const String &seedUrlIn) { return runCrawlerAttempt(ctx, seedUrlIn); }
     );
 
     if (result.outcome == crawler::RunOutcome::kSucceeded) {
@@ -1048,6 +767,9 @@ dto::CaptureJob Crud::createCaptureJob(Link link)
                 id, "crawler_failed"_t, String::fromBytesThrow(std::string_view(e.what()))
             );
         } catch (const std::exception &e) {
+            LOG_ERROR() << fmt::format(
+                "Unexpected crawl job failure for {}: {}", us::utils::ToString(id), e.what()
+            );
             implPtr->markJobFailed(id, "internal_server_error"_t, "internal server error"_t);
         }
     });

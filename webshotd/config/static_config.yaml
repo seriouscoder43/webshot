@@ -16,6 +16,7 @@ components_manager:
   components:
     http-client:
       fs-task-processor: fs-task-processor
+      testsuite-timeout: 30s
     secdist: {}
     default-secdist-provider:
       config: $secdist_path
@@ -95,23 +96,11 @@ components_manager:
       snapshots_page_max: 2
       snapshots_per_link_max: 2
       snapshots_links_per_page_max: 10
-      crawler_network: 'crawler_net'
-      crawler_proxy_server: $crawler_proxy_server
+      crawlerd_run_timeout_sec: $crawlerd_run_timeout_sec
+      crawler_job_overhead_timeout_sec: $crawler_job_overhead_timeout_sec
       link_cooldown_sec: $link_cooldown_sec
       crawl_job_retention_sec: 604800
       crawl_job_cleanup_interval_sec: 3600
-      crawler_image: 'docker.io/webrecorder/browsertrix-crawler:latest@sha256:35f863bdd26154fbcb6c79badc2d2ca7a1385e45df55523ed240b728acbf7582'
-      crawler_workers: 1
-      crawler_page_load_timeout_sec: $crawler_page_load_timeout_sec
-      crawler_post_load_delay_sec: $crawler_post_load_delay_sec
-      crawler_net_idle_wait_sec: $crawler_net_idle_wait_sec
-      crawler_page_extra_delay_sec: $crawler_page_extra_delay_sec
-      crawler_behavior_timeout_sec: $crawler_behavior_timeout_sec
-      crawler_container_timeout_sec: $crawler_container_timeout_sec
-      crawler_overhead_timeout_sec: $crawler_overhead_timeout_sec
-      crawler_lang: 'en'
-      crawler_scope_type: 'page-spa'
-      crawler_size_limit_mib: $crawler_size_limit_mib
       s3_credentials_endpoint: $s3_credentials_endpoint
       s3_credentials_endpoint#fallback: 'https://sts.example.com/'
       s3_use_sts: $s3_use_sts

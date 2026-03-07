@@ -194,23 +194,24 @@ def infer_cpu_threads() -> int | None:
 def webshotd_cmd(*, mode: str, repo_root: Path) -> list[str]:
     build_dir = need_env("WEBSHOTD_BUILD_DIR")
     exe = str(Path(build_dir) / "webshotd")
+    service_root = repo_root / "webshotd"
     if mode == "dev":
         return [
             exe,
             "--config",
-            str(repo_root / "config/static_config.yaml"),
+            str(service_root / "config/static_config.yaml"),
             "--config_vars",
-            str(repo_root / "config/config_vars.debug.yaml"),
+            str(service_root / "config/config_vars.debug.yaml"),
         ]
     if mode == "prodlike":
         return [
             exe,
             "--config",
-            str(repo_root / "config/static_config.yaml"),
+            str(service_root / "config/static_config.yaml"),
             "--config_vars",
-            str(repo_root / "config/config_vars.prod.yaml"),
+            str(service_root / "config/config_vars.prod.yaml"),
             "--config_vars_override",
-            str(repo_root / "config/config_vars.prod.debug.yaml"),
+            str(service_root / "config/config_vars.prod.debug.yaml"),
         ]
     die("mode must be 'dev' or 'prodlike'", exit_code=2)
     raise AssertionError("unreachable")
@@ -257,6 +258,7 @@ def webshotd_wait_ready(*, log_file: Path) -> None:
 
 def webshotd_up(*, mode: str, repo_root: Path) -> None:
     need_env("WEBSHOTD_RUNTIME_LD_LIBRARY_PATH")
+    service_root = repo_root / "webshotd"
 
     paths = _state_paths(mode=mode)
     pid = _read_pid(paths.pid_file)
@@ -279,7 +281,7 @@ def webshotd_up(*, mode: str, repo_root: Path) -> None:
 
         proc = subprocess.Popen(
             cmd,
-            cwd=str(repo_root),
+            cwd=str(service_root),
             env=env,
             stdout=log,
             stderr=log,

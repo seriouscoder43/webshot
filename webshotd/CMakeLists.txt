@@ -3,6 +3,8 @@ project(webshotd CXX)
 
 include(GNUInstallDirs)
 
+get_filename_component(WEBSHOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+
 # Ensure userver codegen target is created only once even with multiple
 # generators (SQL, chaotic, testsuite). Pre-initialize the global property that
 # guards userver-codegen creation.
@@ -54,6 +56,7 @@ set(${PROJECT_NAME}_headers
     include/disallow_and_purge_handler.hpp
     include/denylist_check_handler.hpp
     include/crud.hpp
+    include/crawlerd_client.hpp
     include/config.hpp
     include/crawler_failure.hpp
     include/error_utils.hpp
@@ -74,6 +77,7 @@ add_library(
   src/disallow_and_purge_handler.cpp
   src/denylist_check_handler.cpp
   src/crud.cpp
+  src/crawlerd_client.cpp
   src/crawler_failure.cpp
   src/text_postgres_formatter.cpp
   src/error_utils.cpp
@@ -132,7 +136,9 @@ target_link_libraries(${PROJECT_NAME}_objs PRIVATE uni-algo::uni-algo)
 find_package(absl CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
-                      PUBLIC userver::core userver::postgresql userver::s3api)
+                      PUBLIC userver::core userver::postgresql userver::s3api
+                             arkhiv::arkhiv)
+target_link_libraries(${PROJECT_NAME} PRIVATE arkhiv::arkhiv)
 target_sources(
   ${PROJECT_NAME}_objs
   PRIVATE src/s3/sigv4_signer.cpp src/s3/s3_v4_client.cpp
@@ -153,6 +159,7 @@ target_link_libraries(${PROJECT_NAME}_objs PRIVATE ${PROJECT_NAME}_sql)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_sql)
 
 include(CTest)
+add_subdirectory(${WEBSHOT_REPO_ROOT}/arkhiv ${CMAKE_CURRENT_BINARY_DIR}/arkhiv)
 if(BUILD_TESTING)
   add_subdirectory(test)
 endif()
@@ -162,7 +169,9 @@ if(USE_SANITIZERS)
   target_link_options(${PROJECT_NAME} PRIVATE "-fsanitize=address,undefined")
 endif()
 
-file(GLOB_RECURSE SCHEMAS ${CMAKE_CURRENT_SOURCE_DIR}/schema/*.yaml)
+set(SCHEMAS
+    ${WEBSHOT_REPO_ROOT}/schema/crawlerd.yaml
+    ${WEBSHOT_REPO_ROOT}/schema/webshot.yaml)
 userver_target_generate_chaotic(
   ${PROJECT_NAME}-chgen
   GENERATE_SERIALIZERS
@@ -173,7 +182,7 @@ userver_target_generate_chaotic(
   SCHEMAS
   ${SCHEMAS}
   RELATIVE_TO
-  ${CMAKE_CURRENT_SOURCE_DIR})
+  ${WEBSHOT_REPO_ROOT})
 apply_defaults(${PROJECT_NAME}-chgen)
 target_link_libraries(
   ${PROJECT_NAME}
@@ -192,5 +201,5 @@ target_include_directories(
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/config/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/webshot/config")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/schema/"
+install(DIRECTORY "${WEBSHOT_REPO_ROOT}/schema/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/webshot/schema")

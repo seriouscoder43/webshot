@@ -1,16 +1,21 @@
 import asyncio
 import pathlib
+import socket
+import subprocess
+import time
 from urllib.parse import urlparse, urlunparse
 
 import psycopg2
 import psycopg2.extras
 import pytest
+import yaml
 from pytest_userver import chaos
 from testsuite.databases.pgsql import discover
 
 from compose_tools.s3_bucket import ensure_s3_bucket_exists
 
 _S3_GATE_HOST = "localhost"
+_CRAWLERD_SOCKET_PATH = "../.crawlerd.sock"
 
 pytest_plugins = [
     "pytest_userver.plugins.core",
@@ -109,12 +114,6 @@ async def s3_gate_ready(s3_gate, service_source_dir: pathlib.Path):
     yield s3_gate
 
 
-@pytest.fixture
-def extra_client_deps(pg_gate_ready, s3_gate_ready):
-    # Ensure gates are reset and running before service_client is created.
-    return [pg_gate_ready, s3_gate_ready]
-
-
 @pytest.fixture(scope="session")
 def userver_pg_config(pgsql_local, pg_gate):
     db_uri = {name: conn.get_uri() for name, conn in pgsql_local.items()}
@@ -154,7 +153,7 @@ def service_env(service_source_dir: pathlib.Path):
 @pytest.fixture(scope="session")
 def allowed_url_prefixes_extra(s3_gate_port):
     # Permit S3 uploads to the chaos gate in front of the local SeaweedFS endpoint.
-    return [f"http://{_S3_GATE_HOST}:{s3_gate_port}/"]
+    return [f"http://{_S3_GATE_HOST}:{s3_gate_port}/", "http://localhost/run"]
 
 
 @pytest.fixture(scope="session")
@@ -163,8 +162,107 @@ def patch_s3_config(s3_gate_port):
         components = config_yaml["components_manager"]["components"]
         cfg = components["config"]
         cfg["s3_endpoint"] = f"http://{_S3_GATE_HOST}:{s3_gate_port}"
+        cfg["s3_timeout_ms"] = 5000
 
     return _patch
+
+
+@pytest.fixture(scope="session")
+def service_config_path_temp(service_tmpdir, _service_config_hooked) -> pathlib.Path:
+    dst_path = service_tmpdir / "config.yaml"
+
+    config_yaml = dict(_service_config_hooked.config_yaml)
+    config_vars = dict(_service_config_hooked.config_vars)
+
+    components = config_yaml["components_manager"]["components"]
+    if "http-client" in components:
+        http_client = components["http-client"] or {}
+        http_client["testsuite-timeout"] = "20s"
+
+    if not config_vars:
+        config_yaml.pop("config_vars", None)
+    else:
+        config_vars_path = service_tmpdir / "config_vars.yaml"
+        config_vars_path.write_text(yaml.dump(config_vars))
+        config_yaml["config_vars"] = str(config_vars_path)
+
+    dst_path.write_text(yaml.dump(config_yaml))
+    return dst_path
+
+
+@pytest.fixture(scope="session")
+def crawlerd_socket_path():
+    return (pathlib.Path.cwd() / _CRAWLERD_SOCKET_PATH).resolve()
+
+
+def _crawlerd_ready(socket_path: pathlib.Path) -> bool:
+    if not socket_path.exists():
+        return False
+
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            sock.connect(str(socket_path))
+            sock.sendall(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            return b"200" in sock.recv(4096)
+    except OSError:
+        return False
+
+
+@pytest.fixture(scope="session")
+def crawlerd_process(crawlerd_socket_path: pathlib.Path, service_source_dir: pathlib.Path):
+    repo_root = service_source_dir.parent
+    crawler_root = repo_root / "crawlerd"
+    log_dir = crawlerd_socket_path.parent
+    log_path = log_dir / "crawlerd.log"
+
+    crawlerd_socket_path.unlink(missing_ok=True)
+
+    with log_path.open("wb") as log:
+        subprocess.run(
+            ["npm", "run", "build"],
+            cwd=crawler_root,
+            stdout=log,
+            stderr=log,
+            check=True,
+        )
+        process = subprocess.Popen(
+            ["node", "dist/src/server.js"],
+            cwd=crawler_root,
+            stdout=log,
+            stderr=log,
+        )
+
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"crawlerd exited early with code {process.returncode}")
+        if _crawlerd_ready(crawlerd_socket_path):
+            break
+        time.sleep(0.2)
+    else:
+        raise RuntimeError(f"crawlerd did not become ready; see {log_path}")
+
+    try:
+        yield process
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10.0)
+
+
+@pytest.fixture
+def crawlerd_ready(crawlerd_process):
+    return crawlerd_process
+
+
+@pytest.fixture
+def extra_client_deps(pg_gate_ready, s3_gate_ready, crawlerd_ready):
+    # Ensure gates are reset and crawlerd is running before service_client is created.
+    return [pg_gate_ready, s3_gate_ready, crawlerd_ready]
 
 
 USERVER_CONFIG_HOOKS = ["patch_s3_config"]

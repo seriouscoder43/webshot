@@ -385,7 +385,7 @@ def ensure_squid_image_loaded(*, mode: str) -> None:
 
 
 def _ensure_s3_bucket_dev(*, repo_root: Path) -> None:
-    secdist_path = repo_root / "secret/test_secdist.json"
+    secdist_path = repo_root / "webshotd" / "secret" / "test_secdist.json"
     endpoint = "localhost:8333"
     bucket = "webshot"
     timeout_sec = 30
