@@ -30,9 +30,8 @@
       cp -r dist node_modules package.json $out/libexec/crawlerd/
 
       makeWrapper ${nodejs}/bin/node $out/bin/crawlerd \
-        --run "cd $out/libexec/crawlerd" \
         --prefix PATH : "${pkgs.lib.makeBinPath [pkgs.bubblewrap pkgs.chromium]}" \
-        --add-flags dist/src/server.js
+        --add-flags $out/libexec/crawlerd/dist/src/server.js
 
       runHook postInstall
     '';

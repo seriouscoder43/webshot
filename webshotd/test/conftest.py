@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pathlib
 import socket
 import subprocess
@@ -15,7 +16,6 @@ from testsuite.databases.pgsql import discover
 from compose_tools.s3_bucket import ensure_s3_bucket_exists
 
 _S3_GATE_HOST = "localhost"
-_CRAWLERD_SOCKET_PATH = "../.crawlerd.sock"
 
 pytest_plugins = [
     "pytest_userver.plugins.core",
@@ -168,6 +168,14 @@ def patch_s3_config(s3_gate_port):
 
 
 @pytest.fixture(scope="session")
+def patch_crawlerd_config(crawlerd_socket_path: pathlib.Path):
+    def _patch(_config_yaml, config_vars):
+        config_vars["crawlerd_socket_path"] = str(crawlerd_socket_path)
+
+    return _patch
+
+
+@pytest.fixture(scope="session")
 def service_config_path_temp(service_tmpdir, _service_config_hooked) -> pathlib.Path:
     dst_path = service_tmpdir / "config.yaml"
 
@@ -191,8 +199,15 @@ def service_config_path_temp(service_tmpdir, _service_config_hooked) -> pathlib.
 
 
 @pytest.fixture(scope="session")
-def crawlerd_socket_path():
-    return (pathlib.Path.cwd() / _CRAWLERD_SOCKET_PATH).resolve()
+def crawlerd_runtime_dir() -> pathlib.Path:
+    runtime_dir = pathlib.Path("/tmp") / f"webshotd-tests-{os.getuid()}-{os.getpid()}"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    return runtime_dir
+
+
+@pytest.fixture(scope="session")
+def crawlerd_socket_path(crawlerd_runtime_dir: pathlib.Path):
+    return crawlerd_runtime_dir / "crawlerd.sock"
 
 
 def _crawlerd_ready(socket_path: pathlib.Path) -> bool:
@@ -216,6 +231,7 @@ def crawlerd_process(crawlerd_socket_path: pathlib.Path, service_source_dir: pat
     log_dir = crawlerd_socket_path.parent
     log_path = log_dir / "crawlerd.log"
 
+    log_dir.mkdir(parents=True, exist_ok=True)
     crawlerd_socket_path.unlink(missing_ok=True)
 
     with log_path.open("wb") as log:
@@ -227,7 +243,7 @@ def crawlerd_process(crawlerd_socket_path: pathlib.Path, service_source_dir: pat
             check=True,
         )
         process = subprocess.Popen(
-            ["node", "dist/src/server.js"],
+            ["node", "dist/src/server.js", "--socket-path", str(crawlerd_socket_path)],
             cwd=crawler_root,
             stdout=log,
             stderr=log,
@@ -265,4 +281,4 @@ def extra_client_deps(pg_gate_ready, s3_gate_ready, crawlerd_ready):
     return [pg_gate_ready, s3_gate_ready, crawlerd_ready]
 
 
-USERVER_CONFIG_HOOKS = ["patch_s3_config"]
+USERVER_CONFIG_HOOKS = ["patch_s3_config", "patch_crawlerd_config"]

@@ -82,7 +82,6 @@ using chrono::system_clock;
 namespace {
 constexpr int64_t kCrawlerSeedAttemptsMax = 2;
 constexpr std::string_view kCrawlerdBaseUrl = "http://localhost";
-constexpr std::string_view kCrawlerdSocketPath = "../.crawlerd.sock";
 } // namespace
 
 us::yaml_config::Schema Crud::GetStaticConfigSchema()
@@ -104,6 +103,9 @@ properties:
         type: integer
         minimum: 1
         description: 'Max distinct links in a prefix page'
+    crawlerd_socket_path:
+        type: string
+        description: 'Absolute AF_UNIX path used to talk to crawlerd'
     crawlerd_run_timeout_sec:
         type: integer
         minimum: 1
@@ -253,7 +255,8 @@ public:
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           crawlerClient(
               httpClient, String::fromBytesThrow(kCrawlerdBaseUrl),
-              String::fromBytesThrow(kCrawlerdSocketPath), crawlerdRunTimeoutSec
+              String::fromBytesThrow(cfg["crawlerd_socket_path"].As<std::string>()),
+              crawlerdRunTimeoutSec
           ),
           denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
