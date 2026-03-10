@@ -122,6 +122,7 @@ endforeach()
 if(USERVER_FEATURE_TESTSUITE)
   add_custom_target(testsuite)
   add_dependencies(testsuite ${PROJECT_NAME})
+  set(testsuite_runner_path ${CMAKE_CURRENT_BINARY_DIR}/runtests-testsuite-tests)
 
   userver_testsuite_add(
     SERVICE_TARGET
@@ -140,11 +141,22 @@ if(USERVER_FEATURE_TESTSUITE)
     --service-source-dir=${CMAKE_SOURCE_DIR}
     --postgresql=postgresql://postgres@localhost:5432/postgres)
 
+  add_custom_target(
+    testsuite-runner-guard ALL
+    COMMAND
+      ${TESTSUITE_PYTHON_BINARY}
+      ${CMAKE_CURRENT_SOURCE_DIR}/patch_testsuite_runner.py
+      --runner=${testsuite_runner_path}
+      --service-port=8080
+      --monitor-port=8081
+    DEPENDS testsuite
+    VERBATIM)
+
   # Ensure the testsuite runner is generated as part of the default build
   # whenever tests (and testsuite support) are enabled, so ctest can run
   # testsuite-testsuite-tests without extra manual targets.
   add_custom_target(testsuite-build ALL)
-  add_dependencies(testsuite-build testsuite)
+  add_dependencies(testsuite-build testsuite-runner-guard)
 
   add_custom_target(
     coverage

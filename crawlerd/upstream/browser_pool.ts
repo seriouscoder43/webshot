@@ -12,7 +12,7 @@ import { CdpClient } from "./cdp_client.js";
 export type BrowserPoolOptions = {
   browserBin: string;
   geometry?: string;
-  squidProxyServer?: string;
+  proxyServer?: string;
 };
 
 export type BrowserLease = {
@@ -33,13 +33,13 @@ type ManagedBrowser = {
   resolveClosed: () => void;
 };
 
-const kSquidProxyServer = "http://127.0.0.1:3128";
+const kProxyServer = "http://127.0.0.1:3128";
 const kBwrapBin = "bwrap";
 
 export class BrowserPool {
   readonly browserBin: string;
   readonly geometry?: string;
-  readonly squidProxyServer: string;
+  readonly proxyServer: string;
   readonly browsers = new Map<BrowserInstance, ManagedBrowser>();
   launched = 0;
   closing = false;
@@ -48,11 +48,11 @@ export class BrowserPool {
   constructor(options: BrowserPoolOptions) {
     this.browserBin = options.browserBin;
     this.geometry = options.geometry;
-    this.squidProxyServer = options.squidProxyServer ?? kSquidProxyServer;
+    this.proxyServer = options.proxyServer ?? kProxyServer;
   }
 
   async isReady(): Promise<boolean> {
-    return await canConnectToSquid(this.squidProxyServer);
+    return await canConnectToProxy(this.proxyServer);
   }
 
   async acquire(): Promise<BrowserLease> {
@@ -116,7 +116,7 @@ export class BrowserPool {
     const launchPromise = BrowserInstance.launch({
       browserBin: this.browserBin,
       geometry: this.geometry,
-      squidProxyServer: this.squidProxyServer,
+      proxyServer: this.proxyServer,
     }).then((browser) => {
       const managed = createManagedBrowser(browser);
       this.browsers.set(browser, managed);
@@ -150,7 +150,7 @@ export class BrowserPool {
 type LaunchOptions = {
   browserBin: string;
   geometry?: string;
-  squidProxyServer: string;
+  proxyServer: string;
 };
 
 type BrowserPaths = {
@@ -162,27 +162,27 @@ type BrowserPaths = {
   devNullPath: string;
 };
 
-type SquidEndpoint = {
+type ProxyEndpoint = {
   host: string;
   port: number;
 };
 
 export class BrowserInstance {
-  readonly squidProxyServer: string;
+  readonly proxyServer: string;
   readonly userDataDir: string;
   readonly cdpSocketPath: string;
   readonly websocketPath: string;
   readonly netlogPath: string;
   readonly proc: ChildProcessByStdio<null, Readable, Readable>;
   readonly cdp: CdpClient;
-  readonly proxyServer: net.Server;
+  readonly proxyBridgeServer: net.Server;
   closed = false;
   stdoutLog = "";
   stderrLog = "";
   finalNetlog = "";
 
   private constructor(options: {
-    squidProxyServer: string;
+    proxyServer: string;
     userDataDir: string;
     cdpSocketPath: string;
     websocketPath: string;
@@ -191,16 +191,16 @@ export class BrowserInstance {
     startupStderr: string;
     proc: ChildProcessByStdio<null, Readable, Readable>;
     cdp: CdpClient;
-    proxyServer: net.Server;
+    proxyBridgeServer: net.Server;
   }) {
-    this.squidProxyServer = options.squidProxyServer;
+    this.proxyServer = options.proxyServer;
     this.userDataDir = options.userDataDir;
     this.cdpSocketPath = options.cdpSocketPath;
     this.websocketPath = options.websocketPath;
     this.netlogPath = options.netlogPath;
     this.proc = options.proc;
     this.cdp = options.cdp;
-    this.proxyServer = options.proxyServer;
+    this.proxyBridgeServer = options.proxyBridgeServer;
     this.appendStdout(options.startupStdout);
     this.appendStderr(options.startupStderr);
     this.proc.stdout.on("data", (chunk: Buffer) => {
@@ -216,15 +216,15 @@ export class BrowserInstance {
 
   static async launch(options: LaunchOptions): Promise<BrowserInstance> {
     const paths = await createBrowserPaths();
-    const endpoint = parseSquidEndpoint(options.squidProxyServer);
-    const proxyServer = await createProxyBridgeServer(paths.proxySocketPath, endpoint);
+    const endpoint = parseProxyEndpoint(options.proxyServer);
+    const proxyBridgeServer = await createProxyBridgeServer(paths.proxySocketPath, endpoint);
     try {
       const proc = spawnBwrapBrowser(options, paths);
       const browserEndpoint = await waitForBrowserEndpoint(proc);
       const websocketPath = new URL(browserEndpoint.endpoint).pathname;
       const cdp = await CdpClient.connectUnix(paths.cdpSocketPath, websocketPath);
       return new BrowserInstance({
-        squidProxyServer: options.squidProxyServer,
+        proxyServer: options.proxyServer,
         userDataDir: paths.userDataDir,
         cdpSocketPath: paths.cdpSocketPath,
         websocketPath,
@@ -233,10 +233,10 @@ export class BrowserInstance {
         startupStderr: browserEndpoint.stderr,
         proc,
         cdp,
-        proxyServer,
+        proxyBridgeServer,
       });
     } catch (error) {
-      await closeNetServer(proxyServer).catch(() => undefined);
+      await closeNetServer(proxyBridgeServer).catch(() => undefined);
       await cleanupPaths(paths.rootDir).catch(() => undefined);
       throw error;
     }
@@ -282,7 +282,7 @@ export class BrowserInstance {
 
   async close() {
     if (this.closed) {
-      await closeNetServer(this.proxyServer).catch(() => undefined);
+      await closeNetServer(this.proxyBridgeServer).catch(() => undefined);
       await cleanupPaths(path.dirname(this.userDataDir)).catch(() => undefined);
       return;
     }
@@ -295,7 +295,7 @@ export class BrowserInstance {
       return waitForExit(this.proc, 1500);
     }).catch(() => undefined);
     this.finalNetlog = await this.readNetlog();
-    await closeNetServer(this.proxyServer).catch(() => undefined);
+    await closeNetServer(this.proxyBridgeServer).catch(() => undefined);
     await cleanupPaths(path.dirname(this.userDataDir)).catch(() => undefined);
   }
 
@@ -410,7 +410,7 @@ async function createBrowserPaths(): Promise<BrowserPaths> {
   };
 }
 
-async function createProxyBridgeServer(socketPath: string, endpoint: SquidEndpoint): Promise<net.Server> {
+async function createProxyBridgeServer(socketPath: string, endpoint: ProxyEndpoint): Promise<net.Server> {
   await unlink(socketPath).catch(() => undefined);
   const server = net.createServer((socket) => {
     const upstream = net.createConnection({
@@ -437,9 +437,9 @@ async function createProxyBridgeServer(socketPath: string, endpoint: SquidEndpoi
   return server;
 }
 
-async function canConnectToSquid(proxyServer: string): Promise<boolean> {
+async function canConnectToProxy(proxyServer: string): Promise<boolean> {
   try {
-    const endpoint = parseSquidEndpoint(proxyServer);
+    const endpoint = parseProxyEndpoint(proxyServer);
     await new Promise<void>((resolve, reject) => {
       const socket = net.createConnection(endpoint);
       const timer = setTimeout(() => {
@@ -462,14 +462,14 @@ async function canConnectToSquid(proxyServer: string): Promise<boolean> {
   }
 }
 
-function parseSquidEndpoint(proxyServer: string): SquidEndpoint {
+function parseProxyEndpoint(proxyServer: string): ProxyEndpoint {
   const url = new URL(proxyServer);
   if (url.protocol !== "http:") {
-    throw new Error(`unsupported squid proxy protocol ${url.protocol}`);
+    throw new Error(`unsupported proxy protocol ${url.protocol}`);
   }
   const port = Number.parseInt(url.port || "80", 10);
   if (!Number.isInteger(port) || port < 1) {
-    throw new Error(`invalid squid proxy port in ${proxyServer}`);
+    throw new Error(`invalid proxy port in ${proxyServer}`);
   }
   return {
     host: url.hostname,

@@ -17,7 +17,7 @@ import { BrowserInstance, type BrowserPool } from "../upstream/browser_pool.js";
 type Options = {
   urls: string[];
   jobTimeoutMs: number;
-  squidProxyServer: string;
+  proxyServer: string;
   geometry: string;
   delayMs: number;
 };
@@ -53,7 +53,7 @@ async function main() {
     mode: "sticky-browser-repro",
     urls: options.urls,
     jobTimeoutMs: options.jobTimeoutMs,
-    squidProxyServer: options.squidProxyServer,
+    proxyServer: options.proxyServer,
     geometry: options.geometry,
     delayMs: options.delayMs,
     captureTrace: kCaptureTrace,
@@ -68,7 +68,7 @@ async function main() {
   const browserPool = new StickyBrowserPool({
     browserBin,
     geometry: options.geometry,
-    squidProxyServer: options.squidProxyServer,
+    proxyServer: options.proxyServer,
   });
 
   const summaries: RunSummary[] = [];
@@ -80,7 +80,7 @@ async function main() {
         {
           browserBin,
           geometry: options.geometry,
-          squidProxyServer: options.squidProxyServer,
+          proxyServer: options.proxyServer,
           browserPool: browserPool as unknown as BrowserPool,
         },
       );
@@ -137,7 +137,7 @@ async function main() {
 function parseArgs(argv: string[]): Options {
   const urls: string[] = [];
   let jobTimeoutMs = 15_000;
-  let squidProxyServer = "http://127.0.0.1:3128";
+  let proxyServer = "http://127.0.0.1:3128";
   let geometry = "1600x900";
   let delayMs = 0;
 
@@ -158,7 +158,7 @@ function parseArgs(argv: string[]): Options {
         jobTimeoutMs = parsePositiveInt(requireValue(argv, ++i, "--timeout-ms"), "--timeout-ms");
         break;
       case "--proxy":
-        squidProxyServer = requireValue(argv, ++i, "--proxy");
+        proxyServer = requireValue(argv, ++i, "--proxy");
         break;
       case "--geometry":
         geometry = requireValue(argv, ++i, "--geometry");
@@ -187,7 +187,7 @@ function parseArgs(argv: string[]): Options {
   return {
     urls,
     jobTimeoutMs,
-    squidProxyServer,
+    proxyServer,
     geometry,
     delayMs,
   };
@@ -202,7 +202,7 @@ function printUsage() {
     "  --count <n>           Repeat the default URL until the list has n entries",
     "  --sequence testsuite  Use the URL sequence that exposed the testsuite regression",
     "  --timeout-ms <n>      Per-run job timeout in milliseconds (default: 15000)",
-    "  --proxy <url>         Squid proxy URL (default: http://127.0.0.1:3128)",
+    "  --proxy <url>         Proxy URL (default: http://127.0.0.1:3128)",
     "  --geometry <wxh>      Browser geometry (default: 1600x900)",
     "  --delay-ms <n>        Delay between runs in milliseconds",
   ].join("\n"));
@@ -247,7 +247,7 @@ function parseStdoutMetadata(stdout: string): {
 class StickyBrowserPool {
   readonly browserBin: string;
   readonly geometry: string;
-  readonly squidProxyServer: string;
+  readonly proxyServer: string;
   browser?: BrowserInstance;
   launched = 0;
   handoutCount = 0;
@@ -260,11 +260,11 @@ class StickyBrowserPool {
   constructor(options: {
     browserBin: string;
     geometry: string;
-    squidProxyServer: string;
+    proxyServer: string;
   }) {
     this.browserBin = options.browserBin;
     this.geometry = options.geometry;
-    this.squidProxyServer = options.squidProxyServer;
+    this.proxyServer = options.proxyServer;
   }
 
   async acquire() {
@@ -275,7 +275,7 @@ class StickyBrowserPool {
       this.browser = await BrowserInstance.launch({
         browserBin: this.browserBin,
         geometry: this.geometry,
-        squidProxyServer: this.squidProxyServer,
+        proxyServer: this.proxyServer,
       });
       this.launched++;
       this.handoutCount = 0;

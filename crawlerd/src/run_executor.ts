@@ -93,7 +93,7 @@ export class UpstreamRunExecutor implements RunExecutor {
     this.browserPool = new BrowserPool({
       browserBin: options.browserBin,
       geometry: options.geometry,
-      squidProxyServer: options.squidProxyServer,
+      proxyServer: options.proxyServer,
     });
     this.options = {
       ...options,

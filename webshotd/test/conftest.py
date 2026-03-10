@@ -16,6 +16,8 @@ from testsuite.databases.pgsql import discover
 from s6.s3_bucket import ensure_s3_bucket_exists
 
 _S3_GATE_HOST = "localhost"
+_SERVICE_PORT = 8080
+_MONITOR_PORT = 8081
 
 pytest_plugins = [
     "pytest_userver.plugins.core",
@@ -30,12 +32,12 @@ psycopg2.extras.register_uuid()
 
 @pytest.fixture(scope="session")
 def service_port() -> int:
-    return 8080
+    return _SERVICE_PORT
 
 
 @pytest.fixture(scope="session")
 def monitor_port() -> int:
-    return 8081
+    return _MONITOR_PORT
 
 
 @pytest.fixture(scope="session")

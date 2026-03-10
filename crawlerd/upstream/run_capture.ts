@@ -11,7 +11,7 @@ export type BrowsertrixCaptureOptions = {
   browserBin: string;
   geometry?: string;
   browserPool: BrowserPool;
-  squidProxyServer?: string;
+  proxyServer?: string;
 };
 
 const kPageLoadTimeoutMs = 10_000;

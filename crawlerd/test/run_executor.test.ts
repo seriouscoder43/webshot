@@ -227,7 +227,7 @@ test("UpstreamRunExecutor closes the browser after each run", { concurrency: fal
   }
 });
 
-test("UpstreamRunExecutor fails hard when Squid is unreachable", { concurrency: false }, async () => {
+test("UpstreamRunExecutor fails hard when the proxy is unreachable", { concurrency: false }, async () => {
   const originServer = http.createServer((request, response) => {
     response.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
@@ -255,11 +255,11 @@ test("UpstreamRunExecutor fails hard when Squid is unreachable", { concurrency: 
   }
 });
 
-function createExecutor(squidProxyServer: string): UpstreamRunExecutor {
+function createExecutor(proxyServer: string): UpstreamRunExecutor {
   return new UpstreamRunExecutor({
     browserBin: kBrowserBin,
     geometry: kBrowserGeometry,
-    squidProxyServer,
+    proxyServer,
   });
 }
 

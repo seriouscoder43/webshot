@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import signal
+import ssl
 import subprocess
 import sys
 import time
@@ -62,10 +63,10 @@ class RuntimeContext:
     postgres_log_file: Path
     postgres_capture_meta_db_name: str
     postgres_shared_state_db_name: str
-    squid_dir: Path
-    squid_config_path: Path
-    squid_log_file: Path
-    squid_ssl_db: Path
+    proxy_dir: Path
+    proxy_confdir: Path
+    proxy_log_file: Path
+    proxy_upstream_ca_file: Path
     seaweed_data_dir: Path
     seaweed_log_file: Path
     test_target_dir: Path
@@ -85,9 +86,18 @@ def _shell_quote(value: str | Path) -> str:
     return shlex.quote(str(value))
 
 
+def _shell_join(parts: list[str | Path]) -> str:
+    return " ".join(_shell_quote(part) for part in parts)
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -181,10 +191,10 @@ def _build_context(
         postgres_log_file=state_dir / "postgres.log",
         postgres_capture_meta_db_name=capture_meta_db_name,
         postgres_shared_state_db_name=shared_state_db_name,
-        squid_dir=state_dir / "squid",
-        squid_config_path=state_dir / "squid" / "squid.conf",
-        squid_log_file=state_dir / "squid.log",
-        squid_ssl_db=state_dir / "squid" / "ssl_db",
+        proxy_dir=state_dir / "mitmproxy",
+        proxy_confdir=state_dir / "mitmproxy" / "confdir",
+        proxy_log_file=state_dir / "mitmproxy.log",
+        proxy_upstream_ca_file=state_dir / "mitmproxy" / "upstream-ca.pem",
         seaweed_data_dir=state_dir / "seaweed",
         seaweed_log_file=state_dir / "seaweedfs.log",
         test_target_dir=state_dir / "test-target",
@@ -208,9 +218,9 @@ def _service_specs(ctx: RuntimeContext) -> list[ServiceSpec]:
             timeout_sec=30.0,
         ),
         ServiceSpec(
-            name="squid",
-            service_dir=ctx.scan_dir / "squid",
-            log_file=ctx.squid_log_file,
+            name="proxy",
+            service_dir=ctx.scan_dir / "proxy",
+            log_file=ctx.proxy_log_file,
             ready_cmd=[python_exe, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"],
             timeout_sec=30.0,
         ),
@@ -222,7 +232,7 @@ def _service_specs(ctx: RuntimeContext) -> list[ServiceSpec]:
                     name="seaweedfs",
                     service_dir=ctx.scan_dir / "seaweedfs",
                     log_file=ctx.seaweed_log_file,
-                    ready_cmd=[python_exe, "-m", "s6.check_http_ready", "http://127.0.0.1:8333/"],
+                    ready_cmd=[python_exe, "-m", "s6.check_seaweedfs_ready"],
                     timeout_sec=60.0,
                 ),
                 ServiceSpec(
@@ -262,7 +272,7 @@ def _service_specs(ctx: RuntimeContext) -> list[ServiceSpec]:
 
 
 def _enabled_services(ctx: RuntimeContext) -> list[str]:
-    names = ["postgres", "squid", "crawlerd", "webshotd"]
+    names = ["postgres", "proxy", "crawlerd", "webshotd"]
     if ctx.mode == "dev":
         names[2:2] = ["seaweedfs", "test_target"]
     return names
@@ -275,30 +285,6 @@ if [ "$1" -ne 0 ] && [ "$2" -ne 15 ]; then
 fi
 exit 0
 """
-
-
-def _find_security_file_certgen() -> Path:
-    direct = shutil.which("security_file_certgen")
-    if direct:
-        return Path(direct)
-
-    squid_bin = shutil.which("squid")
-    if squid_bin is None:
-        die("Missing required command: squid", exit_code=2)
-    squid_root = Path(squid_bin).resolve().parent.parent
-    candidates = [
-        squid_root / "libexec" / "security_file_certgen",
-        squid_root / "libexec" / "security_file_certgen64",
-        squid_root / "libexec" / "squid" / "security_file_certgen",
-        squid_root / "libexec" / "squid" / "security_file_certgen64",
-        squid_root / "lib" / "squid" / "security_file_certgen",
-        squid_root / "lib" / "squid" / "security_file_certgen64",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    die("Failed to locate squid security_file_certgen", exit_code=2)
-    raise AssertionError("unreachable")
 
 
 def _bootstrap_postgres(ctx: RuntimeContext) -> None:
@@ -476,78 +462,24 @@ def _render_test_target_config(ctx: RuntimeContext) -> None:
     _write_text(ctx.test_target_config_path, rendered)
 
 
-def _render_squid_config(ctx: RuntimeContext) -> None:
-    need_cmd("bash")
-    helper = ctx.repo_root / "container/squid/webshot_denylist_acl.sh"
-    bash = shutil.which("bash")
-    if bash is None:
-        die("Missing required command: bash", exit_code=2)
-    squid_ca = ctx.repo_root / "container/compose/pki/squid_ca.pem"
-    base = (ctx.repo_root / "container/squid/squid.conf").read_text(encoding="utf-8")
-    mode_text = (
-        ctx.repo_root
-        / (
-            "container/squid/squid.mode.dev.conf"
-            if ctx.mode == "dev"
-            else "container/squid/squid.mode.prodlike.conf"
-        )
-    ).read_text(encoding="utf-8")
-
-    peer_text = ""
-    if ctx.mode == "dev":
-        origin_ca = ctx.repo_root / "container/compose/pki/origin_ca.crt"
-        peer_text = (
-            "\n"
-            "acl webshot_testsuite_target_http url_regex -i "
-            "^http://(test-target|asset\\.test-target)(/|$)\n"
-            "acl webshot_testsuite_target_https url_regex -i ^https://test-target(/|$)\n"
-            "acl webshot_testsuite_asset_https url_regex -i "
-            "^https://asset\\.test-target(/|$)\n"
-            "\n"
-            "cache_peer 127.0.0.1 parent 18080 0 no-query originserver "
-            "name=test_target_http\n"
-            "cache_peer_access test_target_http allow webshot_testsuite_target_http\n"
-            "cache_peer_access test_target_http deny all\n"
-            "\n"
-            "cache_peer 127.0.0.1 parent 18443 0 no-query originserver tls "
-            "name=test_target_https ssldomain=test-target "
-            f"tls-cafile={origin_ca} tls-default-ca=off\n"
-            "cache_peer_access test_target_https allow webshot_testsuite_target_https\n"
-            "cache_peer_access test_target_https deny all\n"
-            "\n"
-            "cache_peer 127.0.0.1 parent 18443 0 no-query originserver tls "
-            "name=asset_target_https ssldomain=asset.test-target "
-            f"tls-cafile={origin_ca} tls-default-ca=off\n"
-            "cache_peer_access asset_target_https allow webshot_testsuite_asset_https\n"
-            "cache_peer_access asset_target_https deny all\n"
-            "\n"
-            "never_direct allow webshot_testsuite_target\n"
-        )
-
-    base = base.replace(
-        "pid_filename /tmp/squid.pid", f"pid_filename {ctx.squid_dir / 'squid.pid'}"
-    )
-    base = base.replace(
-        "sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 16MB",
-        f"sslcrtd_program {_find_security_file_certgen()} -s {ctx.squid_ssl_db} -M 16MB",
-    )
-    base = base.replace("/etc/squid/webshot_ca.pem", str(squid_ca))
-    base = base.replace(
-        "%URI /usr/local/bin/webshot_denylist_acl.sh",
-        f"%URI {bash} {helper} 127.0.0.1 8080",
-    )
-    base = base.replace("include /etc/squid/squid.mode.conf", mode_text.rstrip() + "\n" + peer_text)
-    _write_text(ctx.squid_config_path, base)
-
-
-def _init_squid_ssl_db(ctx: RuntimeContext) -> None:
-    certgen = _find_security_file_certgen()
-    ctx.squid_ssl_db.parent.mkdir(parents=True, exist_ok=True)
-    if ctx.squid_ssl_db.is_dir() and any(ctx.squid_ssl_db.iterdir()):
+def _render_proxy_runtime(ctx: RuntimeContext) -> None:
+    need_cmd("mitmdump")
+    ctx.proxy_confdir.mkdir(parents=True, exist_ok=True)
+    if ctx.mode != "dev":
         return
-    run(
-        [str(certgen), "-c", "-s", str(ctx.squid_ssl_db), "-M", "16MB"],
-        timeout_sec=30.0,
+
+    verify_paths = ssl.get_default_verify_paths()
+    ca_file = verify_paths.cafile
+    if ca_file is None:
+        die("Failed to locate the default upstream CA bundle", exit_code=2)
+    ca_path = Path(ca_file)
+    if not ca_path.is_file():
+        die(f"Default upstream CA bundle is missing: {ca_path}", exit_code=2)
+
+    origin_ca_path = ctx.repo_root / "container/compose/pki/origin_ca.crt"
+    _write_bytes(
+        ctx.proxy_upstream_ca_file,
+        ca_path.read_bytes().rstrip() + b"\n" + origin_ca_path.read_bytes(),
     )
 
 
@@ -591,18 +523,50 @@ def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[Service
         ),
     )
 
-    squid_service = ctx.scan_dir / "squid"
+    proxy_service = ctx.scan_dir / "proxy"
     _write_executable(
-        squid_service / "data/check",
+        proxy_service / "data/check",
         f"#!/bin/sh\nexec {python_exe} -m s6.check_tcp_ready 127.0.0.1 3128\n",
     )
+    proxy_cmd: list[str | Path] = [
+        "mitmdump",
+        "--mode",
+        "regular",
+        "--listen-host",
+        "127.0.0.1",
+        "--listen-port",
+        "3128",
+        "--set",
+        f"confdir={ctx.proxy_confdir}",
+        "--set",
+        "connection_strategy=lazy",
+        "--set",
+        "upstream_cert=false",
+        "--set",
+        "showhost=false",
+        "--set",
+        "validate_inbound_headers=true",
+        "--set",
+        f"webshot_mode={ctx.mode}",
+        "--set",
+        "webshot_denylist_url=http://127.0.0.1:8080/v1/denylist/check",
+        "-s",
+        ctx.repo_root / "s6/mitm_addon.py",
+    ]
+    if ctx.mode == "dev":
+        proxy_cmd.extend(
+            [
+                "--set",
+                f"ssl_verify_upstream_trusted_ca={ctx.proxy_upstream_ca_file}",
+            ]
+        )
     _write_executable(
-        squid_service / "run",
+        proxy_service / "run",
         (
             "#!/bin/sh\n"
-            f"exec >>{_shell_quote(ctx.squid_log_file)} 2>&1\n"
+            f"exec >>{_shell_quote(ctx.proxy_log_file)} 2>&1\n"
             f"cd {repo_root}\n"
-            f"exec squid -N -f {_shell_quote(ctx.squid_config_path)}\n"
+            f"exec {_shell_join(proxy_cmd)}\n"
         ),
     )
 
@@ -610,7 +574,7 @@ def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[Service
         seaweed_service = ctx.scan_dir / "seaweedfs"
         _write_executable(
             seaweed_service / "data/check",
-            f"#!/bin/sh\nexec {python_exe} -m s6.check_http_ready http://127.0.0.1:8333/\n",
+            f"#!/bin/sh\nexec {python_exe} -m s6.check_seaweedfs_ready\n",
         )
         _write_executable(
             seaweed_service / "run",
@@ -679,9 +643,7 @@ def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[Service
         [sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"]
     )
     if ctx.mode == "dev":
-        webshotd_waits += _wait_script(
-            [sys.executable, "-m", "s6.check_http_ready", "http://127.0.0.1:8333/"]
-        )
+        webshotd_waits += _wait_script([sys.executable, "-m", "s6.check_seaweedfs_ready"])
     _write_executable(
         ctx.webshotd_service_dir / "run",
         (
@@ -880,8 +842,7 @@ def _ensure_dev_bucket(ctx: RuntimeContext) -> None:
 def _prepare_runtime(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec]:
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     _bootstrap_postgres(ctx)
-    _render_squid_config(ctx)
-    _init_squid_ssl_db(ctx)
+    _render_proxy_runtime(ctx)
     if ctx.mode == "dev":
         ctx.seaweed_data_dir.mkdir(parents=True, exist_ok=True)
         ctx.test_target_dir.mkdir(parents=True, exist_ok=True)

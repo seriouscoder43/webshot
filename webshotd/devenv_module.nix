@@ -59,7 +59,6 @@
   mkTestTask = mode: let
     cfg = modeConfigs.${mode};
     buildTask = mkBuildTaskForMode mode;
-    checkCmd = mkRuntimeCommand "check" mode;
     upCmd = mkRuntimeCommand "up" mode;
     downCmd = mkRuntimeCommand "down" mode;
   in {
@@ -67,15 +66,16 @@
     exec = ''
       set -euo pipefail
       ${buildTask.exec}
-      if ${checkCmd} >/dev/null 2>&1; then
-        echo "webshot:devTest cannot run while webshot:devUp owns localhost:8080/8081; run devenv tasks run webshot:devDown first" >&2
-        exit 1
-      fi
       cleanup() {
         ${downCmd}
       }
       trap cleanup EXIT
       ${upCmd}
+      # The testsuite starts its own webshotd and crawlerd instances.
+      s6-svc -d /tmp/webshot/dev/s6-scan/crawlerd
+      s6-svc -d /tmp/webshot/dev/s6-scan/webshotd
+      s6-svwait -d /tmp/webshot/dev/s6-scan/crawlerd
+      s6-svwait -d /tmp/webshot/dev/s6-scan/webshotd
       export LD_LIBRARY_PATH=${common.lib.escapeShellArg runtimeLdLibraryPath}
       cd ${common.lib.escapeShellArg cfg.buildDir}
       ctest --progress --output-on-failure -V

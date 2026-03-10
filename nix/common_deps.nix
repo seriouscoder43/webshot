@@ -18,6 +18,6 @@
     nginx
     s6
     seaweedfs
-    squid
+    mitmproxy
   ];
 }
