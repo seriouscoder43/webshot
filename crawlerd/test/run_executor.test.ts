@@ -64,14 +64,14 @@ test("UpstreamRunExecutor captures through Chromium and returns an in-memory WAC
     assert.match(zipEntries["pages/pages.jsonl"].toString("utf8"), /"url":"http:\/\/127\.0\.0\.1:/);
 
     const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
-    assert.equal(cdxEntries.length, 1);
-    assert.equal(cdxEntries[0]!.url, `http://127.0.0.1:${originPort}/seed`);
-    assert.equal(cdxEntries[0]!.data.status, "200");
-    assert.ok(Number.parseInt(cdxEntries[0]!.data.length, 10) > 0);
+    const seedEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/seed`);
+    assert.ok(seedEntry);
+    assert.equal(seedEntry.data.status, "200");
+    assert.ok(Number.parseInt(seedEntry.data.length, 10) > 0);
 
     const indexedRecord = readIndexedWarcRecord(
       zipEntries["archive/data.warc"],
-      cdxEntries[0]!,
+      seedEntry,
     );
     assert.match(indexedRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/seed/);
     assert.match(indexedRecord, /HTTP\/1\.1 200 OK/);
@@ -126,28 +126,423 @@ test("UpstreamRunExecutor indexes redirect and final document records from the s
     assert.match(pages, new RegExp(`"url":"http://127\\.0\\.0\\.1:${originPort}/final"`));
 
     const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
-    assert.deepEqual(
-      cdxEntries.map((entry) => [entry.url, entry.data.status]),
-      [
-        [`http://127.0.0.1:${originPort}/seed`, "302"],
-        [`http://127.0.0.1:${originPort}/final`, "200"],
-      ],
-    );
-    assert.equal(cdxEntries[0]!.data.offset, "0");
-    assert.ok(Number.parseInt(cdxEntries[0]!.data.length, 10) > 0);
-    assert.ok(Number.parseInt(cdxEntries[1]!.data.offset, 10) > 0);
-    assert.ok(Number.parseInt(cdxEntries[1]!.data.length, 10) > 0);
+    const redirectEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/seed`);
+    const finalEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/final`);
+    assert.ok(redirectEntry);
+    assert.ok(finalEntry);
+    assert.equal(redirectEntry.data.status, "302");
+    assert.equal(finalEntry.data.status, "200");
+    assert.equal(redirectEntry.data.offset, "0");
+    assert.ok(Number.parseInt(redirectEntry.data.length, 10) > 0);
+    assert.ok(Number.parseInt(finalEntry.data.offset, 10) > 0);
+    assert.ok(Number.parseInt(finalEntry.data.length, 10) > 0);
 
     const archive = zipEntries["archive/data.warc"];
-    const redirectRecord = readIndexedWarcRecord(archive, cdxEntries[0]!);
+    const redirectRecord = readIndexedWarcRecord(archive, redirectEntry);
     assert.match(redirectRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/seed/);
     assert.match(redirectRecord, /HTTP\/1\.1 302 Found/);
     assert.match(redirectRecord, /location: \/final/);
 
-    const finalRecord = readIndexedWarcRecord(archive, cdxEntries[1]!);
+    const finalRecord = readIndexedWarcRecord(archive, finalEntry);
     assert.match(finalRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/final/);
     assert.match(finalRecord, /HTTP\/1\.1 200 OK/);
     assert.match(finalRecord, /Redirect Final/);
+  } finally {
+    await executor.close();
+    await closeServer(proxyServer);
+    await closeServer(originServer);
+  }
+});
+
+test("UpstreamRunExecutor stores subresources as indexed WARC records", { concurrency: false }, async () => {
+  const originServer = http.createServer((request, response) => {
+    if (request.url === "/seed") {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(`<!doctype html>
+        <html>
+          <head>
+            <title>Seed With Assets</title>
+            <link rel="stylesheet" href="/style.css">
+            <script defer src="/script.js"></script>
+          </head>
+          <body>seed</body>
+        </html>`);
+      return;
+    }
+    if (request.url === "/style.css") {
+      response.writeHead(200, {
+        "content-type": "text/css; charset=utf-8",
+      });
+      response.end("body { color: rgb(1, 2, 3); }");
+      return;
+    }
+    if (request.url === "/script.js") {
+      response.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+      });
+      response.end("window.__assetLoaded = true;");
+      return;
+    }
+    if (request.url === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  originServer.listen(0, "127.0.0.1");
+  await once(originServer, "listening");
+  const originPort = getListenPort(originServer);
+
+  const proxyServer = createProxyServer();
+  proxyServer.listen(0, "127.0.0.1");
+  await once(proxyServer, "listening");
+  const proxyPort = getListenPort(proxyServer);
+
+  const executor = createExecutor(`http://127.0.0.1:${proxyPort}`);
+
+  try {
+    const result = await executor.executeRun(createRunRequest({
+      url: `http://127.0.0.1:${originPort}/seed`,
+    }));
+
+    assert.equal(result.exitCode, 0);
+
+    const zipEntries = parseStoredZip(Buffer.from(result.artifacts.wacz ?? []));
+    const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
+    const archive = zipEntries["archive/data.warc"];
+    const urls = new Set(cdxEntries.map((entry) => entry.url));
+    assert.ok(urls.has(`http://127.0.0.1:${originPort}/seed`));
+    assert.ok(urls.has(`http://127.0.0.1:${originPort}/style.css`));
+    assert.ok(urls.has(`http://127.0.0.1:${originPort}/script.js`));
+
+    const styleEntry = cdxEntries.find((entry) => entry.url.endsWith("/style.css"));
+    const scriptEntry = cdxEntries.find((entry) => entry.url.endsWith("/script.js"));
+    assert.ok(styleEntry);
+    assert.ok(scriptEntry);
+
+    const styleRecord = readIndexedWarcRecord(archive, styleEntry);
+    assert.match(styleRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/style\.css/);
+    assert.match(styleRecord, /HTTP\/1\.1 200 OK/);
+    assert.match(styleRecord, /body \{ color: rgb\(1, 2, 3\); \}/);
+
+    const scriptRecord = readIndexedWarcRecord(archive, scriptEntry);
+    assert.match(scriptRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/script\.js/);
+    assert.match(scriptRecord, /HTTP\/1\.1 200 OK/);
+    assert.match(scriptRecord, /window\.__assetLoaded = true;/);
+  } finally {
+    await executor.close();
+    await closeServer(proxyServer);
+    await closeServer(originServer);
+  }
+});
+
+test("UpstreamRunExecutor preserves non-GET subresource methods in WARC requests", { concurrency: false }, async () => {
+  let submitMethod = "";
+  let submitBody = "";
+
+  const originServer = http.createServer((request, response) => {
+    if (request.url === "/seed") {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(`<!doctype html>
+        <html>
+          <head><title>Seed With Post Fetch</title></head>
+          <body>
+            <script>
+              fetch("/submit?source=page", {
+                method: "POST",
+                headers: {
+                  "content-type": "text/plain; charset=utf-8",
+                },
+                body: "hello=world",
+              });
+            </script>
+          </body>
+        </html>`);
+      return;
+    }
+    if (request.url === "/submit?source=page") {
+      submitMethod = request.method ?? "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        submitBody += chunk;
+      });
+      request.on("end", () => {
+        response.writeHead(200, {
+          "content-type": "text/plain; charset=utf-8",
+        });
+        response.end("submitted");
+      });
+      return;
+    }
+    if (request.url === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  originServer.listen(0, "127.0.0.1");
+  await once(originServer, "listening");
+  const originPort = getListenPort(originServer);
+
+  const proxyServer = createProxyServer();
+  proxyServer.listen(0, "127.0.0.1");
+  await once(proxyServer, "listening");
+  const proxyPort = getListenPort(proxyServer);
+
+  const executor = createExecutor(`http://127.0.0.1:${proxyPort}`);
+
+  try {
+    const result = await executor.executeRun(createRunRequest({
+      url: `http://127.0.0.1:${originPort}/seed`,
+    }));
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(submitMethod, "POST");
+    assert.equal(submitBody, "hello=world");
+
+    const zipEntries = parseStoredZip(Buffer.from(result.artifacts.wacz ?? []));
+    const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
+    const submitEntry = cdxEntries.find((entry) =>
+      entry.url === `http://127.0.0.1:${originPort}/submit?source=page`
+    );
+    assert.ok(submitEntry);
+    assert.equal(submitEntry.data.status, "200");
+
+    const archiveText = zipEntries["archive/data.warc"].toString("utf8");
+    assert.match(archiveText, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/submit\?source=page/);
+    assert.match(archiveText, /POST \/submit\?source=page HTTP\/1\.1/);
+  } finally {
+    await executor.close();
+    await closeServer(proxyServer);
+    await closeServer(originServer);
+  }
+});
+
+test("UpstreamRunExecutor keeps successful HEAD subresources in WARC output", { concurrency: false }, async () => {
+  let metadataMethod = "";
+
+  const originServer = http.createServer((request, response) => {
+    if (request.url === "/seed") {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(`<!doctype html>
+        <html>
+          <head><title>Seed With Head Fetch</title></head>
+          <body>
+            <script type="module">
+              await fetch("/metadata?source=page", {
+                method: "HEAD",
+              });
+            </script>
+          </body>
+        </html>`);
+      return;
+    }
+    if (request.url === "/metadata?source=page") {
+      metadataMethod = request.method ?? "";
+      response.writeHead(200, {
+        "content-type": "text/plain; charset=utf-8",
+        "content-length": "9",
+      });
+      response.end("metadata!");
+      return;
+    }
+    if (request.url === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  originServer.listen(0, "127.0.0.1");
+  await once(originServer, "listening");
+  const originPort = getListenPort(originServer);
+
+  const proxyServer = createProxyServer();
+  proxyServer.listen(0, "127.0.0.1");
+  await once(proxyServer, "listening");
+  const proxyPort = getListenPort(proxyServer);
+
+  const executor = createExecutor(`http://127.0.0.1:${proxyPort}`);
+
+  try {
+    const result = await executor.executeRun(createRunRequest({
+      url: `http://127.0.0.1:${originPort}/seed`,
+    }));
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(metadataMethod, "HEAD");
+
+    const zipEntries = parseStoredZip(Buffer.from(result.artifacts.wacz ?? []));
+    const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
+    const metadataEntry = cdxEntries.find((entry) =>
+      entry.url === `http://127.0.0.1:${originPort}/metadata?source=page`
+    );
+    assert.ok(metadataEntry);
+    assert.equal(metadataEntry.data.status, "200");
+
+    const metadataRecord = readIndexedWarcRecord(zipEntries["archive/data.warc"], metadataEntry);
+    assert.match(metadataRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/metadata\?source=page/);
+    assert.match(metadataRecord, /HTTP\/1\.1 200 OK/);
+
+    const archiveText = zipEntries["archive/data.warc"].toString("utf8");
+    assert.match(archiveText, /HEAD \/metadata\?source=page HTTP\/1\.1/);
+  } finally {
+    await executor.close();
+    await closeServer(proxyServer);
+    await closeServer(originServer);
+  }
+});
+
+test("UpstreamRunExecutor preserves redirected subresource hops in WARC output", { concurrency: false }, async () => {
+  const originServer = http.createServer((request, response) => {
+    if (request.url === "/seed") {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(`<!doctype html>
+        <html>
+          <head>
+            <title>Seed With Redirected Asset</title>
+            <script defer src="/script.js"></script>
+          </head>
+          <body>seed</body>
+        </html>`);
+      return;
+    }
+    if (request.url === "/script.js") {
+      response.writeHead(302, {
+        location: "/script-final.js",
+      });
+      response.end();
+      return;
+    }
+    if (request.url === "/script-final.js") {
+      response.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+      });
+      response.end("window.__redirectedAssetLoaded = true;");
+      return;
+    }
+    if (request.url === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  originServer.listen(0, "127.0.0.1");
+  await once(originServer, "listening");
+  const originPort = getListenPort(originServer);
+
+  const proxyServer = createProxyServer();
+  proxyServer.listen(0, "127.0.0.1");
+  await once(proxyServer, "listening");
+  const proxyPort = getListenPort(proxyServer);
+
+  const executor = createExecutor(`http://127.0.0.1:${proxyPort}`);
+
+  try {
+    const result = await executor.executeRun(createRunRequest({
+      url: `http://127.0.0.1:${originPort}/seed`,
+    }));
+
+    assert.equal(result.exitCode, 0);
+
+    const zipEntries = parseStoredZip(Buffer.from(result.artifacts.wacz ?? []));
+    const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
+    const redirectEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/script.js`);
+    const finalEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/script-final.js`);
+    assert.ok(redirectEntry);
+    assert.ok(finalEntry);
+    assert.equal(redirectEntry.data.status, "302");
+    assert.equal(finalEntry.data.status, "200");
+    assert.ok(Number.parseInt(redirectEntry.data.offset, 10) < Number.parseInt(finalEntry.data.offset, 10));
+
+    const archive = zipEntries["archive/data.warc"];
+    const redirectRecord = readIndexedWarcRecord(archive, redirectEntry);
+    assert.match(redirectRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/script\.js/);
+    assert.match(redirectRecord, /HTTP\/1\.1 302 Found/);
+    assert.match(redirectRecord, /location: \/script-final\.js/);
+
+    const finalRecord = readIndexedWarcRecord(archive, finalEntry);
+    assert.match(finalRecord, /WARC-Target-URI: http:\/\/127\.0\.0\.1:\d+\/script-final\.js/);
+    assert.match(finalRecord, /HTTP\/1\.1 200 OK/);
+    assert.match(finalRecord, /window\.__redirectedAssetLoaded = true;/);
+  } finally {
+    await executor.close();
+    await closeServer(proxyServer);
+    await closeServer(originServer);
+  }
+});
+
+test("UpstreamRunExecutor fails before building artifacts when retained subresource bodies exceed the size limit", { concurrency: false }, async () => {
+  const largeAsset = `/*${"x".repeat(26 * 1024 * 1024)}*/`;
+  const largeAssetBytes = Buffer.byteLength(largeAsset, "utf8");
+
+  const originServer = http.createServer((request, response) => {
+    if (request.url === "/seed") {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(`<!doctype html>
+        <html>
+          <head>
+            <title>Seed With Large Assets</title>
+            <script defer src="/large-1.js"></script>
+            <script defer src="/large-2.js"></script>
+          </head>
+          <body>seed</body>
+        </html>`);
+      return;
+    }
+    if (request.url === "/large-1.js" || request.url === "/large-2.js") {
+      response.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "content-length": `${largeAssetBytes}`,
+      });
+      response.end(largeAsset);
+      return;
+    }
+    if (request.url === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  originServer.listen(0, "127.0.0.1");
+  await once(originServer, "listening");
+  const originPort = getListenPort(originServer);
+
+  const proxyServer = createProxyServer();
+  proxyServer.listen(0, "127.0.0.1");
+  await once(proxyServer, "listening");
+  const proxyPort = getListenPort(proxyServer);
+
+  const executor = createExecutor(`http://127.0.0.1:${proxyPort}`);
+
+  try {
+    const result = await executor.executeRun(createRunRequest({
+      url: `http://127.0.0.1:${originPort}/seed`,
+    }));
+
+    assert.equal(result.exitCode, 9);
+    assert.match(result.failureDetail ?? "", /retained body bytes \d+ exceeded size limit 52428800/);
+    assert.equal(result.artifacts.wacz, undefined);
+    assert.equal(result.artifacts.pages, undefined);
   } finally {
     await executor.close();
     await closeServer(proxyServer);

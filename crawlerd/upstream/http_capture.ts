@@ -27,8 +27,12 @@ export type CapturedMainDocumentRedirect = {
 
 export type CapturedResource = {
   url: string;
+  method: string;
   statusCode: number;
+  statusMessage: string;
   headers: Record<string, string>;
+  body: Uint8Array;
+  timestamp: string;
 };
 
 export type CaptureMetadata = {
@@ -232,13 +236,20 @@ async function captureWithBrowser(
     const domState = await readDomState(cdp, sessionId);
     trace("read_dom_state_complete", { finalUrl: domState.finalUrl });
     trace("read_body_start");
+    const retainedBodyBudget = {
+      maxBytes: options.maxBodyBytes,
+      retainedBytes: 0,
+    };
     const body = await tracker.readBody(
       cdp,
       sessionId,
-      options.maxBodyBytes,
+      retainedBodyBudget,
       Buffer.from(domState.html, "utf8"),
     );
     trace("read_body_complete", { bodyBytes: body.byteLength });
+    trace("read_resources_start");
+    const resources = await tracker.readResources(cdp, sessionId, retainedBodyBudget);
+    trace("read_resources_complete", { count: resources.length });
 
     return {
       exchange: {
@@ -250,7 +261,7 @@ async function captureWithBrowser(
         timestamp: tracker.mainResponse?.timestamp ?? new Date().toISOString(),
         redirectChain: tracker.redirectChain.length > 0 ? tracker.redirectChain : [targetUrl],
         mainDocumentRedirects: tracker.mainDocumentRedirects,
-        resources: tracker.getCapturedResources(),
+        resources,
         ...(domState.title === undefined ? {} : { title: domState.title }),
       },
       targetId: target.targetId,
@@ -302,12 +313,8 @@ class PageTracker {
   readonly sessionId: string;
   readonly targetId: string;
   readonly inflight = new Set<string>();
-  readonly resourcesByRequestId = new Map<string, {
-    url: string;
-    statusCode?: number;
-    headers?: Record<string, string>;
-    loaded: boolean;
-  }>();
+  readonly resourcesByRequestId = new Map<string, CapturedResourceState>();
+  readonly redirectedResources: CapturedResource[] = [];
   readonly redirectChain: string[] = [];
   readonly mainDocumentRedirects: CapturedMainDocumentRedirect[] = [];
   readonly loadWaiters: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
@@ -410,11 +417,11 @@ class PageTracker {
   async readBody(
     cdp: CdpClient,
     sessionId: string,
-    maxBodyBytes: number,
+    retainedBodyBudget: RetainedBodyBudget,
     fallbackBody: Buffer,
   ): Promise<Uint8Array> {
     if (this.mainRequestId === undefined) {
-      return boundedBody(fallbackBody, maxBodyBytes);
+      return retainBody(fallbackBody, retainedBodyBudget);
     }
 
     try {
@@ -426,54 +433,92 @@ class PageTracker {
       const bytes = body.base64Encoded
         ? Buffer.from(body.body, "base64")
         : Buffer.from(body.body, "utf8");
-      return boundedBody(bytes, maxBodyBytes);
+      return retainBody(bytes, retainedBodyBudget);
     } catch {
-      return boundedBody(fallbackBody, maxBodyBytes);
+      return retainBody(fallbackBody, retainedBodyBudget);
     }
   }
 
-  getCapturedResources(): CapturedResource[] {
-    return Array.from(this.resourcesByRequestId.values())
-      .filter((resource) => resource.loaded && resource.statusCode !== undefined && resource.headers !== undefined)
-      .map((resource) => ({
+  async readResources(
+    cdp: CdpClient,
+    sessionId: string,
+    retainedBodyBudget: RetainedBodyBudget,
+  ): Promise<CapturedResource[]> {
+    const resources = [...this.redirectedResources];
+
+    for (const [requestId, resource] of this.resourcesByRequestId.entries()) {
+      if (!resource.loaded ||
+        resource.statusCode === undefined ||
+        resource.statusMessage === undefined ||
+        resource.headers === undefined ||
+        resource.timestamp === undefined) {
+        continue;
+      }
+
+      const finalizedResource = {
         url: resource.url,
-        statusCode: resource.statusCode!,
-        headers: resource.headers!,
-      }));
+        method: resource.method,
+        statusCode: resource.statusCode,
+        statusMessage: resource.statusMessage,
+        headers: resource.headers,
+        timestamp: resource.timestamp,
+      };
+      const body = await this.readResourceBody(
+        cdp,
+        sessionId,
+        requestId,
+        finalizedResource,
+        retainedBodyBudget,
+      );
+      if (body === undefined) {
+        continue;
+      }
+
+      resources.push({
+        ...finalizedResource,
+        body,
+      });
+    }
+
+    resources.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+    return resources;
   }
 
   private handleRequestWillBeSent(params: Record<string, unknown>) {
     const requestId = stringValue(params.requestId);
     const request = recordValue(params.request);
     const url = stringValue(request.url);
+    const method = stringValue(request.method) ?? "GET";
     if (requestId === undefined || url === undefined || url.startsWith("data:")) {
       return;
     }
 
     this.inflight.add(requestId);
     this.lastNetworkAt = Date.now();
-    this.resourcesByRequestId.set(requestId, {
-      url,
-      loaded: false,
-    });
 
     const frameId = stringValue(params.frameId);
     const type = stringValue(params.type);
-    if (frameId !== this.mainFrameId || type !== "Document") {
+    if (frameId === this.mainFrameId && type === "Document") {
+      if (this.mainRequestId === undefined) {
+        this.mainRequestId = requestId;
+        this.trace("main_request_started", { requestId, url });
+      }
+      if (requestId !== this.mainRequestId) {
+        return;
+      }
+      this.recordMainDocumentRedirect(recordValue(params.redirectResponse));
+      if (this.redirectChain[this.redirectChain.length - 1] !== url) {
+        this.redirectChain.push(url);
+      }
       return;
     }
 
-    if (this.mainRequestId === undefined) {
-      this.mainRequestId = requestId;
-      this.trace("main_request_started", { requestId, url });
-    }
-    if (requestId !== this.mainRequestId) {
-      return;
-    }
-    this.recordMainDocumentRedirect(recordValue(params.redirectResponse));
-    if (this.redirectChain[this.redirectChain.length - 1] !== url) {
-      this.redirectChain.push(url);
-    }
+    this.recordResourceRedirect(requestId, recordValue(params.redirectResponse));
+    this.resourcesByRequestId.set(requestId, {
+      url,
+      method,
+      loaded: false,
+    });
   }
 
   private handleResponseReceived(params: Record<string, unknown>) {
@@ -488,7 +533,9 @@ class PageTracker {
     if (resource !== undefined) {
       resource.url = stringValue(response.url) ?? resource.url;
       resource.statusCode = numberValue(response.status) ?? 0;
+      resource.statusMessage = stringValue(response.statusText) ?? "";
       resource.headers = headers;
+      resource.timestamp = new Date().toISOString();
     }
 
     if (requestId !== this.mainRequestId) {
@@ -530,7 +577,14 @@ class PageTracker {
     if (requestId !== undefined) {
       this.inflight.delete(requestId);
       this.lastNetworkAt = Date.now();
-      this.resourcesByRequestId.delete(requestId);
+      const resource = this.resourcesByRequestId.get(requestId);
+      if (resource !== undefined &&
+        resource.statusCode !== undefined &&
+        !responseCanHaveBody(resource.method, resource.statusCode)) {
+        resource.loaded = true;
+      } else {
+        this.resourcesByRequestId.delete(requestId);
+      }
     }
     if (requestId !== this.mainRequestId) {
       return;
@@ -595,7 +649,90 @@ class PageTracker {
     }
     this.mainDocumentRedirects.push(redirect);
   }
+
+  private recordResourceRedirect(requestId: string, redirectResponse: Record<string, unknown>) {
+    if (Object.keys(redirectResponse).length === 0) {
+      return;
+    }
+
+    const resource = this.resourcesByRequestId.get(requestId);
+    if (resource === undefined) {
+      return;
+    }
+
+    const url = stringValue(redirectResponse.url) ?? resource.url;
+    const statusCode = numberValue(redirectResponse.status);
+    if (statusCode === undefined) {
+      return;
+    }
+
+    this.redirectedResources.push({
+      url,
+      method: resource.method,
+      statusCode,
+      statusMessage: stringValue(redirectResponse.statusText) ?? "",
+      headers: normalizeHeaders(recordValue(redirectResponse.headers)),
+      body: new Uint8Array(),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private async readResourceBody(
+    cdp: CdpClient,
+    sessionId: string,
+    requestId: string,
+    resource: {
+      url: string;
+      method: string;
+      statusCode: number;
+      statusMessage: string;
+      headers: Record<string, string>;
+      timestamp: string;
+    },
+    retainedBodyBudget: RetainedBodyBudget,
+  ): Promise<Uint8Array | undefined> {
+    if (!responseCanHaveBody(resource.method, resource.statusCode)) {
+      return new Uint8Array();
+    }
+
+    let body: { body: string; base64Encoded: boolean };
+    try {
+      body = await cdp.send<{ body: string; base64Encoded: boolean }>(
+        "Network.getResponseBody",
+        { requestId },
+        sessionId,
+      );
+    } catch (error) {
+      this.trace("resource_body_unavailable", {
+        requestId,
+        url: resource.url,
+        statusCode: resource.statusCode,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+
+    const bytes = body.base64Encoded
+      ? Buffer.from(body.body, "base64")
+      : Buffer.from(body.body, "utf8");
+    return retainBody(bytes, retainedBodyBudget);
+  }
 }
+
+type RetainedBodyBudget = {
+  maxBytes: number;
+  retainedBytes: number;
+};
+
+type CapturedResourceState = {
+  url: string;
+  method: string;
+  statusCode?: number;
+  statusMessage?: string;
+  headers?: Record<string, string>;
+  timestamp?: string;
+  loaded: boolean;
+};
 
 async function readDomState(
   cdp: CdpClient,
@@ -756,10 +893,23 @@ function recordValue(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function boundedBody(body: Buffer, maxBodyBytes: number): Uint8Array {
-  if (body.byteLength > maxBodyBytes) {
-    throw new Error(`response body exceeded ${maxBodyBytes} bytes`);
+function responseCanHaveBody(method: string, statusCode: number): boolean {
+  if (method.toUpperCase() === "HEAD") {
+    return false;
   }
+  return (statusCode < 100 || statusCode >= 200) &&
+    statusCode !== 204 &&
+    statusCode !== 304;
+}
+
+function retainBody(body: Buffer, retainedBodyBudget: RetainedBodyBudget): Uint8Array {
+  const nextRetainedBytes = retainedBodyBudget.retainedBytes + body.byteLength;
+  if (nextRetainedBytes > retainedBodyBudget.maxBytes) {
+    throw new Error(
+      `retained body bytes ${nextRetainedBytes} exceeded size limit ${retainedBodyBudget.maxBytes}`,
+    );
+  }
+  retainedBodyBudget.retainedBytes = nextRetainedBytes;
   return body;
 }
 

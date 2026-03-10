@@ -18,6 +18,7 @@ export type WarcBuildOutput = {
 
 type SerializableResponse = {
   url: string;
+  method?: string;
   statusCode: number;
   statusMessage: string;
   headers: Record<string, string>;
@@ -41,7 +42,10 @@ export function buildWarc(exchange: CapturedExchange): WarcBuildOutput {
       body: exchange.body,
       timestamp: exchange.timestamp,
     },
-  ];
+    ...exchange.resources.map((resource) => ({
+      ...resource,
+    })),
+  ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 
   const chunks: Buffer[] = [];
   const cdxRecords: WarcCdxRecord[] = [];
@@ -97,7 +101,7 @@ function serializeRecordPair(response: SerializableResponse): {
   ].join("\r\n");
 
   const requestPayload = [
-    `GET ${requestPathFromUrl(response.url)} HTTP/1.1`,
+    `${response.method ?? "GET"} ${requestPathFromUrl(response.url)} HTTP/1.1`,
     `Host: ${new URL(response.url).host}`,
     `User-Agent: ${kUserAgent}`,
     "",
