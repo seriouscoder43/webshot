@@ -48,6 +48,7 @@ class ServiceSpec:
 @dataclass(frozen=True)
 class RuntimeContext:
     mode: str
+    service_profile: str
     repo_root: Path
     state_dir: Path
     scan_dir: Path
@@ -64,7 +65,6 @@ class RuntimeContext:
     postgres_log_file: Path
     postgres_capture_meta_db_name: str
     postgres_shared_state_db_name: str
-    proxy_dir: Path
     proxy_confdir: Path
     proxy_log_file: Path
     proxy_upstream_ca_file: Path
@@ -161,6 +161,7 @@ def _fixed_state_dir(mode: str) -> Path:
 def _build_context(
     *,
     mode: str,
+    service_profile: str,
     binary_path: str,
     config_vars_source: str,
     runtime_ld_library_path: str,
@@ -188,9 +189,12 @@ def _build_context(
             f"got {crawlerd_socket_path}",
             exit_code=2,
         )
+    if service_profile == "test_infra" and mode != "dev":
+        die("service profile 'test_infra' requires --mode dev", exit_code=2)
     scan_dir = state_dir / "s6-scan"
     return RuntimeContext(
         mode=mode,
+        service_profile=service_profile,
         repo_root=repo_root,
         state_dir=state_dir,
         scan_dir=scan_dir,
@@ -207,7 +211,6 @@ def _build_context(
         postgres_log_file=state_dir / "postgres.log",
         postgres_capture_meta_db_name=capture_meta_db_name,
         postgres_shared_state_db_name=shared_state_db_name,
-        proxy_dir=state_dir / "mitmproxy",
         proxy_confdir=state_dir / "mitmproxy" / "confdir",
         proxy_log_file=state_dir / "mitmproxy.log",
         proxy_upstream_ca_file=state_dir / "mitmproxy" / "upstream-ca.pem",
@@ -260,37 +263,31 @@ def _service_specs(ctx: RuntimeContext) -> list[ServiceSpec]:
             ]
         )
 
-    specs.extend(
-        [
-            ServiceSpec(
-                name="crawlerd",
-                service_dir=ctx.crawlerd_service_dir,
-                log_file=ctx.crawlerd_log_file,
-                ready_cmd=[
-                    python_exe,
-                    "-m",
-                    "s6.check_crawlerd_ready",
-                    str(ctx.crawlerd_socket_path),
-                ],
-                timeout_sec=30.0,
-            ),
-            ServiceSpec(
-                name="webshotd",
-                service_dir=ctx.webshotd_service_dir,
-                log_file=ctx.webshotd_log_file,
-                ready_cmd=[python_exe, "-m", "s6.check_webshotd_ready", _webshotd_ready_url],
-                timeout_sec=30.0,
-            ),
-        ]
-    )
+    if ctx.service_profile == "full":
+        specs.extend(
+            [
+                ServiceSpec(
+                    name="crawlerd",
+                    service_dir=ctx.crawlerd_service_dir,
+                    log_file=ctx.crawlerd_log_file,
+                    ready_cmd=[
+                        python_exe,
+                        "-m",
+                        "s6.check_crawlerd_ready",
+                        str(ctx.crawlerd_socket_path),
+                    ],
+                    timeout_sec=30.0,
+                ),
+                ServiceSpec(
+                    name="webshotd",
+                    service_dir=ctx.webshotd_service_dir,
+                    log_file=ctx.webshotd_log_file,
+                    ready_cmd=[python_exe, "-m", "s6.check_webshotd_ready", _webshotd_ready_url],
+                    timeout_sec=30.0,
+                ),
+            ]
+        )
     return specs
-
-
-def _enabled_services(ctx: RuntimeContext) -> list[str]:
-    names = ["postgres", "proxy", "crawlerd", "webshotd"]
-    if ctx.mode == "dev":
-        names[2:2] = ["seaweedfs", "test_target"]
-    return names
 
 
 def _finish_script() -> str:
@@ -482,33 +479,17 @@ def _wait_script(cmd: list[str]) -> str:
 
 
 def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec]:
+    active_specs = _service_specs(ctx)
+    active_names = {spec.name for spec in active_specs}
     ctx.scan_dir.mkdir(parents=True, exist_ok=True)
-    for spec in _service_specs(ctx):
+    for spec in active_specs:
         (spec.service_dir / "data").mkdir(parents=True, exist_ok=True)
         _write_executable(spec.service_dir / "finish", _finish_script())
 
     python_exe = _shell_quote(sys.executable)
     repo_root = _shell_quote(ctx.repo_root)
-    webshot_root = _shell_quote(ctx.repo_root / "webshotd")
-    binary_path = _shell_quote(ctx.binary_path)
-    config_vars_path = _shell_quote(ctx.config_vars_source)
-    ld_library_path = _shell_quote(ctx.runtime_ld_library_path)
     cpu_limit_quoted = _shell_quote(cpu_limit)
     deploy_vcpu_limit = _shell_quote(ctx.deploy_vcpu_limit)
-    cmake_cache_path = ctx.binary_path.parent / "CMakeCache.txt"
-    rapidoc_assets_dir = _require_cmake_cache_string(cmake_cache_path, "WEBSHOT_RAPIDOC_ASSETS_DIR")
-    config_vars_override_path = ctx.state_dir / "webshotd-config-vars-override.yaml"
-    _write_text(
-        config_vars_override_path,
-        yaml.safe_dump(
-            {
-                "rapidoc_assets_dir": rapidoc_assets_dir,
-                "openapi_dir": str(ctx.repo_root / "schema"),
-            },
-            sort_keys=True,
-        ),
-    )
-    config_vars_override_path_quoted = _shell_quote(config_vars_override_path)
 
     postgres_service = ctx.scan_dir / "postgres"
     _write_executable(
@@ -623,71 +604,97 @@ def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[Service
             ),
         )
 
-    _write_executable(
-        ctx.crawlerd_service_dir / "data/check",
-        (
-            "#!/bin/sh\n"
-            f"exec {python_exe} -m s6.check_crawlerd_ready "
-            f"{_shell_quote(ctx.crawlerd_socket_path)}\n"
-        ),
-    )
-    crawlerd_waits = _wait_script([sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"])
-    if ctx.mode == "dev":
-        crawlerd_waits += _wait_script(
-            [sys.executable, "-m", "s6.check_http_ready", "http://127.0.0.1:18080/"]
+    if "crawlerd" in active_names:
+        _write_executable(
+            ctx.crawlerd_service_dir / "data/check",
+            (
+                "#!/bin/sh\n"
+                f"exec {python_exe} -m s6.check_crawlerd_ready "
+                f"{_shell_quote(ctx.crawlerd_socket_path)}\n"
+            ),
         )
-    # Run crawlerd from the working tree so every mode sees the local build.
-    need_cmd("node")
-    node_path = shutil.which("node")
-    assert node_path is not None
-    crawlerd_run_command = _shell_join(
-        [
-            node_path,
-            ctx.repo_root / "crawlerd" / "dist" / "src" / "server.js",
-            "--socket-path",
-            ctx.crawlerd_socket_path,
-        ]
-    )
-    _write_executable(
-        ctx.crawlerd_service_dir / "run",
-        (
-            "#!/bin/sh\n"
-            f"exec >>{_shell_quote(ctx.crawlerd_log_file)} 2>&1\n"
-            f"cd {repo_root}\n" + crawlerd_waits + "exec "
-            f"env CPU_LIMIT={cpu_limit_quoted} DEPLOY_VCPU_LIMIT={deploy_vcpu_limit} "
-            f"{crawlerd_run_command}\n"
-        ),
-    )
+        crawlerd_waits = _wait_script(
+            [sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"]
+        )
+        if ctx.mode == "dev":
+            crawlerd_waits += _wait_script(
+                [sys.executable, "-m", "s6.check_http_ready", "http://127.0.0.1:18080/"]
+            )
+        # Run crawlerd from the working tree so every mode sees the local build.
+        need_cmd("node")
+        node_path = shutil.which("node")
+        assert node_path is not None
+        crawlerd_run_command = _shell_join(
+            [
+                node_path,
+                ctx.repo_root / "crawlerd" / "dist" / "src" / "server.js",
+                "--socket-path",
+                ctx.crawlerd_socket_path,
+            ]
+        )
+        _write_executable(
+            ctx.crawlerd_service_dir / "run",
+            (
+                "#!/bin/sh\n"
+                f"exec >>{_shell_quote(ctx.crawlerd_log_file)} 2>&1\n"
+                f"cd {repo_root}\n" + crawlerd_waits + "exec "
+                f"env CPU_LIMIT={cpu_limit_quoted} DEPLOY_VCPU_LIMIT={deploy_vcpu_limit} "
+                f"{crawlerd_run_command}\n"
+            ),
+        )
 
-    _write_executable(
-        ctx.webshotd_service_dir / "data/check",
-        (
-            "#!/bin/sh\n"
-            f"exec {python_exe} -m s6.check_webshotd_ready "
-            f"{_shell_quote(_webshotd_ready_url)}\n"
-        ),
-    )
-    webshotd_waits = _wait_script(["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"])
-    webshotd_waits += _wait_script(
-        [sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"]
-    )
-    if ctx.mode == "dev":
-        webshotd_waits += _wait_script([sys.executable, "-m", "s6.check_seaweedfs_ready"])
-    _write_executable(
-        ctx.webshotd_service_dir / "run",
-        (
-            "#!/bin/sh\n"
-            f"exec >>{_shell_quote(ctx.webshotd_log_file)} 2>&1\n"
-            f"cd {webshot_root}\n" + webshotd_waits + "exec "
-            f"env LD_LIBRARY_PATH={ld_library_path} CPU_LIMIT={cpu_limit_quoted} "
-            f"DEPLOY_VCPU_LIMIT={deploy_vcpu_limit} "
-            f"{binary_path} --config "
-            f"{_shell_quote(ctx.repo_root / 'webshotd/config/static_config.yaml')} "
-            f"--config_vars {config_vars_path} "
-            f"--config_vars_override {config_vars_override_path_quoted}\n"
-        ),
-    )
-    return _service_specs(ctx)
+    if "webshotd" in active_names:
+        webshot_root = _shell_quote(ctx.repo_root / "webshotd")
+        binary_path = _shell_quote(ctx.binary_path)
+        config_vars_path = _shell_quote(ctx.config_vars_source)
+        ld_library_path = _shell_quote(ctx.runtime_ld_library_path)
+        cmake_cache_path = ctx.binary_path.parent / "CMakeCache.txt"
+        rapidoc_assets_dir = _require_cmake_cache_string(
+            cmake_cache_path, "WEBSHOT_RAPIDOC_ASSETS_DIR"
+        )
+        config_vars_override_path = ctx.state_dir / "webshotd-config-vars-override.yaml"
+        _write_text(
+            config_vars_override_path,
+            yaml.safe_dump(
+                {
+                    "rapidoc_assets_dir": rapidoc_assets_dir,
+                    "openapi_dir": str(ctx.repo_root / "schema"),
+                },
+                sort_keys=True,
+            ),
+        )
+        config_vars_override_path_quoted = _shell_quote(config_vars_override_path)
+        _write_executable(
+            ctx.webshotd_service_dir / "data/check",
+            (
+                "#!/bin/sh\n"
+                f"exec {python_exe} -m s6.check_webshotd_ready "
+                f"{_shell_quote(_webshotd_ready_url)}\n"
+            ),
+        )
+        webshotd_waits = _wait_script(
+            ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]
+        )
+        webshotd_waits += _wait_script(
+            [sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"]
+        )
+        if ctx.mode == "dev":
+            webshotd_waits += _wait_script([sys.executable, "-m", "s6.check_seaweedfs_ready"])
+        _write_executable(
+            ctx.webshotd_service_dir / "run",
+            (
+                "#!/bin/sh\n"
+                f"exec >>{_shell_quote(ctx.webshotd_log_file)} 2>&1\n"
+                f"cd {webshot_root}\n" + webshotd_waits + "exec "
+                f"env LD_LIBRARY_PATH={ld_library_path} CPU_LIMIT={cpu_limit_quoted} "
+                f"DEPLOY_VCPU_LIMIT={deploy_vcpu_limit} "
+                f"{binary_path} --config "
+                f"{_shell_quote(ctx.repo_root / 'webshotd/config/static_config.yaml')} "
+                f"--config_vars {config_vars_path} "
+                f"--config_vars_override {config_vars_override_path_quoted}\n"
+            ),
+        )
+    return active_specs
 
 
 def _read_pid(path: Path) -> int | None:
@@ -720,6 +727,31 @@ def _supervisor_running(ctx: RuntimeContext) -> bool:
             ).returncode
             != 0
         ):
+            return False
+    return True
+
+
+def _supervisor_matches_profile(ctx: RuntimeContext) -> bool:
+    need_cmd("s6-svok")
+    active_names = {spec.name for spec in _service_specs(ctx)}
+    known_service_dirs = {
+        "postgres": ctx.scan_dir / "postgres",
+        "proxy": ctx.scan_dir / "proxy",
+        "seaweedfs": ctx.scan_dir / "seaweedfs",
+        "test_target": ctx.scan_dir / "test_target",
+        "crawlerd": ctx.crawlerd_service_dir,
+        "webshotd": ctx.webshotd_service_dir,
+    }
+    for name, service_dir in known_service_dirs.items():
+        supervised = (
+            run(["s6-svok", str(service_dir)], check=False, timeout_sec=_cmd_timeout_sec).returncode
+            == 0
+        )
+        if name in active_names:
+            if not supervised:
+                return False
+            continue
+        if supervised:
             return False
     return True
 
@@ -904,6 +936,8 @@ def _prepare_runtime(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     _bootstrap_postgres(ctx)
     _render_proxy_runtime(ctx)
+    if ctx.scan_dir.exists():
+        shutil.rmtree(ctx.scan_dir)
     if ctx.mode == "dev":
         ctx.seaweed_data_dir.mkdir(parents=True, exist_ok=True)
         ctx.test_target_dir.mkdir(parents=True, exist_ok=True)
@@ -914,6 +948,11 @@ def _prepare_runtime(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec
 
 def _up(ctx: RuntimeContext) -> None:
     if _supervisor_running(ctx):
+        if not _supervisor_matches_profile(ctx):
+            die(
+                "s6: stack already supervised with a different service profile; run down first",
+                exit_code=1,
+            )
         if not _stack_healthy(ctx):
             die("s6: stack already supervised but not healthy; run down first", exit_code=1)
         print("s6: already running")
@@ -950,6 +989,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="s6.runtime")
     parser.add_argument("action", choices=["up", "down", "status", "logs", "check"])
     parser.add_argument("--mode", required=True, choices=["dev", "prodlike"])
+    parser.add_argument("--service-profile", choices=["full", "test_infra"], default="full")
     parser.add_argument("--binary-path", required=True)
     parser.add_argument("--config-vars-source", required=True)
     parser.add_argument("--runtime-ld-library-path", required=True)
@@ -957,6 +997,7 @@ def main() -> int:
 
     ctx = _build_context(
         mode=args.mode,
+        service_profile=args.service_profile,
         binary_path=args.binary_path,
         config_vars_source=args.config_vars_source,
         runtime_ld_library_path=args.runtime_ld_library_path,

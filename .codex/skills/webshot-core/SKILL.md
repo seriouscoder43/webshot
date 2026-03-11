@@ -8,7 +8,7 @@ description: Core repository rules for the webshot repo (structure, naming, safe
 Use these rules whenever making code changes in this repository.
 
 ## Project overview
-- Service is a web archive backend similar to archive.today (see `design.md` for behavior and data model details).
+- Service is a web archive backend similar to archive.today.
 - Database schemas MUST live only in `sql/schema/`.
 - Tooling configs at repo root (`.clang-format`, `.editorconfig`, `.pre-commit-config.yaml`) define formatting and checks.
 
@@ -19,7 +19,7 @@ Use these rules whenever making code changes in this repository.
 - Functional tests and testsuite helpers also live under `test/` and are driven by `pytest`, `pytest_userver`, and `testsuite` (from yandex-taxi-testsuite).  All tests MUST live under `test/` and MUST NOT be placed elsewhere.
 
 ## Style and naming
-- Classes MUST use PascalCase (for example, `WebshotCrud`).
+- Classes MUST use PascalCase (for example, `ByPrefixHandler`).
 - Functions and variables MUST use lowerCamelCase.
 - Constants MUST use the `kName` form.
 - Default parameters in function declarations or definitions are forbidden.

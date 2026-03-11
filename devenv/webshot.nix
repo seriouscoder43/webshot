@@ -52,11 +52,16 @@
     '';
   };
 
-  mkRuntimeCommand = action: mode: let
+  mkRuntimeCommand = action: mode: serviceProfile: let
     cfg = modeConfigs.${mode};
+    serviceProfileArg =
+      if serviceProfile == null
+      then ""
+      else "--service-profile ${common.lib.escapeShellArg serviceProfile} \\";
   in ''
     python3 -m s6.runtime ${common.lib.escapeShellArg action} \
       --mode ${common.lib.escapeShellArg cfg.infraMode} \
+      ${serviceProfileArg}
       --binary-path ${common.lib.escapeShellArg "${cfg.buildDir}/webshotd"} \
       --config-vars-source ${common.lib.escapeShellArg cfg.configVarsSource} \
       --runtime-ld-library-path ${common.lib.escapeShellArg runtimeLdLibraryPath}
@@ -64,7 +69,7 @@
 
   mkRuntimeTask = action: mode: {
     cwd = config.devenv.root;
-    exec = mkRuntimeCommand action mode;
+    exec = mkRuntimeCommand action mode null;
   };
 
   mkUpTask = mode: {
@@ -72,14 +77,14 @@
     exec = ''
       set -euo pipefail
       ${mkBuildCommandsForMode mode}
-      ${mkRuntimeCommand "up" mode}
+      ${mkRuntimeCommand "up" mode null}
     '';
   };
 
   mkTestTask = mode: let
     cfg = modeConfigs.${mode};
-    upCmd = mkRuntimeCommand "up" mode;
-    downCmd = mkRuntimeCommand "down" mode;
+    upCmd = mkRuntimeCommand "up" mode "test_infra";
+    downCmd = mkRuntimeCommand "down" mode null;
   in {
     cwd = config.devenv.root;
     exec = ''
@@ -92,11 +97,6 @@
       }
       trap cleanup EXIT
       ${upCmd}
-      # The testsuite starts its own webshotd and crawlerd instances.
-      s6-svc -d /tmp/webshot/dev/s6-scan/crawlerd
-      s6-svc -d /tmp/webshot/dev/s6-scan/webshotd
-      s6-svwait -d /tmp/webshot/dev/s6-scan/crawlerd
-      s6-svwait -d /tmp/webshot/dev/s6-scan/webshotd
       export LD_LIBRARY_PATH=${common.lib.escapeShellArg runtimeLdLibraryPath}
       cd ${common.lib.escapeShellArg cfg.buildDir}
       ctest --progress --output-on-failure -V
