@@ -72,7 +72,8 @@ function buildCdxj(warc: WarcBuildOutput): string {
       url: record.url,
       status: `${record.statusCode}`,
       mime: record.headers["content-type"] ?? "application/octet-stream",
-      filename: "archive/data.warc",
+      // WACZ CDX entries store the WARC filename relative to the archive/ directory.
+      filename: "data.warc",
       length: `${record.length}`,
       offset: `${record.offset}`,
     })}\n`)

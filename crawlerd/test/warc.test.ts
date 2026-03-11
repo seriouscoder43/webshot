@@ -83,6 +83,8 @@ test("buildWacz uses SURT keys in cdxj output", () => {
 
   assert.match(waczText, /test,seed\)\/ 20260311044121 \{"url":"https:\/\/seed\.test\/"/);
   assert.match(waczText, /test,seed,www\)\/ 20260311044121 \{"url":"https:\/\/www\.seed\.test\/"/);
+  assert.match(waczText, /"filename":"data\.warc"/);
+  assert.doesNotMatch(waczText, /"filename":"archive\/data\.warc"/);
   assert.doesNotMatch(waczText, /https:\/\/www\.seed\.test\/ 20260311044121 \{/);
 });
 

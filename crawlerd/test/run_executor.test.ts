@@ -85,12 +85,19 @@ test("UpstreamRunExecutor captures through Chromium and returns an in-memory WAC
     assert.match(zipEntries["archive/data.warc"].toString("utf8"), /Seed Title|HTTP\/1.1 200/);
     assert.match(zipEntries["pages/pages.jsonl"].toString("utf8"), /"url":"http:\/\/127\.0\.0\.1:/);
     assert.match(zipEntries["pages/pages.jsonl"].toString("utf8"), /"format":"json-pages-1.0"/);
+    const datapackage = JSON.parse(zipEntries["datapackage.json"].toString("utf8")) as {
+      resources: Array<{
+        path: string;
+      }>;
+    };
+    assert.ok(datapackage.resources.some((resource) => resource.path === "archive/data.warc"));
 
     const cdxEntries = parseCdxj(zipEntries["indexes/index.cdxj"].toString("utf8"));
     const seedEntry = cdxEntries.find((entry) => entry.url === `http://127.0.0.1:${originPort}/seed`);
     assert.ok(seedEntry);
     assert.equal(seedEntry.key, `http://127.0.0.1:${originPort}/seed`);
     assert.equal(seedEntry.data.status, "200");
+    assert.equal(seedEntry.data.filename, "data.warc");
     assert.ok(Number.parseInt(seedEntry.data.length, 10) > 0);
 
     const indexedRecord = readIndexedWarcRecord(
