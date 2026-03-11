@@ -46,36 +46,44 @@ class ServiceSpec:
 
 
 @dataclass(frozen=True)
-class RuntimeContext:
+class RuntimeStateContext:
     mode: str
-    service_profile: str
     repo_root: Path
     state_dir: Path
     scan_dir: Path
     svscan_pid_file: Path
-    binary_path: Path
-    config_vars_source: Path
-    runtime_ld_library_path: str
-    deploy_vcpu_limit: str
+
+
+@dataclass(frozen=True)
+class RuntimeInspectContext(RuntimeStateContext):
+    service_profile: str
     crawlerd_socket_path: Path
-    postgres_data_dir: Path
-    postgres_run_dir: Path
-    postgres_bootstrap_done_file: Path
-    postgres_bootstrap_log: Path
     postgres_log_file: Path
-    postgres_capture_meta_db_name: str
-    postgres_shared_state_db_name: str
-    proxy_confdir: Path
     proxy_log_file: Path
-    proxy_upstream_ca_file: Path
-    seaweed_data_dir: Path
     seaweed_log_file: Path
-    test_target_dir: Path
     test_target_log_file: Path
     crawlerd_service_dir: Path
     crawlerd_log_file: Path
     webshotd_service_dir: Path
     webshotd_log_file: Path
+
+
+@dataclass(frozen=True)
+class RuntimeUpContext(RuntimeInspectContext):
+    binary_path: Path
+    config_vars_source: Path
+    runtime_ld_library_path: str
+    deploy_vcpu_limit: str
+    postgres_data_dir: Path
+    postgres_run_dir: Path
+    postgres_bootstrap_done_file: Path
+    postgres_bootstrap_log: Path
+    postgres_capture_meta_db_name: str
+    postgres_shared_state_db_name: str
+    proxy_confdir: Path
+    proxy_upstream_ca_file: Path
+    seaweed_data_dir: Path
+    test_target_dir: Path
 
 
 def _repo_root() -> Path:
@@ -158,18 +166,57 @@ def _fixed_state_dir(mode: str) -> Path:
     return Path("/tmp/webshot") / mode
 
 
-def _build_context(
+def _build_state_context(*, mode: str) -> RuntimeStateContext:
+    repo_root = _repo_root()
+    state_dir = _fixed_state_dir(mode)
+    return RuntimeStateContext(
+        mode=mode,
+        repo_root=repo_root,
+        state_dir=state_dir,
+        scan_dir=state_dir / "s6-scan",
+        svscan_pid_file=state_dir / "s6-svscan.pid",
+    )
+
+
+def _build_inspect_context(
+    *,
+    mode: str,
+    service_profile: str,
+) -> RuntimeInspectContext:
+    if service_profile == "test_infra" and mode != "dev":
+        die("service profile 'test_infra' requires --mode dev", exit_code=2)
+
+    state_ctx = _build_state_context(mode=mode)
+    return RuntimeInspectContext(
+        mode=state_ctx.mode,
+        repo_root=state_ctx.repo_root,
+        state_dir=state_ctx.state_dir,
+        scan_dir=state_ctx.scan_dir,
+        svscan_pid_file=state_ctx.svscan_pid_file,
+        service_profile=service_profile,
+        crawlerd_socket_path=state_ctx.state_dir / "crawlerd.sock",
+        postgres_log_file=state_ctx.state_dir / "postgres.log",
+        proxy_log_file=state_ctx.state_dir / "mitmproxy.log",
+        seaweed_log_file=state_ctx.state_dir / "seaweedfs.log",
+        test_target_log_file=state_ctx.state_dir / "test-target.log",
+        crawlerd_service_dir=state_ctx.scan_dir / "crawlerd",
+        crawlerd_log_file=state_ctx.state_dir / "crawlerd.log",
+        webshotd_service_dir=state_ctx.scan_dir / "webshotd",
+        webshotd_log_file=state_ctx.state_dir / "webshotd.log",
+    )
+
+
+def _build_up_context(
     *,
     mode: str,
     service_profile: str,
     binary_path: str,
     config_vars_source: str,
     runtime_ld_library_path: str,
-) -> RuntimeContext:
-    repo_root = _repo_root()
+) -> RuntimeUpContext:
+    inspect_ctx = _build_inspect_context(mode=mode, service_profile=service_profile)
     config_path = Path(config_vars_source)
     raw_vars = _read_yaml(config_path)
-    state_dir = _fixed_state_dir(mode)
     crawlerd_socket_path = _require_yaml_path(raw_vars, "crawlerd_socket_path", source=config_path)
     capture_meta_db_name = _database_name_from_dsn(
         _require_yaml_string(raw_vars, "pg_capture_meta_db_dsn", source=config_path),
@@ -181,7 +228,7 @@ def _build_context(
         key="pg_shared_state_db_dsn",
         source=config_path,
     )
-    expected_socket_path = state_dir / "crawlerd.sock"
+    expected_socket_path = inspect_ctx.state_dir / "crawlerd.sock"
     if crawlerd_socket_path != expected_socket_path:
         die(
             "Expected "
@@ -189,43 +236,40 @@ def _build_context(
             f"got {crawlerd_socket_path}",
             exit_code=2,
         )
-    if service_profile == "test_infra" and mode != "dev":
-        die("service profile 'test_infra' requires --mode dev", exit_code=2)
-    scan_dir = state_dir / "s6-scan"
-    return RuntimeContext(
-        mode=mode,
+    return RuntimeUpContext(
+        mode=inspect_ctx.mode,
+        repo_root=inspect_ctx.repo_root,
+        state_dir=inspect_ctx.state_dir,
+        scan_dir=inspect_ctx.scan_dir,
+        svscan_pid_file=inspect_ctx.svscan_pid_file,
         service_profile=service_profile,
-        repo_root=repo_root,
-        state_dir=state_dir,
-        scan_dir=scan_dir,
-        svscan_pid_file=state_dir / "s6-svscan.pid",
+        crawlerd_socket_path=crawlerd_socket_path,
+        postgres_log_file=inspect_ctx.postgres_log_file,
+        proxy_log_file=inspect_ctx.proxy_log_file,
+        seaweed_log_file=inspect_ctx.seaweed_log_file,
+        test_target_log_file=inspect_ctx.test_target_log_file,
+        crawlerd_service_dir=inspect_ctx.crawlerd_service_dir,
+        crawlerd_log_file=inspect_ctx.crawlerd_log_file,
+        webshotd_service_dir=inspect_ctx.webshotd_service_dir,
+        webshotd_log_file=inspect_ctx.webshotd_log_file,
         binary_path=Path(binary_path),
         config_vars_source=config_path,
         runtime_ld_library_path=runtime_ld_library_path,
         deploy_vcpu_limit=os.environ.get("DEPLOY_VCPU_LIMIT", ""),
-        crawlerd_socket_path=crawlerd_socket_path,
-        postgres_data_dir=state_dir / "postgres" / "data",
-        postgres_run_dir=state_dir / "postgres" / "run",
-        postgres_bootstrap_done_file=state_dir / "postgres" / ".bootstrap-complete",
-        postgres_bootstrap_log=state_dir / "postgres-bootstrap.log",
-        postgres_log_file=state_dir / "postgres.log",
+        postgres_data_dir=inspect_ctx.state_dir / "postgres" / "data",
+        postgres_run_dir=inspect_ctx.state_dir / "postgres" / "run",
+        postgres_bootstrap_done_file=inspect_ctx.state_dir / "postgres" / ".bootstrap-complete",
+        postgres_bootstrap_log=inspect_ctx.state_dir / "postgres-bootstrap.log",
         postgres_capture_meta_db_name=capture_meta_db_name,
         postgres_shared_state_db_name=shared_state_db_name,
-        proxy_confdir=state_dir / "mitmproxy" / "confdir",
-        proxy_log_file=state_dir / "mitmproxy.log",
-        proxy_upstream_ca_file=state_dir / "mitmproxy" / "upstream-ca.pem",
-        seaweed_data_dir=state_dir / "seaweed",
-        seaweed_log_file=state_dir / "seaweedfs.log",
-        test_target_dir=state_dir / "test-target",
-        test_target_log_file=state_dir / "test-target.log",
-        crawlerd_service_dir=scan_dir / "crawlerd",
-        crawlerd_log_file=state_dir / "crawlerd.log",
-        webshotd_service_dir=scan_dir / "webshotd",
-        webshotd_log_file=state_dir / "webshotd.log",
+        proxy_confdir=inspect_ctx.state_dir / "mitmproxy" / "confdir",
+        proxy_upstream_ca_file=inspect_ctx.state_dir / "mitmproxy" / "upstream-ca.pem",
+        seaweed_data_dir=inspect_ctx.state_dir / "seaweed",
+        test_target_dir=inspect_ctx.state_dir / "test-target",
     )
 
 
-def _service_specs(ctx: RuntimeContext) -> list[ServiceSpec]:
+def _service_specs(ctx: RuntimeInspectContext) -> list[ServiceSpec]:
     python_exe = sys.executable
     specs = [
         ServiceSpec(
@@ -299,7 +343,7 @@ exit 0
 """
 
 
-def _bootstrap_postgres(ctx: RuntimeContext) -> None:
+def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
     need_cmd("initdb")
     need_cmd("pg_ctl")
     need_cmd("psql")
@@ -449,7 +493,7 @@ def _bootstrap_postgres(ctx: RuntimeContext) -> None:
         )
 
 
-def _render_proxy_runtime(ctx: RuntimeContext) -> None:
+def _render_proxy_runtime(ctx: RuntimeUpContext) -> None:
     need_cmd("mitmdump")
     ctx.proxy_confdir.mkdir(parents=True, exist_ok=True)
     if ctx.mode != "dev":
@@ -478,7 +522,7 @@ def _wait_script(cmd: list[str]) -> str:
     )
 
 
-def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec]:
+def _render_service_tree(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[ServiceSpec]:
     active_specs = _service_specs(ctx)
     active_names = {spec.name for spec in active_specs}
     ctx.scan_dir.mkdir(parents=True, exist_ok=True)
@@ -718,7 +762,7 @@ def _pid_is_running(pid: int) -> bool:
         return False
 
 
-def _supervisor_running(ctx: RuntimeContext) -> bool:
+def _supervisor_running(ctx: RuntimeInspectContext) -> bool:
     need_cmd("s6-svok")
     for spec in _service_specs(ctx):
         if (
@@ -731,7 +775,7 @@ def _supervisor_running(ctx: RuntimeContext) -> bool:
     return True
 
 
-def _supervisor_matches_profile(ctx: RuntimeContext) -> bool:
+def _supervisor_matches_profile(ctx: RuntimeInspectContext) -> bool:
     need_cmd("s6-svok")
     active_names = {spec.name for spec in _service_specs(ctx)}
     known_service_dirs = {
@@ -756,7 +800,7 @@ def _supervisor_matches_profile(ctx: RuntimeContext) -> bool:
     return True
 
 
-def _stack_healthy(ctx: RuntimeContext) -> bool:
+def _stack_healthy(ctx: RuntimeInspectContext) -> bool:
     if not _supervisor_running(ctx):
         return False
     for service in _service_specs(ctx):
@@ -765,7 +809,7 @@ def _stack_healthy(ctx: RuntimeContext) -> bool:
     return True
 
 
-def _start_supervisor(ctx: RuntimeContext, services: list[ServiceSpec]) -> None:
+def _start_supervisor(ctx: RuntimeUpContext, services: list[ServiceSpec]) -> None:
     need_cmd("s6-svscan")
 
     pid = _read_pid(ctx.svscan_pid_file)
@@ -809,7 +853,7 @@ def _wait_ready(service: ServiceSpec) -> None:
     die(f"Timed out waiting for {service.name} readiness{detail}", exit_code=1)
 
 
-def _stop_supervisor(ctx: RuntimeContext) -> None:
+def _stop_supervisor(ctx: RuntimeStateContext) -> None:
     need_cmd("s6-svscanctl")
 
     pid = _read_pid(ctx.svscan_pid_file)
@@ -854,11 +898,11 @@ def _show_service_status(spec: ServiceSpec) -> None:
     print(f"{spec.name}: {proc.stdout.strip()}")
 
 
-def _up_task_name(ctx: RuntimeContext) -> str:
+def _up_task_name(ctx: RuntimeStateContext) -> str:
     return f"webshot:{ctx.mode}Up"
 
 
-def _wait_for_log_files(ctx: RuntimeContext) -> list[Path]:
+def _wait_for_log_files(ctx: RuntimeInspectContext) -> list[Path]:
     deadline = time.monotonic() + _logs_wait_timeout_sec
     missing = [spec.log_file for spec in _service_specs(ctx) if not spec.log_file.is_file()]
     while missing and time.monotonic() < deadline:
@@ -867,7 +911,7 @@ def _wait_for_log_files(ctx: RuntimeContext) -> list[Path]:
     return missing
 
 
-def _require_logs_ready(ctx: RuntimeContext) -> list[Path]:
+def _require_logs_ready(ctx: RuntimeInspectContext) -> list[Path]:
     if not _supervisor_running(ctx):
         die(
             f"s6: not running; run {_up_task_name(ctx)} first before reading logs",
@@ -884,7 +928,7 @@ def _require_logs_ready(ctx: RuntimeContext) -> list[Path]:
     return [spec.log_file for spec in _service_specs(ctx)]
 
 
-def _spawn_logs(ctx: RuntimeContext) -> list[subprocess.Popen[str]]:
+def _spawn_logs(ctx: RuntimeInspectContext) -> list[subprocess.Popen[str]]:
     need_cmd("tail")
     log_files = [str(path) for path in _require_logs_ready(ctx)]
     print(f"s6: attaching {ctx.mode} logs")
@@ -913,7 +957,7 @@ def _cleanup_processes(procs: list[subprocess.Popen[str]]) -> None:
                 proc.kill()
 
 
-def _logs(ctx: RuntimeContext) -> None:
+def _logs(ctx: RuntimeInspectContext) -> None:
     procs = _spawn_logs(ctx)
     try:
         while True:
@@ -924,7 +968,7 @@ def _logs(ctx: RuntimeContext) -> None:
         _cleanup_processes(procs)
 
 
-def _ensure_dev_bucket(ctx: RuntimeContext) -> None:
+def _ensure_dev_bucket(ctx: RuntimeStateContext) -> None:
     ensure_s3_bucket_exists(
         secrets_path=ctx.repo_root / "webshotd/secret/test_secdist.json",
         endpoint="localhost:8333",
@@ -932,7 +976,7 @@ def _ensure_dev_bucket(ctx: RuntimeContext) -> None:
     )
 
 
-def _prepare_runtime(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec]:
+def _prepare_runtime(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[ServiceSpec]:
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     _bootstrap_postgres(ctx)
     _render_proxy_runtime(ctx)
@@ -946,7 +990,7 @@ def _prepare_runtime(ctx: RuntimeContext, *, cpu_limit: str) -> list[ServiceSpec
     return _render_service_tree(ctx, cpu_limit=cpu_limit)
 
 
-def _up(ctx: RuntimeContext) -> None:
+def _up(ctx: RuntimeUpContext) -> None:
     if _supervisor_running(ctx):
         if not _supervisor_matches_profile(ctx):
             die(
@@ -967,13 +1011,13 @@ def _up(ctx: RuntimeContext) -> None:
         _ensure_dev_bucket(ctx)
 
 
-def _down(ctx: RuntimeContext) -> None:
+def _down(ctx: RuntimeStateContext) -> None:
     _stop_supervisor(ctx)
     if ctx.state_dir.exists():
         shutil.rmtree(ctx.state_dir)
 
 
-def _status(ctx: RuntimeContext) -> None:
+def _status(ctx: RuntimeInspectContext) -> None:
     if not _supervisor_running(ctx):
         print("s6: not running")
         return
@@ -981,38 +1025,64 @@ def _status(ctx: RuntimeContext) -> None:
         _show_service_status(spec)
 
 
-def _check(ctx: RuntimeContext) -> int:
+def _check(ctx: RuntimeInspectContext) -> int:
     return 0 if _stack_healthy(ctx) else 1
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="s6.runtime")
-    parser.add_argument("action", choices=["up", "down", "status", "logs", "check"])
+def _add_mode_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--mode", required=True, choices=["dev", "prodlike"])
-    parser.add_argument("--service-profile", choices=["full", "test_infra"], default="full")
-    parser.add_argument("--binary-path", required=True)
-    parser.add_argument("--config-vars-source", required=True)
-    parser.add_argument("--runtime-ld-library-path", required=True)
-    args = parser.parse_args()
 
-    ctx = _build_context(
-        mode=args.mode,
-        service_profile=args.service_profile,
-        binary_path=args.binary_path,
-        config_vars_source=args.config_vars_source,
-        runtime_ld_library_path=args.runtime_ld_library_path,
-    )
+
+def _add_service_profile_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--service-profile", choices=["full", "test_infra"], default="full")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="s6.runtime")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    up_parser = subparsers.add_parser("up")
+    _add_mode_argument(up_parser)
+    _add_service_profile_argument(up_parser)
+    up_parser.add_argument("--binary-path", required=True)
+    up_parser.add_argument("--config-vars-source", required=True)
+    up_parser.add_argument("--runtime-ld-library-path", required=True)
+
+    _add_mode_argument(subparsers.add_parser("down"))
+
+    for action in ["status", "logs", "check"]:
+        action_parser = subparsers.add_parser(action)
+        _add_mode_argument(action_parser)
+        _add_service_profile_argument(action_parser)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     try:
         if args.action == "up":
+            ctx = _build_up_context(
+                mode=args.mode,
+                service_profile=args.service_profile,
+                binary_path=args.binary_path,
+                config_vars_source=args.config_vars_source,
+                runtime_ld_library_path=args.runtime_ld_library_path,
+            )
             _up(ctx)
         elif args.action == "down":
+            ctx = _build_state_context(mode=args.mode)
             _down(ctx)
         elif args.action == "status":
+            ctx = _build_inspect_context(mode=args.mode, service_profile=args.service_profile)
             _status(ctx)
         elif args.action == "logs":
+            ctx = _build_inspect_context(mode=args.mode, service_profile=args.service_profile)
             _logs(ctx)
         elif args.action == "check":
+            ctx = _build_inspect_context(mode=args.mode, service_profile=args.service_profile)
             return _check(ctx)
         else:
             raise AssertionError("unreachable")

@@ -57,15 +57,25 @@
     serviceProfileArg =
       if serviceProfile == null
       then ""
-      else "--service-profile ${common.lib.escapeShellArg serviceProfile} \\";
-  in ''
-    python3 -m s6.runtime ${common.lib.escapeShellArg action} \
-      --mode ${common.lib.escapeShellArg cfg.infraMode} \
-      ${serviceProfileArg}
-      --binary-path ${common.lib.escapeShellArg "${cfg.buildDir}/webshotd"} \
-      --config-vars-source ${common.lib.escapeShellArg cfg.configVarsSource} \
-      --runtime-ld-library-path ${common.lib.escapeShellArg runtimeLdLibraryPath}
-  '';
+      else " \\\n        --service-profile ${common.lib.escapeShellArg serviceProfile}";
+  in
+    if action == "up"
+    then ''
+      python3 -m s6.runtime up \
+        --mode ${common.lib.escapeShellArg cfg.infraMode}${serviceProfileArg} \
+        --binary-path ${common.lib.escapeShellArg "${cfg.buildDir}/webshotd"} \
+        --config-vars-source ${common.lib.escapeShellArg cfg.configVarsSource} \
+        --runtime-ld-library-path ${common.lib.escapeShellArg runtimeLdLibraryPath}
+    ''
+    else if action == "down"
+    then ''
+      python3 -m s6.runtime down \
+        --mode ${common.lib.escapeShellArg cfg.infraMode}
+    ''
+    else ''
+      python3 -m s6.runtime ${common.lib.escapeShellArg action} \
+        --mode ${common.lib.escapeShellArg cfg.infraMode}${serviceProfileArg}
+    '';
 
   mkRuntimeTask = action: mode: {
     cwd = config.devenv.root;
