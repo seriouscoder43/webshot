@@ -455,16 +455,16 @@ def _bootstrap_postgres(ctx: RuntimeContext) -> None:
 
 
 def _render_test_target_config(ctx: RuntimeContext) -> None:
-    raw = (ctx.repo_root / "container/nginx_test.conf").read_text(encoding="utf-8")
+    raw = (ctx.repo_root / "nginx/nginx_test.conf").read_text(encoding="utf-8")
     raw = raw.replace("listen 80;", "listen 18080;")
     raw = raw.replace("listen 443 ssl;", "listen 18443 ssl;")
     raw = raw.replace(
         "/etc/nginx/ssl/test_target.crt",
-        str(ctx.repo_root / "container/compose/pki/test_target.crt"),
+        str(ctx.repo_root / "test/pki/test_target.crt"),
     )
     raw = raw.replace(
         "/etc/nginx/ssl/test_target.key",
-        str(ctx.repo_root / "container/compose/pki/test_target.key"),
+        str(ctx.repo_root / "test/pki/test_target.key"),
     )
     rendered = (
         "worker_processes 1;\n"
@@ -493,7 +493,7 @@ def _render_proxy_runtime(ctx: RuntimeContext) -> None:
     if not ca_path.is_file():
         die(f"Default upstream CA bundle is missing: {ca_path}", exit_code=2)
 
-    origin_ca_path = ctx.repo_root / "container/compose/pki/origin_ca.crt"
+    origin_ca_path = ctx.repo_root / "test/pki/origin_ca.crt"
     _write_bytes(
         ctx.proxy_upstream_ca_file,
         ca_path.read_bytes().rstrip() + b"\n" + origin_ca_path.read_bytes(),
@@ -617,7 +617,7 @@ def _render_service_tree(ctx: RuntimeContext, *, cpu_limit: str) -> list[Service
                 f"-dir={_shell_quote(ctx.seaweed_data_dir)} "
                 "-volume.port=8082 -volume.port.grpc=18082 "
                 "-master.volumeSizeLimitMB=32 -metricsPort=9324 "
-                f"-s3.config={_shell_quote(ctx.repo_root / 'container/seaweed/s3_config.json')}\n"
+                f"-s3.config={_shell_quote(ctx.repo_root / 'seaweedfs/s3_config.json')}\n"
             ),
         )
 
