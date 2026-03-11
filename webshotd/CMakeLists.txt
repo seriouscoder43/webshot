@@ -49,6 +49,7 @@ set(CMAKE_LINKER_TYPE MOLD)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 set(${PROJECT_NAME}_headers
+    include/integers.hpp
     include/s3_credentials_types.hpp
     include/s3/s3_sts_client.hpp
     include/s3/s3_v4_client.hpp
