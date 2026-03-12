@@ -1,8 +1,7 @@
 diff --git a/cmake/modules/Findcctz.cmake b/cmake/modules/Findcctz.cmake
-index dc108de2e..ac4937ebe 100644
 --- a/cmake/modules/Findcctz.cmake
 +++ b/cmake/modules/Findcctz.cmake
-@@ -17,4 +17,16 @@ _userver_module_find_include(NAMES cctz/civil_time.h)
+@@ -11,4 +11,16 @@
  
  _userver_module_find_library(NAMES cctz)
  

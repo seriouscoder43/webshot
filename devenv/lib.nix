@@ -7,6 +7,37 @@
   pkgsWithOverlay = pkgs.extend (import ../nix/overlay/boost_stacktrace_backtrace.nix);
 
   lib = pkgsWithOverlay.lib;
+  devenvLock = builtins.fromJSON (builtins.readFile ../devenv.lock);
+  lockValidation = let
+    validateNode = name: let
+      node = devenvLock.nodes.${name};
+      locked = node.locked or null;
+      nodeType =
+        if locked == null
+        then null
+        else locked.type or null;
+    in
+      if name == devenvLock.root || locked == null || nodeType == "path"
+      then []
+      else if nodeType == "github"
+      then lib.optional (!(builtins.hasAttr "narHash" locked)) "${name} (github)"
+      else [
+        "${name} (${
+          if nodeType == null
+          then "missing type"
+          else nodeType
+        })"
+      ];
+
+    invalidNodes = lib.concatMap validateNode (builtins.attrNames devenvLock.nodes);
+  in
+    if invalidNodes == []
+    then true
+    else
+      throw ''
+        devenv.lock is missing locked.narHash for remote inputs or contains unsupported remote input types: ${lib.concatStringsSep ", " invalidNodes}
+        Update devenv.lock to include locked.narHash for each remote node.
+      '';
   buildDeps = import ../nix/common_deps.nix {pkgs = pkgsWithOverlay;};
   toolchain = import ../nix/toolchain.nix {pkgs = pkgsWithOverlay;};
   llvm21 = pkgsWithOverlay.llvmPackages_21;
@@ -14,19 +45,11 @@
 
   python = pkgsWithOverlay.python3;
   nodejs = pkgsWithOverlay.nodejs_20;
-  chaoticPython = python.withPackages (ps: [
-    ps.jinja2
-    ps.pyyaml
-    ps.pydantic
-    ps.psycopg2
-    ps.websockets
-    ps.minio
-  ]);
-
-  userverDeps = import ../nix/userver/deps.nix {
+  userverPython = import ../nix/userver/deps.nix {
     pkgs = pkgsWithOverlay;
-    inherit chaoticPython;
+    inherit python;
   };
+  inherit (userverPython) userverDeps userverHelperPython;
 
   testLibs = userverDeps ++ [pkgsWithOverlay.libarchive pkgsWithOverlay.stdenv.cc.cc];
 
@@ -43,9 +66,22 @@
     cmake --build ${buildDirs.cov} --target coverage-html
   '';
 
-  userverPkgs = inputs.userver.packages.${system};
-  uniAlgoPkgs = inputs."uni-algo".packages.${system};
-  yttsPkgs = inputs."yandex-taxi-testsuite".packages.${system};
+  userverPkgs = import ../nix/userver/packages.nix {
+    pkgs = pkgsWithOverlay;
+    inherit (inputs) userverSrc;
+  };
+  uniAlgoPkgs = {
+    default = import ../nix/uni-algo/package.nix {
+      pkgs = pkgsWithOverlay;
+      inherit (inputs) uniAlgoSrc;
+    };
+  };
+  yttsPkgs = {
+    default = import ../nix/yandex-taxi-testsuite/package.nix {
+      pkgs = pkgsWithOverlay;
+      inherit (inputs) pgmigrateSrc yandexTaxiTestsuiteSrc;
+    };
+  };
   buildDirs = {
     san = "${config.devenv.root}/build/webshotd/san";
     tidy = "${config.devenv.root}/build/webshotd/tidy";
@@ -152,7 +188,7 @@
     ]
     ++ mkCmakeCommonFlags {
       userverDir = "${userverPkgs.userver-debug-addr-ub}/lib/cmake/userver";
-      pythonPath = "${chaoticPython}/bin/python3";
+      pythonPath = "${userverHelperPython}/bin/python3";
     }
     ++ mkCmakeVariantFlags variant
     ++ [
@@ -160,7 +196,7 @@
       "-DUSERVER_TESTSUITE_USE_VENV=OFF"
       "-DUSERVER_SQL_USE_VENV=OFF"
       "-DUSERVER_CHAOTIC_USE_VENV=OFF"
-      "-DTESTSUITE_PYTHON_BINARY=${chaoticPython}/bin/python3"
+      "-DTESTSUITE_PYTHON_BINARY=${userverHelperPython}/bin/python3"
       "-Wno-dev"
     ];
 
@@ -178,7 +214,7 @@
     ]
     ++ mkCmakeCommonFlags {
       userverDir = "${userverPkg}/lib/cmake/userver";
-      pythonPath = "${chaoticPython}/bin/python3";
+      pythonPath = "${userverHelperPython}/bin/python3";
     }
     ++ [
       "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
@@ -271,32 +307,33 @@
       cp package/dist/rapidoc-min.js "$out/rapidoc-min.js"
     '';
   };
-in {
-  inherit
-    buildDeps
-    buildVariants
-    buildDirs
-    chaoticPython
-    clangdConfigs
-    crawlerd
-    lib
-    llvm21
-    mkBuildTask
-    mkConfigureTaskCommands
-    mkConfigureTask
-    mkWebshotOutput
-    nodejs
-    pkgsWithOverlay
-    python
-    rapidocAssets
-    testLibs
-    toolchain
-    treefmtExcludesFromGitignore
-    uniAlgoPkgs
-    userverDeps
-    userverPkgs
-    webshotTestCov
-    webshotTestSan
-    yttsPkgs
-    ;
-}
+in
+  assert lockValidation; {
+    inherit
+      buildDeps
+      buildVariants
+      buildDirs
+      clangdConfigs
+      crawlerd
+      lib
+      llvm21
+      mkBuildTask
+      mkConfigureTaskCommands
+      mkConfigureTask
+      mkWebshotOutput
+      nodejs
+      pkgsWithOverlay
+      python
+      rapidocAssets
+      testLibs
+      toolchain
+      treefmtExcludesFromGitignore
+      uniAlgoPkgs
+      userverDeps
+      userverHelperPython
+      userverPkgs
+      webshotTestCov
+      webshotTestSan
+      yttsPkgs
+      ;
+  }

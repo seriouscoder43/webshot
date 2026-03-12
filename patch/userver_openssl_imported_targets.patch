@@ -1,8 +1,8 @@
 diff --git a/cmake/SetupOpenssl.cmake b/cmake/SetupOpenssl.cmake
-index 08b6b1b6c..d4f984224 100644
+index 348c09872..ef7c1d66f 100644
 --- a/cmake/SetupOpenssl.cmake
 +++ b/cmake/SetupOpenssl.cmake
-@@ -1,5 +1,33 @@
+@@ -1,7 +1,35 @@
  include_guard(GLOBAL)
  
 +# If the caller has already provided OpenSSL libraries and include
@@ -33,6 +33,8 @@ index 08b6b1b6c..d4f984224 100644
 +    return()
 +endif()
 +
+ # @ingroup download
  option(USERVER_DOWNLOAD_PACKAGE_OPENSSL "Download and setup OpenSSL if no library of matching version was found"
         ${USERVER_DOWNLOAD_PACKAGES}
  )
+ # @ingroup download

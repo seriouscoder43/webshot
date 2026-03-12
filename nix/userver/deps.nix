@@ -1,30 +1,71 @@
 {
   pkgs,
-  chaoticPython,
-}:
-(with pkgs; [
-  python3
-  openssl
-  jemalloc
-  zlib
-  boost183
-  libbacktrace
-  zstd
-  yaml-cpp
-  cryptopp
-  fmt
-  cctz
-  re2
-  abseil-cpp
-  gbenchmark
-  gtest
-  libev
-  libpq
-  curl
-  c-ares
-  nghttp2
-  pugixml
-])
-++ [
-  chaoticPython
-]
+  python ? pkgs.python3,
+}: let
+  pyPkgs = python.pkgs;
+
+  transliterate = pyPkgs.buildPythonPackage rec {
+    pname = "transliterate";
+    version = "1.10.2";
+
+    pyproject = true;
+    "build-system" = with pyPkgs; [setuptools wheel];
+
+    src = pkgs.fetchPypi {
+      inherit pname version;
+      hash = "sha256-vGCODUjmh9ucKx1+p8OBr+DRhJytIWCH2OA9jQalfIU=";
+    };
+
+    propagatedBuildInputs = with pyPkgs; [six];
+
+    doCheck = false;
+  };
+
+  userverHelperPython = python.withPackages (_: [
+    # Upstream userver helper requirements:
+    # scripts/chaotic/requirements.txt
+    pyPkgs.jinja2
+    pyPkgs.pyyaml
+    pyPkgs.pydantic
+    transliterate
+
+    # Repo-enabled local tests and helper flows.
+    pyPkgs.minio
+    pyPkgs.py
+    pyPkgs.psycopg2
+    pyPkgs.pytest
+    pyPkgs.requests
+    pyPkgs.websockets
+    pyPkgs.zstd
+  ]);
+
+  userverDeps =
+    (with pkgs; [
+      python3
+      openssl
+      jemalloc
+      zlib
+      boost183
+      libbacktrace
+      zstd
+      yaml-cpp
+      cryptopp
+      fmt
+      cctz
+      re2
+      abseil-cpp
+      gbenchmark
+      gtest
+      libev
+      libpq
+      curl
+      c-ares
+      nghttp2
+      pugixml
+    ])
+    ++ [
+      userverHelperPython
+    ];
+in {
+  inherit userverDeps userverHelperPython;
+}

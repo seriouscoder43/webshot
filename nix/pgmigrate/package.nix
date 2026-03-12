@@ -1,12 +1,8 @@
-{pkgs}: let
+{
+  pkgs,
+  pgmigrateSrc,
+}: let
   pyPkgs = pkgs.python3Packages;
-
-  pgmigrateSrc = pkgs.fetchFromGitHub {
-    owner = "yandex";
-    repo = "pgmigrate";
-    rev = "76a0eec2cabadae6f3a66527d7e421ca2797bf90";
-    hash = "sha256-juE5E7+CKBim58GatyB6wcsmnCjE4P0u115siP9C9bk=";
-  };
 in
   pyPkgs.buildPythonApplication {
     pname = "pgmigrate";

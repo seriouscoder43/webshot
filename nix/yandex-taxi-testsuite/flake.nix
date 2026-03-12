@@ -4,12 +4,22 @@
   inputs = {
     nixpkgs.url = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
+    pgmigrateSrc = {
+      url = "github:yandex/pgmigrate/76a0eec2cabadae6f3a66527d7e421ca2797bf90";
+      flake = false;
+    };
+    yandexTaxiTestsuiteSrc = {
+      url = "github:yandex/yandex-taxi-testsuite/901c58e06b62f1438fcd4219f50cfe9b18b5bbf1";
+      flake = false;
+    };
   };
 
   outputs = {
     self,
     nixpkgs,
     flake-utils,
+    pgmigrateSrc,
+    yandexTaxiTestsuiteSrc,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -20,55 +30,12 @@
 
       python = pkgs.python3;
       pyPkgs = pkgs.python3Packages;
-
-      yttsSrc = pkgs.fetchFromGitHub {
-        owner = "yandex";
-        repo = "yandex-taxi-testsuite";
-        rev = "901c58e06b62f1438fcd4219f50cfe9b18b5bbf1";
-        hash = "sha256-lQ6KFtx3HAKgVcci0WkmCPDdygj2z/JKDQmabhwl4OE=";
+      testsuitePkg = import ./package.nix {
+        inherit pkgs pgmigrateSrc yandexTaxiTestsuiteSrc;
       };
-
-      pgmigratePkg = import ../pgmigrate/package.nix {inherit pkgs;};
     in rec {
       packages = {
-        default = pyPkgs.buildPythonPackage {
-          pname = "yandex-taxi-testsuite";
-          version = "0.3.9";
-
-          src = yttsSrc;
-
-          # Use the modern pyproject-based builder interface (Nixpkgs 25.11).
-          pyproject = true;
-          "build-system" = with pyPkgs; [setuptools wheel];
-
-          # Old setup.py declares setup_requires=['pytest-runner'], which is
-          # removed from Nixpkgs 25.11; drop it to avoid a missing-dep error.
-          postPatch = ''
-            substituteInPlace setup.py \
-              --replace "    setup_requires=['pytest-runner']," ""
-          '';
-
-          # Runtime deps from setup.py + postgresql extra.
-          propagatedBuildInputs =
-            (with pyPkgs; [
-              packaging
-              pyyaml
-              aiohttp
-              yarl
-              py
-              pytest-aiohttp
-              pytest-asyncio
-              pytest
-              python-dateutil
-              cached-property
-              psycopg2
-              websockets
-            ])
-            ++ [pgmigratePkg];
-
-          # Tests exercise multiple external services; disable for now.
-          doCheck = false;
-        };
+        default = testsuitePkg;
       };
 
       # `nix flake check` will at least build the package.

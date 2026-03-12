@@ -1,8 +1,7 @@
 diff --git a/universal/CMakeLists.txt b/universal/CMakeLists.txt
-index 6246513c5..10716d294 100644
 --- a/universal/CMakeLists.txt
 +++ b/universal/CMakeLists.txt
-@@ -128,13 +128,6 @@ else()
+@@ -126,13 +126,6 @@
      )
  endif()
  

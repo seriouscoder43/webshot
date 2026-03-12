@@ -14,7 +14,7 @@ in {
     common.buildDeps.native
     ++ common.buildDeps.runtime
     ++ [
-      common.chaoticPython
+      common.userverHelperPython
       common.toolchain.cc
       common.llvm21.llvm
       common.llvm21.clang-tools
@@ -39,8 +39,8 @@ in {
     common.pkgsWithOverlay.cryptopp.dev
   ];
 
-  env.USERVER_PYTHON = "${common.chaoticPython}/bin/python3";
-  env.USERVER_PYTHON_PATH = "${common.chaoticPython}/bin/python3";
+  env.USERVER_PYTHON = "${common.userverHelperPython}/bin/python3";
+  env.USERVER_PYTHON_PATH = "${common.userverHelperPython}/bin/python3";
   env.USERVER_DIR = "${common.userverPkgs.userver-debug-addr-ub}/lib/cmake/userver";
 
   # Expose the yandex-taxi-testsuite Python package so pytest_userver

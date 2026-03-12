@@ -1,9 +1,8 @@
 diff --git a/cmake/UserverTestsuite.cmake b/cmake/UserverTestsuite.cmake
-index 9d03d1b7a..384c7286b 100644
 --- a/cmake/UserverTestsuite.cmake
 +++ b/cmake/UserverTestsuite.cmake
-@@ -16,6 +16,19 @@ function(_userver_prepare_testsuite)
- 
+@@ -20,6 +20,19 @@
+     # @ingroup libraries
      option(USERVER_FEATURE_TESTSUITE "Enable functional tests via testsuite" ON)
  
 +    option(
@@ -22,7 +21,7 @@ index 9d03d1b7a..384c7286b 100644
      if(USERVER_FEATURE_TESTSUITE AND NOT USERVER_PYTHON_DEV_CHECKED)
          # find package python3-dev required by venv
          execute_process(COMMAND sh "-c" "command -v python3-config" OUTPUT_VARIABLE PYTHONCONFIG_FOUND)
-@@ -34,14 +47,22 @@ function(_userver_prepare_testsuite)
+@@ -38,14 +51,22 @@
      set_property(GLOBAL PROPERTY userver_testsuite_dir "${USERVER_TESTSUITE_DIR}")
  
      if(USERVER_FEATURE_TESTSUITE)
@@ -53,7 +52,7 @@ index 9d03d1b7a..384c7286b 100644
          configure_file("${USERVER_TESTSUITE_DIR}/env.in" "${CMAKE_BINARY_DIR}/testsuite/env" @ONLY)
      endif()
  endfunction()
-@@ -175,6 +196,23 @@ function(userver_testsuite_add)
+@@ -182,6 +203,23 @@
              message(FATAL_ERROR "PYTHON_BINARY and REQUIREMENTS options are incompatible")
          endif()
          set(python_binary "${ARG_PYTHON_BINARY}")

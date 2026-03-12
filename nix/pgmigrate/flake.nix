@@ -4,12 +4,17 @@
   inputs = {
     nixpkgs.url = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
+    pgmigrateSrc = {
+      url = "github:yandex/pgmigrate/76a0eec2cabadae6f3a66527d7e421ca2797bf90";
+      flake = false;
+    };
   };
 
   outputs = {
     self,
     nixpkgs,
     flake-utils,
+    pgmigrateSrc,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -21,7 +26,9 @@
       python = pkgs.python3;
       pyPkgs = pkgs.python3Packages;
 
-      pgmigratePkg = import ./package.nix {inherit pkgs;};
+      pgmigratePkg = import ./package.nix {
+        inherit pgmigrateSrc pkgs;
+      };
     in rec {
       packages = {
         default = pgmigratePkg;

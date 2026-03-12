@@ -5,10 +5,6 @@ design.md
 .clangd
 .devenv
 .devenv.flake.nix
-**/.devenv
-**/.devenv.flake.nix
-**/devenv.lock
-!/devenv.lock
 .envrc
 .cache
 .pre-commit-config.yaml
