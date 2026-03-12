@@ -14,7 +14,7 @@
 #include "job_handler.hpp"
 
 #include <userver/clients/dns/component.hpp>
-#include <userver/clients/http/component.hpp>
+#include <userver/clients/http/component_list.hpp>
 #include <userver/components/fs_cache.hpp>
 #include <userver/components/minimal_server_component_list.hpp>
 #include <userver/congestion_control/component.hpp>
@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 {
     auto component_list = us::components::MinimalServerComponentList()
                               .Append<us::clients::dns::Component>()
-                              .Append<us::components::HttpClient>()
+                              .AppendComponentList(us::clients::http::ComponentList())
                               .Append<us::components::TestsuiteSupport>()
                               .Append<us::components::Secdist>()
                               .Append<us::components::DefaultSecdistProvider>()

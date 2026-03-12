@@ -14,7 +14,8 @@ components_manager:
   default_task_processor: main-task-processor
   fs_task_processor: fs-task-processor
   components:
-    http-client:
+    http-client: {}
+    http-client-core:
       fs-task-processor: fs-task-processor
       testsuite-timeout: 30s
     secdist: {}

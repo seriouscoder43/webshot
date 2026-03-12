@@ -210,9 +210,10 @@ def service_config_path_temp(
     config_vars["openapi_dir"] = str(service_source_dir.parent / "schema")
 
     components = config_yaml["components_manager"]["components"]
-    if "http-client" in components:
-        http_client = components["http-client"] or {}
-        http_client["testsuite-timeout"] = "20s"
+    http_client_core = components["http-client-core"]
+    if http_client_core is None:
+        raise RuntimeError("http-client-core component config must be present")
+    http_client_core["testsuite-timeout"] = "20s"
 
     if not config_vars:
         config_yaml.pop("config_vars", None)
