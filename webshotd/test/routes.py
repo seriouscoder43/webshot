@@ -31,8 +31,7 @@ async def test_list_captures_empty_result(service_client):
     assert response.status == 200
     body = response.json()
     assert body["items"] == []
-    # next_page_token may be omitted when there is no next page
-    assert body.get("next_page_token") in (None, "")
+    assert "next_page_token" not in body
 
 
 async def test_list_captures_prefix_missing_prefix(service_client):
@@ -63,7 +62,7 @@ async def test_list_captures_prefix_empty_result(service_client):
     assert response.status == 200
     body = response.json()
     assert body["items"] == []
-    assert body.get("next_page_token") in (None, "")
+    assert "next_page_token" not in body
 
 
 async def test_disallow_and_purge_missing_host(service_client):

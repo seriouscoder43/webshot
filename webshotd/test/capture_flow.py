@@ -11,6 +11,11 @@ from helper.prefix import prefix_key_from_link
 from minio import Minio
 
 
+def _assert_missing_job_fields(job: dict, *names: str) -> None:
+    for name in names:
+        assert name not in job
+
+
 async def _wait_for_purge(db, prefix_key: str, timeout: float = 30.0, delay: float = 0.5):
     deadline = asyncio.get_event_loop().time() + timeout
     while True:
@@ -84,6 +89,9 @@ async def test_capture_and_query_roundtrip(service_client, pgsql):
     job_body = resp.json()
     uuid_str = job_body["uuid"]
     normalized_link = job_body["link"]
+    _assert_missing_job_fields(
+        job_body, "started_at", "finished_at", "result_created_at", "result", "error"
+    )
 
     # Wait for job completion
     for _ in range(120):
@@ -91,8 +99,12 @@ async def test_capture_and_query_roundtrip(service_client, pgsql):
         assert status_resp.status == 200
         job = status_resp.json()
         if job["status"] == "succeeded":
+            assert "started_at" in job
+            assert "finished_at" in job
+            assert "result_created_at" in job
             assert job["result"]["uuid"] == uuid_str
             normalized_link = job["result"]["link"]
+            _assert_missing_job_fields(job, "error")
             break
         if job["status"] == "failed":
             pytest.fail(f"job failed: {job}")
@@ -191,6 +203,9 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
         pytest.fail("job did not fail in time")
 
     db = pgsql["capture_meta_db"]
+    assert "started_at" in job
+    assert "finished_at" in job
+    _assert_missing_job_fields(job, "result", "result_created_at")
     assert job["error"]["error"]["message"] != "internal crawler error"
     assert job["error"]["error"]["message"].startswith("Failed to crawl ")
     with db.cursor() as cur:

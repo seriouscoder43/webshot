@@ -415,6 +415,7 @@ components:
     PagedFindCapturesByUrlResponse:
       type: object
       additionalProperties: false
+      required: [items]
       properties:
         items:
           type: array
@@ -422,8 +423,6 @@ components:
             $ref: '#/components/schemas/UuidWithTime'
         next_page_token:
           type: string
-          nullable: true
-      required: [items, next_page_token]
       example:
         items:
           - uuid: 123e4567-e89b-12d3-a456-426614174000
@@ -467,15 +466,12 @@ components:
         started_at:
           type: string
           format: date-time
-          nullable: true
         finished_at:
           type: string
           format: date-time
-          nullable: true
         result_created_at:
           type: string
           format: date-time
-          nullable: true
           description: created_at of the stored capture, when succeeded
         result:
           $ref: '#/components/schemas/UuidWithTimeLink'
@@ -489,6 +485,7 @@ components:
     PagedFindCapturesByPrefixResponse:
       type: object
       additionalProperties: false
+      required: [items]
       properties:
         items:
           type: array
@@ -496,8 +493,6 @@ components:
             $ref: '#/components/schemas/UuidWithTimeLink'
         next_page_token:
           type: string
-          nullable: true
-      required: [items, next_page_token]
     PaginationPrefixCursor:
       type: object
       additionalProperties: false
@@ -513,10 +508,8 @@ components:
         t:
           type: integer
           format: int64
-          nullable: true
           description: Microseconds since Unix epoch of last item
         i:
           type: string
           format: uuid
-          nullable: true
           description: UUID of last item when resuming mid-link

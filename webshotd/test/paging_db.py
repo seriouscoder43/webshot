@@ -149,7 +149,7 @@ async def test_list_captures_paged_two_pages(
     next_token = body1.get("next_page_token")
     assert next_token
 
-    # Second page: remaining 1 item, next_page_token is null/absent.
+    # Second page: remaining 1 item, next_page_token is omitted.
     resp2 = await service_client.get(
         "/v1/capture",
         params={"link": f"{TEST_HOST}/a", "page_token": next_token},
@@ -159,4 +159,4 @@ async def test_list_captures_paged_two_pages(
     uuids2 = [item["uuid"] for item in body2["items"]]
     assert len(uuids2) == 1
     assert set(uuids1 + uuids2) == {str(capture_id) for capture_id in ids}
-    assert body2.get("next_page_token") in (None, "")
+    assert "next_page_token" not in body2
