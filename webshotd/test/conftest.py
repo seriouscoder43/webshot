@@ -166,8 +166,13 @@ def service_env(service_source_dir: pathlib.Path):
 
 @pytest.fixture(scope="session")
 def allowed_url_prefixes_extra(s3_gate_port):
-    # Permit S3 uploads to the chaos gate in front of the local SeaweedFS url.
-    return [f"http://{_S3_GATE_HOST}:{s3_gate_port}/"]
+    # Permit S3 uploads through the local chaos gate and Chromium devtools
+    # loopback URLs reached over the Unix socket transport in tests.
+    return [
+        f"http://{_S3_GATE_HOST}:{s3_gate_port}/",
+        "http://localhost/",
+        "ws://localhost/",
+    ]
 
 
 @pytest.fixture(scope="session")
