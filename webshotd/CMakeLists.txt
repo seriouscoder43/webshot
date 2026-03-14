@@ -227,6 +227,7 @@ userver_target_generate_chaotic(
   RELATIVE_TO
   ${WEBSHOT_REPO_ROOT})
 apply_defaults(${PROJECT_NAME}-chgen)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE ${PROJECT_NAME}-chgen)
 target_link_libraries(
   ${PROJECT_NAME}
   PRIVATE ${PROJECT_NAME}-chgen
