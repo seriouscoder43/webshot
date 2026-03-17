@@ -1,10 +1,9 @@
 #pragma once
 
+#include "link.hpp"
 #include "text.hpp"
+
 #include <string>
-namespace v1 {
-struct Link;
-}
 
 namespace v1::prefix {
 

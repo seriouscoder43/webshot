@@ -3,21 +3,16 @@
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
 #include "url.hpp"
+
 #include <chrono>
-#include <format>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <time.h>
+#include <vector>
+
 #include <userver/clients/http/client.hpp>
-#include <userver/clients/http/response.hpp>
 #include <userver/s3api/clients/s3api.hpp>
-namespace v1 {
-namespace s3v4 {
-struct SigV4Params;
-}
-} // namespace v1
+#include <userver/utils/strong_typedef.hpp>
 
 namespace v1::s3v4 {
 
