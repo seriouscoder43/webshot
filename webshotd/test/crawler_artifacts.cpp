@@ -148,7 +148,7 @@ UTEST(CrawlerArtifacts, BuildWaczIncludesExpectedFilesAndSurtIndexKeys)
     EXPECT_NE(datapackage->find("\"path\":\"archive/data.warc\""), std::string_view::npos);
     EXPECT_NE(pages->find("\"format\":\"json-pages-1.0\""), std::string_view::npos);
     EXPECT_NE(pages->find("\"title\":\"All Pages\""), std::string_view::npos);
-    EXPECT_NE(pages->find("\"hasText\":\"false\""), std::string_view::npos);
+    EXPECT_NE(pages->find("\"hasText\":false"), std::string_view::npos);
     EXPECT_NE(
         cdxj->find(
             "test,seed)/ 20260311044121 "

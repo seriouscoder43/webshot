@@ -100,8 +100,6 @@ makeRegularFileEntry(std::string_view path, ZipArchiveError &errorOut, std::stri
 
 int openStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-// libarchive requires this callback signature.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 la_ssize_t appendArchiveBytes(archive *, void *ctx, const void *buffer, size_t nbytes)
 {
     auto &out = *static_cast<std::string *>(ctx);
