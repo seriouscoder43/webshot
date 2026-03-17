@@ -910,16 +910,18 @@ public:
                 continue;
             }
 
-            if (!responseCanHaveBody(request.method, *request.statusCode)) {
+            const auto response = toMainResponse(request);
+
+            if (!responseCanHaveBody(request.method, response.statusCode)) {
                 resources.push_back({
                     request.requestUrl,
                     request.method,
                     request.resourceType,
-                    *request.statusCode,
-                    *request.statusMessage,
-                    *request.headers,
+                    response.statusCode,
+                    response.statusMessage,
+                    response.headers,
                     {},
-                    *request.timestamp,
+                    response.timestamp,
                 });
                 continue;
             }
@@ -934,26 +936,26 @@ public:
                     request.requestUrl,
                     request.method,
                     request.resourceType,
-                    *request.statusCode,
-                    *request.statusMessage,
-                    *request.headers,
+                    response.statusCode,
+                    response.statusMessage,
+                    response.headers,
                     retainBody(
                         bodyValue.base64Encoded ? us::crypto::base64::Base64Decode(bodyValue.body)
                                                 : bodyValue.body,
                         budget
                     ),
-                    *request.timestamp,
+                    response.timestamp,
                 });
             } catch (const std::exception &) {
                 resources.push_back({
                     request.requestUrl,
                     request.method,
                     request.resourceType,
-                    *request.statusCode,
-                    *request.statusMessage,
-                    *request.headers,
+                    response.statusCode,
+                    response.statusMessage,
+                    response.headers,
                     {},
-                    *request.timestamp,
+                    response.timestamp,
                 });
             }
         }
