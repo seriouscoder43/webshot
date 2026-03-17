@@ -58,7 +58,7 @@ namespace v1::crud {
     auto view = s.view();
     std::string bytes(view);
     for (i64 i = safeSize(bytes) - 1_i64; i >= 0_i64; i--) {
-        const auto j = toSize(i);
+        const auto j = numericCast<size_t>(i);
         unsigned char c = static_cast<unsigned char>(bytes[j]);
         if (c < 0xFF) {
             bytes[j] = static_cast<char>(c + 1);

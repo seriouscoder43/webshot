@@ -16,7 +16,7 @@ namespace v1::s3refresh {
     i64 marginSec
 )
 {
-    auto delay = expiresAt - now - toSeconds(marginSec);
+    auto delay = expiresAt - now - std::chrono::seconds{marginSec};
     if (delay < std::chrono::seconds(0))
         return std::chrono::seconds(0);
     return std::chrono::duration_cast<std::chrono::seconds>(delay);

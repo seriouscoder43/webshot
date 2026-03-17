@@ -11,6 +11,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <type_traits>
+
+// fmt v12 stores formatting arguments in an internal `fmt::detail::value<Context>`.
+// boost::safe_numerics::safe_base has a templated conversion operator `operator R()`
+// enabled for any `R` that is not marked as "safe" (boost::safe_numerics::is_safe<R>).
+// That makes safe integers implicitly convertible to fmt internals, which clashes with
+// fmt's own argument handling and results in an ambiguous conversion error.
+//
+// Mark fmt's internal value type as "safe" to SFINAE-out that conversion path.
+namespace boost::safe_numerics {
+template <typename Context> struct is_safe<fmt::detail::value<Context>> : std::true_type {};
+} // namespace boost::safe_numerics
 
 namespace integers_detail {
 
@@ -22,7 +34,17 @@ struct Abort {
     }
 };
 
-using AbortPolicy = boost::safe_numerics::exception_policy<Abort, Abort, Abort, Abort>;
+struct TrapUninitialized {
+    template <typename... Args> constexpr void operator()(Args &&...) const
+    {
+        static_assert(
+            sizeof...(Args) == 0,
+            "safe integers must be explicitly initialized (default initialization is forbidden)"
+        );
+    }
+};
+
+using AbortPolicy = boost::safe_numerics::exception_policy<Abort, Abort, Abort, TrapUninitialized>;
 
 } // namespace integers_detail
 
@@ -39,44 +61,36 @@ using usize =
 
 namespace integers {
 
-template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
-[[nodiscard]] constexpr T
-toNative(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
-{
-    return static_cast<T>(value);
-}
-
 template <typename To, typename From> [[nodiscard]] constexpr To numericCast(From value)
 {
     return userver::utils::numeric_cast<To>(value);
 }
 
+template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
+[[nodiscard]] constexpr T
+numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+{
+    return static_cast<T>(value);
+}
+
 template <typename To, typename T, typename PromotionPolicy, typename ExceptionPolicy>
-[[nodiscard]] constexpr To
+[[nodiscard]] constexpr std::enable_if_t<!std::is_same_v<To, T>, To>
 numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value)
 {
-    return userver::utils::numeric_cast<To>(toNative(value));
+    return userver::utils::numeric_cast<To>(numericCast(value));
+}
+
+template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
+[[nodiscard]] constexpr T
+raw(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+{
+    return numericCast(value);
 }
 
 template <class C> [[nodiscard]] constexpr i64 safeSize(const C &c) noexcept
 {
     const auto sizeValue = usize(c.size());
     return i64(sizeValue);
-}
-
-[[nodiscard]] constexpr size_t toSize(i64 value) noexcept
-{
-    return static_cast<size_t>(toNative(value));
-}
-
-[[nodiscard]] constexpr std::chrono::seconds toSeconds(i64 value) noexcept
-{
-    return std::chrono::seconds(toNative(value));
-}
-
-[[nodiscard]] constexpr std::chrono::milliseconds toMilliseconds(i64 value) noexcept
-{
-    return std::chrono::milliseconds(toNative(value));
 }
 
 } // namespace integers
@@ -89,7 +103,7 @@ struct fmt::formatter<boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPo
         fmt::format_context &ctx
     ) const
     {
-        return fmt::formatter<T>::format(static_cast<T>(value), ctx);
+        return fmt::formatter<T>::format(integers::raw(value), ctx);
     }
 };
 
@@ -106,9 +120,6 @@ namespace integers::literals {
 } // namespace integers::literals
 
 using integers::numericCast;
+using integers::raw;
 using integers::safeSize;
-using integers::toMilliseconds;
-using integers::toNative;
-using integers::toSeconds;
-using integers::toSize;
 using namespace integers::literals;

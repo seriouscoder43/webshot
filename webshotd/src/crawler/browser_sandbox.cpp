@@ -1,6 +1,8 @@
 #include "crawler/browser_sandbox.hpp"
 #include "crawler/launch_policy.hpp"
 
+#include <fmt/format.h>
+
 namespace v1::crawler {
 
 std::vector<std::string>
@@ -28,13 +30,12 @@ buildChromiumArgs(const std::string &userDataDir, const std::string &netlogPath)
         "--user-data-dir=" + userDataDir,
         "--log-net-log=" + netlogPath,
         "--net-log-capture-mode=IncludeSensitive",
-        std::string{"--proxy-server=http://127.0.0.1:"} +
-            std::to_string(toNative(kProxyListenPort)),
+        std::string{"--proxy-server=http://127.0.0.1:"} + fmt::to_string(kProxyListenPort),
         "--proxy-bypass-list=<-loopback>",
         "--remote-debugging-address=127.0.0.1",
-        "--remote-debugging-port=" + std::to_string(toNative(kDevtoolsPort)),
-        std::string{"--window-size="} + std::to_string(toNative(kBrowserWindowWidth)) + "," +
-            std::to_string(toNative(kBrowserWindowHeight))
+        "--remote-debugging-port=" + fmt::to_string(kDevtoolsPort),
+        std::string{"--window-size="} + fmt::to_string(kBrowserWindowWidth) + "," +
+            fmt::to_string(kBrowserWindowHeight)
     };
     args.emplace_back("--enable-logging=stderr");
     args.emplace_back("--log-level=0");

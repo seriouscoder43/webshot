@@ -180,14 +180,14 @@ serializeRecordPair(const SerializableResponse &response)
             ? String::fromBytesThrow(
                   std::string(
                       http::StatusCodeString(
-                          static_cast<http::StatusCode>(toNative(response.statusCode))
+                          static_cast<http::StatusCode>(numericCast<int>(response.statusCode))
                       )
                   )
               )
             : response.statusMessage;
 
     std::string httpResponseHead = fmt::format(
-        "HTTP/1.1 {} {}\r\n", toNative(response.statusCode), statusMessage
+        "HTTP/1.1 {} {}\r\n", response.statusCode, statusMessage
     );
     for (const auto &[name, value] : normalizedHeaders)
         httpResponseHead += fmt::format("{}: {}\r\n", name, value);
@@ -258,7 +258,7 @@ serializeRecordPair(const SerializableResponse &response)
                                std::optional<String> resourceType
                            ) {
         json::ValueBuilder value(json::Type::kObject);
-        value["status"] = toNative(statusCode);
+        value["status"] = raw(statusCode);
         const auto mime = contentTypeForHeaders(headers);
         if (!mime.empty())
             value["mime"] = mime;
@@ -365,11 +365,11 @@ serializeRecordPair(const SerializableResponse &response)
 {
     dto::WaczIndexEntry recordEntry;
     recordEntry.url = std::string(record.recordUrl.view());
-    recordEntry.status = std::to_string(toNative(record.statusCode));
+    recordEntry.status = fmt::to_string(record.statusCode);
     recordEntry.mime = contentTypeForHeaders(record.headers);
     recordEntry.filename = "archive/data.warc";
-    recordEntry.length = std::to_string(toNative(record.length));
-    recordEntry.offset = std::to_string(toNative(record.offset));
+    recordEntry.length = fmt::to_string(record.length);
+    recordEntry.offset = fmt::to_string(record.offset);
     return recordEntry;
 }
 
@@ -454,15 +454,13 @@ std::string buildPagesJsonl(const CapturedExchange &exchange)
     );
     entry.title = exchange.title ? std::string(exchange.title->view())
                                  : extractHtmlTitle(exchange.body);
-    entry.loadState = toNative(
-        exchange.statusCode >= 200_i64 && exchange.statusCode < 400_i64 ? 2_i64 : 0_i64
-    );
+    entry.loadState = exchange.statusCode >= 200_i64 && exchange.statusCode < 400_i64 ? 2 : 0;
     entry.mime = contentTypeForHeaders(exchange.headers);
     entry.seed = true;
     entry.ts = datetime::TimePointTz(
         datetime::FromRfc3339StringSaturating(std::string(pageTimestamp(exchange).view()))
     );
-    entry.status = toNative(exchange.statusCode);
+    entry.status = raw(exchange.statusCode);
     entry.depth = 0;
     return toJsonString(entry) + "\n";
 }
@@ -481,9 +479,9 @@ std::string buildSuccessStdoutLog(
         "browser_pid={}\n"
         "reused_browser={}\n"
         "browsertrix rewrite done\n\n",
-        run.seedUrl, exchange.finalUrl, toNative(exchange.statusCode),
+        run.seedUrl, exchange.finalUrl, exchange.statusCode,
         exchange.redirectChain.empty() ? 0 : exchange.redirectChain.size() - 1, kBrowserBin,
-        toNative(browserPid), reusedBrowser ? "true" : "false"
+        browserPid, reusedBrowser ? "true" : "false"
     );
 }
 

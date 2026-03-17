@@ -65,7 +65,7 @@ std::string ById::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     try {
-        const auto handlerTimeout = toMilliseconds(requestTimeoutMs);
+        const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
         auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
         engine::current_task::SetDeadline(finalDeadline);
 

@@ -327,7 +327,7 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
 {
     auto args = std::vector<std::string>{
         "UNIX-LISTEN:" + paths.proxySocketPath + ",fork,unlink-early",
-        "TCP-CONNECT:127.0.0.1:" + std::to_string(toNative(crawler::kProxyUpstreamPort)),
+        fmt::format("TCP-CONNECT:127.0.0.1:{}", crawler::kProxyUpstreamPort),
     };
     return spawnProcess(
         processStarter, std::string(kSocatBin), args, paths.devNullPath, paths.devNullPath
@@ -388,8 +388,8 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
         paths.proxySocketPath,
         paths.cdpSocketPath,
         paths.websocketPathFilePath,
-        std::to_string(toNative(crawler::kProxyListenPort)),
-        std::to_string(toNative(crawler::kDevtoolsPort)),
+        fmt::format("{}", crawler::kProxyListenPort),
+        fmt::format("{}", crawler::kDevtoolsPort),
         "--",
         std::string(crawler::kBrowserBin),
     };
@@ -636,8 +636,7 @@ struct [[nodiscard]] RetainedBodyBudget {
     if (nextRetainedBytes > budget.maxBytes) {
         throw std::runtime_error(
             fmt::format(
-                "retained body bytes {} exceeded size limit {}", toNative(nextRetainedBytes),
-                toNative(budget.maxBytes)
+                "retained body bytes {} exceeded size limit {}", nextRetainedBytes, budget.maxBytes
             )
         );
     }
@@ -859,7 +858,7 @@ public:
         if (const auto *request = resolvedMainRequest();
             request != nullptr && request->statusCode) {
             return crawler::SeedPageProbe{
-                toNative(*request->statusCode),
+                raw(*request->statusCode),
                 request->loaded && !mainRequestFailure ? std::optional<int64_t>{2}
                                                        : std::optional<int64_t>{0},
             };
@@ -1362,7 +1361,7 @@ public:
         us::engine::subprocess::ProcessStarter &processStarter, crawler::RunRequest runIn
     )
         : run(std::move(runIn)),
-          deadline(us::utils::datetime::SteadyNow() + toMilliseconds(run.jobTimeoutMs)),
+          deadline(us::utils::datetime::SteadyNow() + chrono::milliseconds{run.jobTimeoutMs}),
           browser(processStarter)
     {
     }
@@ -1502,7 +1501,7 @@ private:
         if (crawler::kPostLoadDelayMs > 0_i64) {
             browser.markPhase("post_load_delay");
             sleepWithinBudget(
-                deadline, toMilliseconds(crawler::kPostLoadDelayMs),
+                deadline, chrono::milliseconds{crawler::kPostLoadDelayMs},
                 "timed out waiting for post-load delay"
             );
             browser.markPhase("post_load_delay_done");
@@ -1513,7 +1512,7 @@ private:
             runSiteBehavior(
                 cdpClient(), attachedSessionId(),
                 std::min(
-                    toMilliseconds(crawler::kBehaviorTimeoutMs),
+                    chrono::milliseconds{crawler::kBehaviorTimeoutMs},
                     remainingBudgetOrThrow(deadline, "timed out running site behavior")
                 )
             );
@@ -1523,7 +1522,7 @@ private:
             browser.markPhase("wait_for_idle");
             browser.markPhase("wait_for_idle_wait");
             pageTracker().waitForIdle(
-                cdpClient(), toMilliseconds(crawler::kNetIdleWaitMs),
+                cdpClient(), chrono::milliseconds{crawler::kNetIdleWaitMs},
                 remainingBudgetOrThrow(deadline, "timed out waiting for network idle")
             );
             browser.markPhase("wait_for_idle_done");
@@ -1531,7 +1530,7 @@ private:
         if (crawler::kPageExtraDelayMs > 0_i64) {
             browser.markPhase("page_extra_delay");
             sleepWithinBudget(
-                deadline, toMilliseconds(crawler::kPageExtraDelayMs),
+                deadline, chrono::milliseconds{crawler::kPageExtraDelayMs},
                 "timed out waiting for extra page delay"
             );
             browser.markPhase("page_extra_delay_done");
@@ -1570,8 +1569,7 @@ private:
         browser.markPhase("build_exchange_done");
         LOG_INFO() << fmt::format(
             "captureViaProxy built exchange for {} (status={}, resources={}, body_bytes={})",
-            run.seedUrl, toNative(exchange.statusCode), exchange.resources.size(),
-            exchange.body.size()
+            run.seedUrl, exchange.statusCode, exchange.resources.size(), exchange.body.size()
         );
         tracker.reset();
         cdp.reset();
@@ -1702,7 +1700,7 @@ struct [[nodiscard]] RunExecutionResult {
         auto capture = captureViaProxy(processStarter, run);
         LOG_INFO() << fmt::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
-            toNative(capture.exchange.statusCode)
+            capture.exchange.statusCode
         );
         auto pages = crawler::buildPagesJsonl(capture.exchange);
         LOG_INFO() << fmt::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
@@ -1720,8 +1718,7 @@ struct [[nodiscard]] RunExecutionResult {
                                    i64(stderrLog.size());
         if (retainedBytes > kMaxBodyBytes) {
             const auto detail = text::format(
-                "retained artifact bytes {} exceeded size limit {}", toNative(retainedBytes),
-                toNative(kMaxBodyBytes)
+                "retained artifact bytes {} exceeded size limit {}", retainedBytes, kMaxBodyBytes
             );
             auto limitStderr = stderrLog;
             limitStderr += std::string(detail.view()) + "\n";
@@ -1741,14 +1738,12 @@ struct [[nodiscard]] RunExecutionResult {
                                                                                      : 2_i64;
         std::optional<String> failureDetail;
         if (capture.exchange.statusCode >= 400_i64) {
-            failureDetail = text::format(
-                "seed returned HTTP {}", toNative(capture.exchange.statusCode)
-            );
+            failureDetail = text::format("seed returned HTTP {}", capture.exchange.statusCode);
         }
 
         LOG_INFO() << fmt::format(
             "crawler executeRun finished for {} (exit_code={}, wacz_exists=true)", run.seedUrl,
-            toNative(exitCode)
+            exitCode
         );
 
         return {

@@ -341,7 +341,7 @@ struct [[nodiscard]] CrawlContext {
     const auto totalCrawlTimeLimitSec = crawlerJobOverheadTimeoutSec +
                                         crawlerRunTimeoutSec * kCrawlerSeedAttemptsMax;
     engine::current_task::SetDeadline(
-        engine::Deadline::FromDuration(toSeconds(totalCrawlTimeLimitSec))
+        engine::Deadline::FromDuration(chrono::seconds{totalCrawlTimeLimitSec})
     );
 
     std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
@@ -466,7 +466,7 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts() const
     const auto sts = fetchStsCredentials(
         httpClient, s3CredentialsEndpoint, staticAccessKeyId, staticSecretAccessKey,
         svcCfg.s3Region(), kRoleArnDescription, sessionName, policyJson,
-        toSeconds(s3CredentialsDurationSec), svcCfg.s3Timeout()
+        chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
     );
 
     S3ClientState state;
@@ -532,7 +532,7 @@ void Crud::Impl::refreshS3CredentialsTask()
             break;
         } catch (const std::exception &e) {
             LOG_ERROR() << fmt::format("Failed to refresh S3 credentials from STS: {}", e.what());
-            engine::SleepFor(toSeconds(s3CredentialsRefreshRetrySec));
+            engine::SleepFor(chrono::seconds{s3CredentialsRefreshRetrySec});
         }
     }
 }
@@ -540,7 +540,7 @@ void Crud::Impl::refreshS3CredentialsTask()
 void Crud::Impl::startCrawlJobCleanupTask()
 {
     auto interval = chrono::duration_cast<chrono::milliseconds>(
-        toSeconds(crawlJobCleanupIntervalSec)
+        chrono::seconds{crawlJobCleanupIntervalSec}
     );
     us::utils::PeriodicTask::Settings settings(interval, chrono::milliseconds(0));
     settings.task_processor = &purgeTaskProcessor;
@@ -557,7 +557,7 @@ void Crud::Impl::startCrawlJobCleanupTask()
 void Crud::Impl::cleanupOldJobs()
 {
     const auto now = us::utils::datetime::Now();
-    const auto cutoff = now - toSeconds(crawlJobRetentionSec);
+    const auto cutoff = now - chrono::seconds{crawlJobRetentionSec};
     try {
         static_cast<void>(sharedReadwrite(sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)));
     } catch (const std::exception &e) {
@@ -570,7 +570,7 @@ crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(CrawlContext &ctx, const S
 {
     LOG_INFO() << fmt::format(
         "Submitting crawl for {} to embedded crawler with timeout={}s", seedUrl,
-        toNative(crawlerRunTimeoutSec)
+        crawlerRunTimeoutSec
     );
 
     const auto run = crawlerRunner.run(seedUrl);
@@ -723,9 +723,7 @@ void Crud::Impl::purgePrefix(const String &prefixKey)
     const auto tree = prefix::makePrefixTree(prefixKey);
     while (true) {
         try {
-            auto res = readonly(
-                sql::kSelectIdsByDenyPrefixPaged, tree, toNative(purgeDeleteBatchSize)
-            );
+            auto res = readonly(sql::kSelectIdsByDenyPrefixPaged, tree, raw(purgeDeleteBatchSize));
             std::vector<Uuid> ids;
             ids.reserve(res.Size());
             for (auto row : res)
@@ -769,7 +767,7 @@ dto::CaptureJob Crud::createCaptureJob(Link link)
         if (latestJob) {
             const auto now = us::utils::datetime::Now();
             const auto lastCreated = latestJob->created_at.GetTimePoint();
-            const auto deadline = lastCreated + toSeconds(implPtr->linkCooldownSec);
+            const auto deadline = lastCreated + chrono::seconds{implPtr->linkCooldownSec};
             if (now < deadline)
                 return *latestJob;
         }
@@ -833,7 +831,7 @@ dto::PagedFindCapturesByUrlResponse Crud::findCapturesByLinkPage(const Link &lin
     std::vector<Row> dbRows;
     if (pageToken.empty()) {
         dbRows = impl->readonly(
-                         sql::kSelectCaptureByLinkFirst, link.normalized(), toNative(impl->pageMax)
+                         sql::kSelectCaptureByLinkFirst, link.normalized(), raw(impl->pageMax)
         )
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
     } else {
@@ -841,7 +839,7 @@ dto::PagedFindCapturesByUrlResponse Crud::findCapturesByLinkPage(const Link &lin
         if (!cur)
             throw errors::InvalidPageTokenException("invalid page_token");
         dbRows = impl->readonly(
-                         sql::kSelectCaptureByLinkNext, link.normalized(), toNative(impl->pageMax),
+                         sql::kSelectCaptureByLinkNext, link.normalized(), raw(impl->pageMax),
                          pg::TimePointTz(cur->createdAt), cur->id
         )
                      .AsContainer<std::vector<Row>>(pg::kRowTag);
@@ -879,22 +877,19 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
 
     auto selectLinksFirst = [&](i64 limit) {
         return impl
-            ->readonly(
-                sql::kSelectDistinctLinksByPrefixFirst, normalizedPrefix, upper, toNative(limit)
-            )
+            ->readonly(sql::kSelectDistinctLinksByPrefixFirst, normalizedPrefix, upper, raw(limit))
             .AsContainer<std::vector<String>>();
     };
     auto selectLinksNext = [&](String fromLink, i64 limit) {
         return impl
             ->readonly(
-                sql::kSelectDistinctLinksByPrefixNext, normalizedPrefix, upper, fromLink,
-                toNative(limit)
+                sql::kSelectDistinctLinksByPrefixNext, normalizedPrefix, upper, fromLink, raw(limit)
             )
             .AsContainer<std::vector<String>>();
     };
 
     std::vector<String> links;
-    links.reserve(toSize(linksPerPage));
+    links.reserve(numericCast<size_t>(linksPerPage));
     if (cur) {
         const auto &cursorLink = cur->link;
         if (cur->createdAt) {
@@ -917,7 +912,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         pg::TimePointTz tp;
     };
     std::vector<dto::UuidWithTimeLink> items;
-    items.reserve(toSize(safeSize(links) * impl->perLinkMax));
+    items.reserve(numericCast<size_t>(safeSize(links) * impl->perLinkMax));
     bool endedMidLink = false;
     String lastLink;
     std::optional<Row> lastRow;
@@ -926,18 +921,18 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         if (idx == 0_i64 && cur && cur->createdAt && cur->id) {
             return impl
                 ->readonly(
-                    sql::kSelectCaptureByLinkNext, link, toNative(impl->perLinkMax),
+                    sql::kSelectCaptureByLinkNext, link, raw(impl->perLinkMax),
                     pg::TimePointTz(*cur->createdAt), *cur->id
                 )
                 .AsContainer<std::vector<Row>>(pg::kRowTag);
         }
-        return impl->readonly(sql::kSelectCaptureByLinkFirst, link, toNative(impl->perLinkMax))
+        return impl->readonly(sql::kSelectCaptureByLinkFirst, link, raw(impl->perLinkMax))
             .AsContainer<std::vector<Row>>(pg::kRowTag);
     };
 
     const auto linkCount = safeSize(links);
     for (i64 idx = 0; idx < linkCount; idx++) {
-        const auto &link = links[toSize(idx)];
+        const auto &link = links[numericCast<size_t>(idx)];
         auto rows = selectRowsForLink(link, idx);
         for (auto &&r : rows) {
             items.emplace_back(
@@ -980,7 +975,7 @@ void Crud::disallowAndPurgePrefix(String prefixKey)
     impl->purgeBackground.AsyncDetach("purge_prefix_lambda", [implPtr = impl.get(), prefixKey]() {
         try {
             engine::current_task::SetDeadline(
-                engine::Deadline::FromDuration(toSeconds(implPtr->purgeJobTimeoutSec))
+                engine::Deadline::FromDuration(chrono::seconds{implPtr->purgeJobTimeoutSec})
             );
             LOG_INFO() << fmt::format("Starting purge for denylisted prefix: {}", prefixKey);
             implPtr->purgePrefix(prefixKey);
