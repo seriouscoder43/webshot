@@ -252,7 +252,9 @@ public:
           ),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           processStarter(ctx.FindComponent<us::components::ProcessStarter>().Get()),
-          crawlerRunner(httpClient, processStarter, crawlerRunTimeoutSec),
+          crawlerRunner(
+              httpClient, processStarter, crawlerRunTimeoutSec, std::string(svcCfg.stateDir())
+          ),
           denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
           crawlSlots(engine::GetWorkerCount(mainTaskProcessor)),

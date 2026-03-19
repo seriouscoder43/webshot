@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <string>
 #include <string_view>
 
 #include <userver/components/component_base.hpp>
@@ -31,6 +32,9 @@ public:
     /** @return Maximum allowed length of URL query part. */
     [[nodiscard]] size_t queryPartLengthMax() const noexcept { return queryPartLengthMaxValue; }
 
+    /** @return Runner-owned state directory for webshotd instance. */
+    [[nodiscard]] std::string_view stateDir() const noexcept { return stateDirValue; }
+
     /** @name S3 parameters */
     ///@{
     [[nodiscard]] const String &s3Bucket() const noexcept { return s3BucketName; }
@@ -42,6 +46,7 @@ public:
 
 private:
     size_t queryPartLengthMaxValue;
+    std::string stateDirValue;
     String s3BucketName;
     String s3EndpointUrl;
     String s3RegionName;

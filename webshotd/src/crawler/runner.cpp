@@ -55,9 +55,24 @@ namespace v1 {
 namespace {
 
 constexpr auto kMaxBodyBytes = 50_i64 * 1024_i64 * 1024_i64;
-constexpr std::string_view kBrowserRunsRoot = "/tmp/webshot/browser-runs";
 constexpr size_t kMaxLogBytes = 64UL * 1024UL;
 const std::string kBwrapStatusWrapperScript = R"(exec 3>"$1"; shift; exec "$@")";
+
+[[nodiscard]] std::string normalizeDirPath(std::string value)
+{
+    while (value.size() > 1 && value.back() == '/')
+        value.pop_back();
+    return value;
+}
+
+[[nodiscard]] std::string buildBrowserRunsRoot(std::string stateDir)
+{
+    auto root = normalizeDirPath(std::move(stateDir));
+    UINVARIANT(!root.empty(), "state_dir must not be empty");
+    if (root == "/")
+        return "/browser_runs";
+    return fmt::format("{}/browser_runs", root);
+}
 
 [[nodiscard]] std::string lowerAscii(std::string_view text)
 {
@@ -144,10 +159,10 @@ struct [[nodiscard]] BrowserPaths {
     std::string devNullPath;
 };
 
-[[nodiscard]] BrowserPaths createBrowserPaths()
+[[nodiscard]] BrowserPaths createBrowserPaths(std::string_view browserRunsRoot)
 {
     BrowserPaths paths;
-    const auto tempRoot = std::string(kBrowserRunsRoot);
+    auto tempRoot = normalizeDirPath(std::string(browserRunsRoot));
     us::fs::blocking::CreateDirectories(tempRoot);
 
     paths.rootDir = fmt::format(
@@ -261,12 +276,6 @@ void removeBrowserRunDirNoThrow(const std::string &path) noexcept
 {
     if (path.empty())
         return;
-
-    const auto prefix = std::string_view(kBrowserRunsRoot);
-    if (path.size() < prefix.size() || path.compare(0, prefix.size(), prefix) != 0) {
-        LOG_WARNING() << fmt::format("Refusing to remove browser dir outside {}: {}", prefix, path);
-        return;
-    }
 
     try {
         auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
@@ -401,8 +410,11 @@ template <typename Process> void stopProcess(Process &process, chrono::milliseco
 
 class [[nodiscard]] BrowserInstance final {
 public:
-    explicit BrowserInstance(us::engine::subprocess::ProcessStarter &processStarter)
-        : processStarter(processStarter)
+    BrowserInstance(
+        us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn
+    )
+        : processStarter(processStarter),
+          browserRunsRoot(normalizeDirPath(std::move(browserRunsRootIn)))
     {
     }
 
@@ -415,7 +427,7 @@ public:
 
     void launch()
     {
-        paths = createBrowserPaths();
+        paths = createBrowserPaths(browserRunsRoot);
         markPhase("launch_browser");
         const auto devtoolsDeadline = us::engine::Deadline::FromDuration(chrono::seconds(8));
         proxyBridge.emplace(spawnProxyBridge(processStarter, paths));
@@ -569,6 +581,7 @@ private:
     }
 
     us::engine::subprocess::ProcessStarter &processStarter;
+    std::string browserRunsRoot;
     BrowserPaths paths;
     std::optional<us::engine::subprocess::ChildProcess> proxyBridge;
     std::optional<us::engine::subprocess::ChildProcess> process;
@@ -1319,11 +1332,12 @@ struct [[nodiscard]] CaptureResult {
 class [[nodiscard]] CaptureSession final {
 public:
     CaptureSession(
-        us::engine::subprocess::ProcessStarter &processStarter, crawler::RunRequest runIn
+        us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
+        crawler::RunRequest runIn
     )
         : run(std::move(runIn)),
           deadline(us::engine::Deadline::FromDuration(chrono::milliseconds{raw(run.jobTimeoutMs)})),
-          browser(processStarter)
+          browser(processStarter, std::move(browserRunsRootIn))
     {
     }
 
@@ -1625,11 +1639,13 @@ private:
 };
 
 [[nodiscard]] CaptureResult captureViaProxy(
-    us::engine::subprocess::ProcessStarter &processStarter, const crawler::RunRequest &run
+    us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
+    const crawler::RunRequest &run
 )
 {
     auto session = CaptureSession(
-        processStarter, crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
+        processStarter, std::string(browserRunsRoot),
+        crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
     );
     return session.capture();
 }
@@ -1646,13 +1662,13 @@ struct [[nodiscard]] RunExecutionResult {
 
 [[nodiscard]] RunExecutionResult executeRun(
     us::clients::http::Client &httpClient, us::engine::subprocess::ProcessStarter &processStarter,
-    const crawler::RunRequest &run
+    const std::string &browserRunsRoot, const crawler::RunRequest &run
 )
 {
     static_cast<void>(httpClient);
     try {
         LOG_INFO() << fmt::format("crawler executeRun starting for {}", run.seedUrl);
-        auto capture = captureViaProxy(processStarter, run);
+        auto capture = captureViaProxy(processStarter, browserRunsRoot, run);
         LOG_INFO() << fmt::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
             capture.exchange.statusCode
@@ -1726,16 +1742,19 @@ struct [[nodiscard]] RunExecutionResult {
 
 CrawlerRunner::CrawlerRunner(
     us::clients::http::Client &httpClientIn,
-    us::engine::subprocess::ProcessStarter &processStarterIn, i64 runTimeoutSecIn
+    us::engine::subprocess::ProcessStarter &processStarterIn, i64 runTimeoutSecIn,
+    std::string stateDir
 )
-    : httpClient(httpClientIn), processStarter(processStarterIn), runTimeoutSec(runTimeoutSecIn)
+    : httpClient(httpClientIn), processStarter(processStarterIn), runTimeoutSec(runTimeoutSecIn),
+      browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir)))
 {
 }
 
 CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
     auto result = executeRun(
-        httpClient, processStarter, crawler::RunRequest{seedUrl, runTimeoutSec * 1000_i64}
+        httpClient, processStarter, browserRunsRoot,
+        crawler::RunRequest{seedUrl, runTimeoutSec * 1000_i64}
     );
 
     CrawlerRunArtifacts out;

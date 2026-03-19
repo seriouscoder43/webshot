@@ -634,6 +634,7 @@ def _render_service_tree(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[Servi
                 {
                     "rapidoc_assets_dir": rapidoc_assets_dir,
                     "openapi_dir": str(ctx.repo_root / "schema"),
+                    "state_dir": str(ctx.state_dir / "webshotd"),
                 },
                 sort_keys=True,
             ),

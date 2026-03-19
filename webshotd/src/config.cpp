@@ -7,6 +7,7 @@
 #include <chrono>
 
 #include <userver/components/component.hpp>
+#include <userver/utils/assert.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
@@ -15,12 +16,14 @@ Config::Config(
 )
     : us::components::ComponentBase(config, context),
       queryPartLengthMaxValue(config["query_part_length_max"].As<size_t>()),
+      stateDirValue(config["state_dir"].As<std::string>()),
       s3BucketName(String::fromBytesThrow(config["s3_bucket"].As<std::string>())),
       s3EndpointUrl(String::fromBytesThrow(config["s3_endpoint"].As<std::string>())),
       s3RegionName(String::fromBytesThrow(config["s3_region"].As<std::string>())),
       publicBaseUrlValue(String::fromBytesThrow(config["public_base_url"].As<std::string>())),
       s3TimeoutDuration(std::chrono::milliseconds(config["s3_timeout_ms"].As<int>()))
 {
+    UINVARIANT(!stateDirValue.empty(), "state_dir must not be empty");
 }
 
 us::yaml_config::Schema Config::GetStaticConfigSchema()
@@ -35,6 +38,9 @@ properties:
     minimum: 1
     description: Maximum allowed length of the query part in the URL
     defaultDescription: "1024"
+  state_dir:
+    type: string
+    description: Runner-owned state directory for this webshotd instance
   s3_bucket:
     type: string
     description: Target bucket name

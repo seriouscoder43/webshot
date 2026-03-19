@@ -26,7 +26,8 @@ class [[nodiscard]] CrawlerRunner final {
 public:
     CrawlerRunner(
         us::clients::http::Client &httpClient,
-        us::engine::subprocess::ProcessStarter &processStarter, i64 runTimeoutSec
+        us::engine::subprocess::ProcessStarter &processStarter, i64 runTimeoutSec,
+        std::string stateDir
     );
 
     [[nodiscard]] CrawlerRunArtifacts run(const String &seedUrl) const;
@@ -35,6 +36,7 @@ private:
     us::clients::http::Client &httpClient;
     us::engine::subprocess::ProcessStarter &processStarter;
     i64 runTimeoutSec;
+    std::string browserRunsRoot;
 };
 
 } // namespace v1
