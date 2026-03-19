@@ -460,8 +460,7 @@ public:
     {
         if (preservedFailureDir)
             return preservedFailureDir;
-        if (paths.rootDir.empty())
-            return {};
+        UINVARIANT(!paths.rootDir.empty(), "browser run dir must not be empty");
 
         preserveRunDir = true;
         preservedFailureDir = paths.rootDir;
@@ -1061,8 +1060,10 @@ private:
 
         auto isTrackedMainDocument = false;
         if (isMainFrameDocumentRequest(requestWillBeSent)) {
-            if (!seedNavigationStarted)
-                return;
+            UINVARIANT(
+                seedNavigationStarted,
+                "main document request observed before seed navigation started"
+            );
             if (mainLoaderId && !matchesTrackedMainLoader(requestWillBeSent.loaderId))
                 return;
             if (!mainLoaderId && !mainRequestId && seedNavigationUrl) {
@@ -1121,8 +1122,17 @@ private:
     {
         const auto requestIdText = String::fromBytesThrow(responseReceived.requestId);
         const auto requestIt = activeRequests.find(requestIdText);
-        if (requestIt == std::end(activeRequests))
+        if (requestIt == std::end(activeRequests)) {
+            if (mainRequestId && mainRequestId.value() == requestIdText) {
+                UINVARIANT(
+                    false, fmt::format(
+                               "main document response received for unknown request id {}",
+                               requestIdText.view()
+                           )
+                );
+            }
             return;
+        }
 
         const auto headers = normalizeHeadersOrEmpty(responseReceived.response.headers);
         const auto timestamp = currentTimestamp();
@@ -1156,6 +1166,13 @@ private:
                 completedMainRequest = it->second;
                 mainResponseRequestId = requestIdText;
             }
+        } else if (mainRequestId && mainRequestId.value() == requestIdText) {
+            UINVARIANT(
+                false,
+                fmt::format(
+                    "main document loading finished for unknown request id {}", requestIdText.view()
+                )
+            );
         }
     }
 
@@ -1166,8 +1183,17 @@ private:
         lastNetworkAt = us::utils::datetime::SteadyNow();
 
         const auto requestIt = activeRequests.find(requestIdText);
-        if (requestIt == std::end(activeRequests))
+        if (requestIt == std::end(activeRequests)) {
+            if (mainRequestId && mainRequestId.value() == requestIdText) {
+                UINVARIANT(
+                    false, fmt::format(
+                               "main document loading failed for unknown request id {}",
+                               requestIdText.view()
+                           )
+                );
+            }
             return;
+        }
 
         auto &request = requestIt->second;
         request.loaded = true;
@@ -1185,12 +1211,15 @@ private:
         const String &requestId, const std::optional<dto::NetworkResponse> &redirectResponse
     )
     {
-        if (!redirectResponse || !redirectResponse->status)
-            return;
+        UINVARIANT(
+            redirectResponse && redirectResponse->status, "redirect response must include status"
+        );
 
         const auto requestIt = activeRequests.find(requestId);
-        if (requestIt == std::end(activeRequests))
-            return;
+        UINVARIANT(
+            requestIt != std::end(activeRequests),
+            fmt::format("redirect response for unknown request id {}", requestId.view())
+        );
 
         auto request = std::move(requestIt->second);
         activeRequests.erase(requestIt);
@@ -1213,8 +1242,12 @@ private:
 
     void recordMainDocumentRedirect(const TrackedRequest &request)
     {
-        if (!request.statusCode || !request.statusMessage || !request.headers || !request.timestamp)
-            return;
+        UINVARIANT(
+            hasResponse(request),
+            fmt::format(
+                "main redirect request missing response fields for {}", request.requestUrl.view()
+            )
+        );
 
         crawler::CapturedMainDocumentRedirect redirect;
         redirect.redirectUrl = request.requestUrl;
@@ -1235,8 +1268,12 @@ private:
 
     void recordResourceRedirect(const TrackedRequest &request)
     {
-        if (!request.statusCode || !request.statusMessage || !request.headers || !request.timestamp)
-            return;
+        UINVARIANT(
+            hasResponse(request), fmt::format(
+                                      "resource redirect request missing response fields for {}",
+                                      request.requestUrl.view()
+                                  )
+        );
 
         redirectedResources.push_back({
             request.requestUrl,

@@ -61,12 +61,13 @@ struct HandshakeResponse final {
 
 [[nodiscard]] String getErrorMessage(const json::Value &error)
 {
-    if (!error.IsObject())
-        return "cdp command failed"_t;
+    UINVARIANT(error.IsObject(), "cdp error payload must be object");
     try {
         return String::fromBytesThrow(error.As<dto::CdpError>().message);
-    } catch (const std::exception &) {
-        // Fall back to a generic message if the error payload does not match the expected DTO.
+    } catch (const std::exception &e) {
+        UINVARIANT(
+            false, fmt::format("cdp error payload does not match dto::CdpError ({})", e.what())
+        );
     }
     return "cdp command failed"_t;
 }
@@ -506,24 +507,25 @@ void CdpClient::handleMessage(const std::string &payload)
     if (!idValue.IsMissing()) {
         const auto id = idValue.As<int64_t>();
         const auto requestIt = pendingRequests.find(id);
-        const auto *request = requestIt == std::end(pendingRequests) ? nullptr : &requestIt->second;
+        UINVARIANT(
+            requestIt != std::end(pendingRequests),
+            fmt::format("cdp response for unknown request id {}", id)
+        );
+        const auto *request = &requestIt->second;
         const auto errorValue = value["error"];
         if (!errorValue.IsMissing()) {
             const auto errorMessage = getErrorMessage(errorValue);
             traceResponse(id, request, errorMessage);
-            if (requestIt != std::end(pendingRequests))
-                pendingRequests.erase(requestIt);
+            pendingRequests.erase(requestIt);
             throw std::runtime_error(std::string(errorMessage.view()));
         }
         traceResponse(id, request, {});
         pendingResults.emplace(id, value["result"]);
-        if (requestIt != std::end(pendingRequests))
-            pendingRequests.erase(requestIt);
+        pendingRequests.erase(requestIt);
         return;
     }
 
-    if (value["method"].IsMissing())
-        return;
+    UINVARIANT(!value["method"].IsMissing(), "cdp message missing id and method");
 
     auto eventMessage = value.As<dto::CdpEventMessage>();
     traceEvent(
