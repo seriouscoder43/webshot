@@ -2,6 +2,7 @@
 #include "ip_utils.hpp"
 #include "url.hpp"
 
+#include <arkhiv/gzip.hpp>
 #include <arkhiv/zip_archive.hpp>
 
 #include "schema/browsertrix_pages.hpp"
@@ -33,6 +34,16 @@ using namespace text::literals;
 namespace {
 
 constexpr std::string_view kUserAgent = "webshotd/0.1.0";
+constexpr std::string_view kWarcPath = "archive/data.warc.gz";
+
+[[nodiscard]] std::string gzipMemberOrThrow(std::string_view body)
+{
+    arkhiv::GzipError error;
+    auto maybeBytes = arkhiv::gzipCompressMember(body, error);
+    if (!maybeBytes)
+        throw std::runtime_error(error.detail);
+    return std::move(maybeBytes).value();
+}
 
 [[nodiscard]] std::string extractHtmlTitle(std::string_view body)
 {
@@ -366,7 +377,7 @@ serializeRecordPair(const SerializableResponse &response)
     recordEntry.url = std::string(record.recordUrl.view());
     recordEntry.status = fmt::to_string(record.statusCode);
     recordEntry.mime = contentTypeForHeaders(record.headers);
-    recordEntry.filename = "archive/data.warc";
+    recordEntry.filename = std::string(kWarcPath);
     recordEntry.length = fmt::to_string(record.length);
     recordEntry.offset = fmt::to_string(record.offset);
     return recordEntry;
@@ -418,7 +429,7 @@ makeWaczResource(std::string_view name, std::string_view path, size_t bytes)
 
     std::vector<dto::WaczResource> resources;
     const auto specs = std::array<ResourceSpec, 5>{{
-        {"archive", "archive/data.warc", warcBytes},
+        {"archive", kWarcPath, warcBytes},
         {"pages", "pages/pages.jsonl", pagesBytes},
         {"stdout log", "logs/stdout.log", stdoutBytes},
         {"stderr log", "logs/stderr.log", stderrBytes},
@@ -492,17 +503,19 @@ WarcBuildOutput buildWarc(const CapturedExchange &exchange)
     auto offset = 0_i64;
     for (const auto &response : responses) {
         auto [responseBytes, requestBytes] = serializeRecordPair(response);
+        const auto responseGz = gzipMemberOrThrow(responseBytes);
+        const auto requestGz = gzipMemberOrThrow(requestBytes);
         out.cdxRecords.push_back({
             response.responseUrl,
             toCdxTimestamp(response.timestamp),
             response.statusCode,
             response.headers,
             offset,
-            i64(responseBytes.size()),
+            i64(responseGz.size()),
         });
-        out.bytes += responseBytes;
-        out.bytes += requestBytes;
-        offset += i64(responseBytes.size() + requestBytes.size());
+        out.bytes.append(responseGz);
+        out.bytes.append(requestGz);
+        offset += i64(responseGz.size() + requestGz.size());
     }
 
     const auto pageInfoUrl = text::format(
@@ -512,15 +525,16 @@ WarcBuildOutput buildWarc(const CapturedExchange &exchange)
         {"content-type", "application/json"},
     };
     const auto pageInfoBytes = serializePageInfoRecord(exchange);
+    const auto pageInfoGz = gzipMemberOrThrow(pageInfoBytes);
     out.cdxRecords.push_back({
         pageInfoUrl,
         toCdxTimestamp(pageTimestamp(exchange)),
         200_i64,
         pageInfoHeaders,
         offset,
-        i64(pageInfoBytes.size()),
+        i64(pageInfoGz.size()),
     });
-    out.bytes += pageInfoBytes;
+    out.bytes.append(pageInfoGz);
     return out;
 }
 
@@ -544,7 +558,7 @@ std::string buildWacz(
     };
 
     addFileOrThrow("datapackage.json", datapackageJson);
-    addFileOrThrow("archive/data.warc", warc.bytes);
+    addFileOrThrow(kWarcPath, warc.bytes);
     addFileOrThrow("pages/pages.jsonl", waczPages);
     addFileOrThrow("logs/stdout.log", stdoutLog);
     addFileOrThrow("logs/stderr.log", stderrLog);

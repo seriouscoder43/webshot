@@ -1,9 +1,10 @@
 import asyncio
+import gzip
 import io
 import json
 import uuid
 from urllib.parse import urlparse
-from zipfile import ZipFile
+from zipfile import ZIP_STORED, ZipFile
 
 import pytest
 from helper.constants import TEST_ASSET_HOST, TEST_HOST
@@ -37,6 +38,11 @@ def _wacz_entries(wacz: bytes) -> dict[str, bytes]:
         return {name: zf.read(name) for name in zf.namelist()}
 
 
+def _wacz_zip_compress_type(wacz: bytes, name: str) -> int:
+    with ZipFile(io.BytesIO(wacz)) as zf:
+        return zf.getinfo(name).compress_type
+
+
 def _wacz_cdxj_records(wacz: bytes) -> list[dict[str, object]]:
     entries = _wacz_entries(wacz)
     cdxj = entries["indexes/index.cdxj"]
@@ -64,7 +70,38 @@ def _wacz_cdxj_records(wacz: bytes) -> list[dict[str, object]]:
 
 
 def _wacz_archive_text(wacz: bytes) -> str:
-    return _wacz_entries(wacz)["archive/data.warc"].decode("utf-8", "replace")
+    gz = _wacz_entries(wacz)["archive/data.warc.gz"]
+    return gzip.decompress(gz).decode("utf-8", "replace")
+
+
+def _assert_wacz_cdxj_ranges_independently_replayable(wacz: bytes, urls: list[str]) -> None:
+    entries = _wacz_entries(wacz)
+    warc_gz = entries["archive/data.warc.gz"]
+
+    seen = {url: False for url in urls}
+
+    for record in _wacz_cdxj_records(wacz):
+        url = record.get("url")
+        if url not in seen:
+            continue
+        try:
+            offset = int(record["offset"])  # type: ignore[arg-type]
+            length = int(record["length"])  # type: ignore[arg-type]
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        assert 0 <= offset < len(warc_gz)
+        assert length > 0
+        assert offset + length <= len(warc_gz)
+
+        chunk = warc_gz[offset : offset + length]
+        assert chunk[:2] == b"\x1f\x8b"
+        decompressed = gzip.decompress(chunk)
+        assert decompressed.startswith(b"WARC/1.1\r\n")
+        seen[str(url)] = True
+
+    missing = [url for url, ok in seen.items() if not ok]
+    assert not missing, f"missing independently replayable CDXJ ranges for: {missing!r}"
 
 
 async def _wait_for_job_status(
@@ -202,16 +239,17 @@ async def test_capture_and_query_roundtrip(service_client, pgsql, service_secdis
     wacz = await _download_wacz_from_s3(service_secdist_path, uuid_str)
     entries = _wacz_entries(wacz)
     assert set(entries) == {
-        "archive/data.warc",
+        "archive/data.warc.gz",
         "datapackage.json",
         "indexes/index.cdxj",
         "logs/stderr.log",
         "logs/stdout.log",
         "pages/pages.jsonl",
     }
+    assert _wacz_zip_compress_type(wacz, "archive/data.warc.gz") == ZIP_STORED
 
     datapackage = json.loads(entries["datapackage.json"].decode("utf-8"))
-    assert any(resource["path"] == "archive/data.warc" for resource in datapackage["resources"])
+    assert any(resource["path"] == "archive/data.warc.gz" for resource in datapackage["resources"])
 
     stdout_log = entries["logs/stdout.log"].decode("utf-8")
     assert "browsertrix rewrite start" in stdout_log
@@ -236,6 +274,13 @@ async def test_capture_and_query_roundtrip(service_client, pgsql, service_secdis
     assert f"WARC-Target-URI: urn:pageinfo:{link}" in archive_text
     assert "WARC-Target-URI: https://test-target/webshot-capture-path" in archive_text
     assert "HTTP/1.1 200 OK" in archive_text
+    _assert_wacz_cdxj_ranges_independently_replayable(
+        wacz,
+        [
+            "https://test-target/webshot-capture-path",
+            f"urn:pageinfo:{link}",
+        ],
+    )
 
 
 @pytest.mark.asyncio

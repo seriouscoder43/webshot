@@ -2,7 +2,9 @@ find_package(LibArchive REQUIRED)
 
 add_library(
   arkhiv
+  src/gzip.cpp
   src/zip_archive.cpp
+  include/arkhiv/gzip.hpp
   include/arkhiv/zip_archive.hpp)
 add_library(arkhiv::arkhiv ALIAS arkhiv)
 
