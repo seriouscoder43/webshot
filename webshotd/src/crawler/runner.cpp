@@ -368,7 +368,7 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
         fmt::format("{}", crawler::kProxyListenPort),
         fmt::format("{}", crawler::kDevtoolsPort),
         "--",
-        std::string(crawler::kBrowserBin),
+        "chromium",
     };
     bwrapArgs.insert(std::end(bwrapArgs), std::begin(chromiumArgs), std::end(chromiumArgs));
 

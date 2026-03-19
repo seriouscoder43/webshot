@@ -1,5 +1,4 @@
 #include "crawler/artifacts.hpp"
-#include "crawler/launch_policy.hpp"
 #include "ip_utils.hpp"
 #include "url.hpp"
 
@@ -480,7 +479,7 @@ std::string buildSuccessStdoutLog(
         "reused_browser={}\n"
         "browsertrix rewrite done\n\n",
         run.seedUrl, exchange.finalUrl, exchange.statusCode,
-        exchange.redirectChain.empty() ? 0 : exchange.redirectChain.size() - 1, kBrowserBin,
+        exchange.redirectChain.empty() ? 0 : exchange.redirectChain.size() - 1, "chromium",
         browserPid, reusedBrowser ? "true" : "false"
     );
 }

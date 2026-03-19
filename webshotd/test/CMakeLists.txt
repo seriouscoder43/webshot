@@ -106,22 +106,6 @@ add_cpp_test(deadline_utils_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils.cpp)
 
 add_cpp_test(
-  crawler_artifacts_test
-  SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/crawler_artifacts.cpp
-  ${CMAKE_SOURCE_DIR}/src/crawler/artifacts.cpp
-  ${CMAKE_SOURCE_DIR}/src/url.cpp
-  LIBS
-  arkhiv::arkhiv
-  userver::core
-  ${PROJECT_NAME}-chgen)
-
-add_cpp_test(
-  crawler_failure_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/crawler_failure.cpp
-  ${CMAKE_SOURCE_DIR}/src/crawler/failure.cpp)
-
-add_cpp_test(
   crawler_fallback_test SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback.cpp)
 

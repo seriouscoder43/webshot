@@ -25,8 +25,8 @@ buildChromiumArgs(const std::string &userDataDir, const std::string &netlogPath)
         "--no-sandbox",
         "--no-zygote",
         "--ignore-certificate-errors",
-        "--use-gl=angle",
-        "--use-angle=swiftshader",
+        "--use-gl=swiftshader",
+        "--disable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan",
         "--user-data-dir=" + userDataDir,
         "--log-net-log=" + netlogPath,
         "--net-log-capture-mode=IncludeSensitive",
@@ -34,8 +34,7 @@ buildChromiumArgs(const std::string &userDataDir, const std::string &netlogPath)
         "--proxy-bypass-list=<-loopback>",
         "--remote-debugging-address=127.0.0.1",
         "--remote-debugging-port=" + fmt::to_string(kDevtoolsPort),
-        std::string{"--window-size="} + fmt::to_string(kBrowserWindowWidth) + "," +
-            fmt::to_string(kBrowserWindowHeight)
+        "--window-size=1600,900",
     };
     args.emplace_back("--enable-logging=stderr");
     args.emplace_back("--log-level=0");
