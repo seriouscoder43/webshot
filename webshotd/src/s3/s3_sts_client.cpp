@@ -7,14 +7,13 @@
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
 
+#include <format>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <fmt/format.h>
 
 #include <userver/clients/http/client.hpp>
 #include <userver/clients/http/response.hpp>
@@ -94,7 +93,7 @@ StsCredentials detail::fetchStsWithExecutor(
     appendParam("Version"_t, "2011-06-15"_t);
     appendParam("RoleArn"_t, roleArn);
     appendParam("RoleSessionName"_t, roleSessionName);
-    appendParam("DurationSeconds"_t, String::fromBytesThrow(std::to_string(duration.count())));
+    appendParam("DurationSeconds"_t, text::format("{}", duration.count()));
     appendParam("Policy"_t, policyJson);
 
     const String payloadHash = s3v4::sha256Hex(body.view());
@@ -141,12 +140,12 @@ StsCredentials fetchStsCredentials(
         if (status >= 300) {
             const auto bodyOut = resp->body();
             if (const auto bodyUtf8 = String::fromBytes(bodyOut)) {
-                LOG_ERROR() << fmt::format(
+                LOG_ERROR() << std::format(
                     "STS request failed: url={}, status={}, body={}", urlBytes, status,
                     bodyUtf8.value()
                 );
             } else {
-                LOG_ERROR() << fmt::format(
+                LOG_ERROR() << std::format(
                     "STS request failed: url={}, status={}, body is not valid UTF-8 ({} bytes)",
                     urlBytes, status, bodyOut.size()
                 );

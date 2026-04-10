@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include <fmt/format.h>
+#include <format>
 
 #include <absl/strings/ascii.h>
 #include <absl/strings/match.h>
@@ -66,7 +66,7 @@ struct HandshakeResponse final {
         return String::fromBytesThrow(error.As<dto::CdpError>().message);
     } catch (const std::exception &e) {
         UINVARIANT(
-            false, fmt::format("cdp error payload does not match dto::CdpError ({})", e.what())
+            false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
         );
     }
     return "cdp command failed"_t;
@@ -154,7 +154,7 @@ parseHandshakeHeaders(std::string_view headersBlock)
         } else if (std::isprint(static_cast<unsigned char>(ch))) {
             dump.push_back(ch);
         } else {
-            dump += fmt::format("\\x{:02x}", static_cast<unsigned char>(ch));
+            dump += std::format("\\x{:02x}", static_cast<unsigned char>(ch));
         }
     }
 
@@ -192,7 +192,7 @@ makeHeaderSummary(const std::unordered_map<std::string, std::string> &headers)
 
 [[nodiscard]] std::string describeHandshakeResponse(const HandshakeResponse &response)
 {
-    return fmt::format(
+    return std::format(
         "status={}, headers={}, raw_headers={}",
         response.statusLine.empty() ? "missing" : response.statusLine,
         makeHeaderSummary(response.headers), makeHeaderDump(response.rawHeaders)
@@ -212,7 +212,7 @@ makeHeaderSummary(const std::unordered_map<std::string, std::string> &headers)
     const auto statusLineEnd = response.find("\r\n");
     if (statusLineEnd == std::string::npos)
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "invalid websocket handshake response: {}", describeHandshakeResponse(parsed)
             )
         );
@@ -229,7 +229,7 @@ void validateHandshakeResponse(const HandshakeResponse &response, std::string_vi
     if (response.statusLine.rfind("HTTP/1.1 101 ", 0) != 0 &&
         response.statusLine != "HTTP/1.1 101") {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "websocket upgrade rejected: {} ({})", response.statusLine,
                 describeHandshakeResponse(response)
             )
@@ -240,7 +240,7 @@ void validateHandshakeResponse(const HandshakeResponse &response, std::string_vi
     if (upgradeIt == std::end(response.headers) ||
         !absl::EqualsIgnoreCase(std::string_view(upgradeIt->second), "websocket")) {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "websocket handshake missing header: upgrade ({})",
                 describeHandshakeResponse(response)
             )
@@ -251,7 +251,7 @@ void validateHandshakeResponse(const HandshakeResponse &response, std::string_vi
     if (connectionIt == std::end(response.headers) ||
         !containsHeaderToken(connectionIt->second, "upgrade")) {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "websocket handshake missing header: connection=upgrade ({})",
                 describeHandshakeResponse(response)
             )
@@ -261,7 +261,7 @@ void validateHandshakeResponse(const HandshakeResponse &response, std::string_vi
     const auto acceptIt = response.headers.find("sec-websocket-accept");
     if (acceptIt == std::end(response.headers)) {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "websocket handshake missing header: sec-websocket-accept ({})",
                 describeHandshakeResponse(response)
             )
@@ -275,7 +275,7 @@ void validateHandshakeResponse(const HandshakeResponse &response, std::string_vi
     );
     if (acceptIt->second != expectedAccept)
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "websocket handshake accept mismatch: got={}, expected={} ({})", acceptIt->second,
                 expectedAccept, describeHandshakeResponse(response)
             )
@@ -301,7 +301,7 @@ CdpClient::CdpClient(std::string socketPathIn, String websocketPathIn, std::stri
         std::string_view(randomKey.data(), randomKey.size())
     );
 
-    const auto request = fmt::format(
+    const auto request = std::format(
         "GET {} HTTP/1.1\r\n"
         "Host: localhost\r\n"
         "Connection: Upgrade\r\n"
@@ -333,7 +333,7 @@ CdpClient::CdpClient(std::string socketPathIn, String websocketPathIn, std::stri
         );
     } catch (const std::exception &e) {
         throw std::runtime_error(
-            fmt::format("failed to open cdp trace file: {} ({})", tracePath, e.what())
+            std::format("failed to open cdp trace file: {} ({})", tracePath, e.what())
         );
     }
 }
@@ -386,7 +386,7 @@ json::Value CdpClient::sendRaw(
 
     auto it = pendingResults.find(id);
     UINVARIANT(
-        it != std::end(pendingResults), fmt::format("missing cdp response for request id {}", id)
+        it != std::end(pendingResults), std::format("missing cdp response for request id {}", id)
     );
     auto result = it->second;
     pendingResults.erase(it);
@@ -419,7 +419,7 @@ bool CdpClient::tryPumpOnce()
         closed = true;
         traceClose("in", numericCast<int>(message.close_status.value()));
         throw std::runtime_error(
-            fmt::format("cdp socket closed ({})", numericCast<int>(message.close_status.value()))
+            std::format("cdp socket closed ({})", numericCast<int>(message.close_status.value()))
         );
     }
     handleMessage(message.data);
@@ -470,7 +470,7 @@ void CdpClient::pumpOne()
         closed = true;
         traceClose("in", numericCast<int>(message.close_status.value()));
         throw std::runtime_error(
-            fmt::format("cdp socket closed ({})", numericCast<int>(message.close_status.value()))
+            std::format("cdp socket closed ({})", numericCast<int>(message.close_status.value()))
         );
     }
     handleMessage(message.data);
@@ -509,7 +509,7 @@ void CdpClient::handleMessage(const std::string &payload)
         const auto requestIt = pendingRequests.find(id);
         UINVARIANT(
             requestIt != std::end(pendingRequests),
-            fmt::format("cdp response for unknown request id {}", id)
+            std::format("cdp response for unknown request id {}", id)
         );
         const auto *request = &requestIt->second;
         const auto errorValue = value["error"];
@@ -563,7 +563,7 @@ void CdpClient::writeTraceLine(const json::Value &value)
         traceFile.Write(line);
     } catch (const std::exception &e) {
         throw std::runtime_error(
-            fmt::format("failed to write cdp trace to {} ({})", tracePath, e.what())
+            std::format("failed to write cdp trace to {} ({})", tracePath, e.what())
         );
     }
 }

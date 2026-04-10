@@ -11,15 +11,16 @@
 #include "schema/cdp.hpp"
 #include "text.hpp"
 #include "url.hpp"
+#include "uuid_format.hpp"
 
 #include <generated/browser_sandbox.sh.hpp>
 
 #include <algorithm>
 #include <array>
-#include <boost/uuid/uuid_io.hpp>
 #include <chrono>
 #include <csignal>
 #include <exception>
+#include <format>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -29,8 +30,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-#include <fmt/format.h>
 
 #include <absl/strings/ascii.h>
 
@@ -81,7 +80,7 @@ constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
     UINVARIANT(!root.empty(), "state_dir must not be empty");
     if (root == "/")
         return "/browser_runs";
-    return fmt::format("{}/browser_runs", root);
+    return std::format("{}/browser_runs", root);
 }
 
 [[nodiscard]] std::string readSelfCgroupV2PathOrThrow()
@@ -127,7 +126,7 @@ constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
     const auto parentPath = parentCgroupPathOrThrow(currentPath);
     if (parentPath == "/")
         return "/sys/fs/cgroup";
-    return fmt::format("/sys/fs/cgroup{}", parentPath);
+    return std::format("/sys/fs/cgroup{}", parentPath);
 }
 
 [[nodiscard]] String currentTimestamp()
@@ -165,9 +164,7 @@ normalizeHeadersOrEmpty(const std::optional<dto::CdpHeaders> &headers)
 
 [[nodiscard]] String generatePageId()
 {
-    return String::fromBytesThrow(
-        boost::uuids::to_string(us::utils::generators::GenerateBoostUuid())
-    );
+    return text::format("{}", us::utils::generators::GenerateBoostUuid());
 }
 
 class CaptureFailure final : public std::runtime_error {
@@ -183,7 +180,7 @@ public:
 template <typename T> [[nodiscard]] T parseEventParams(const crawler::CdpEvent &event)
 {
     if (!event.params)
-        throw std::runtime_error(fmt::format("{} missing params", event.method.view()));
+        throw std::runtime_error(std::format("{} missing params", event.method.view()));
     return event.params->extra.As<T>();
 }
 
@@ -213,8 +210,8 @@ struct [[nodiscard]] BrowserPaths {
     auto tempRoot = normalizeDirPath(std::string(browserRunsRoot));
     us::fs::blocking::CreateDirectories(tempRoot);
 
-    paths.runId = boost::uuids::to_string(us::utils::generators::GenerateBoostUuid());
-    paths.rootDir = fmt::format("{}/browser-{}", tempRoot, paths.runId);
+    paths.runId = std::format("{}", us::utils::generators::GenerateBoostUuid());
+    paths.rootDir = std::format("{}/browser-{}", tempRoot, paths.runId);
     us::fs::blocking::CreateDirectories(paths.rootDir);
 
     const auto rootDir = paths.rootDir;
@@ -261,13 +258,13 @@ void truncateLogBuffer(std::string &value)
 void writePhaseMarker(const std::string &path, std::string_view phase)
 {
     us::fs::blocking::RewriteFileContents(
-        path, fmt::format("{} {}\n", currentTimestamp().view(), phase)
+        path, std::format("{} {}\n", currentTimestamp().view(), phase)
     );
 }
 
 [[nodiscard]] std::string formatBrowserLogs(const std::pair<std::string, std::string> &logs)
 {
-    return fmt::format(
+    return std::format(
         "stdout={}, stderr={}", logs.first.empty() ? "empty" : logs.first,
         logs.second.empty() ? "empty" : logs.second
     );
@@ -279,7 +276,7 @@ void writePhaseMarker(const std::string &path, std::string_view phase)
 {
     auto value = formatBrowserLogs(browserLogs);
     if (!bwrapStatus.empty())
-        value = fmt::format("{}, bwrap_status={}", value, bwrapStatus);
+        value = std::format("{}, bwrap_status={}", value, bwrapStatus);
     return value;
 }
 
@@ -323,7 +320,7 @@ void removeBrowserRunDirNoThrow(const std::string &path) noexcept
         auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
         std::move(tempDir).Remove();
     } catch (const std::exception &e) {
-        LOG_WARNING() << fmt::format("Failed to remove browser dir {}: {}", path, e.what());
+        LOG_WARNING() << std::format("Failed to remove browser dir {}: {}", path, e.what());
     }
 }
 
@@ -356,7 +353,7 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
 {
     auto args = std::vector<std::string>{
         "UNIX-LISTEN:" + paths.proxySocketPath + ",fork,unlink-early",
-        fmt::format("TCP-CONNECT:127.0.0.1:{}", crawler::kProxyUpstreamPort),
+        std::format("TCP-CONNECT:127.0.0.1:{}", crawler::kProxyUpstreamPort),
     };
     return spawnProcess(processStarter, "socat", args, paths.devNullPath, paths.devNullPath);
 }
@@ -368,7 +365,7 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
 {
     const auto cpuCores = cgroupLimits ? cgroupLimits->cpuCores : 0_i64;
     const auto memoryBytes = cgroupLimits ? cgroupLimits->memoryBytes : 0_i64;
-    const auto cgroupName = fmt::format("webshotd_crawler_{}", paths.runId);
+    const auto cgroupName = std::format("webshotd_crawler_{}", paths.runId);
 
     auto chromiumArgs = crawler::buildChromiumArgs(paths.userDataDir, paths.netlogPath);
     auto bwrapArgs = std::vector<std::string>{
@@ -423,12 +420,12 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
         paths.proxySocketPath,
         paths.cdpSocketPath,
         paths.websocketPathFilePath,
-        fmt::format("{}", crawler::kProxyListenPort),
-        fmt::format("{}", crawler::kDevtoolsPort),
+        std::format("{}", crawler::kProxyListenPort),
+        std::format("{}", crawler::kDevtoolsPort),
         std::string(cgroupRootPath),
         cgroupName,
-        fmt::format("{}", cpuCores),
-        fmt::format("{}", memoryBytes),
+        std::format("{}", cpuCores),
+        std::format("{}", memoryBytes),
         "--",
         "chromium",
     };
@@ -500,7 +497,7 @@ public:
             );
         } catch (const std::exception &e) {
             throw std::runtime_error(
-                fmt::format(
+                std::format(
                     "devtools websocket handshake failed: {} ({})", e.what(), currentLaunchLogs()
                 )
             );
@@ -579,7 +576,7 @@ public:
 
             if (diagnostics.empty())
                 return std::string(message);
-            return fmt::format("{}, {}", message, diagnostics);
+            return std::format("{}, {}", message, diagnostics);
         } catch (const std::exception &) {
             return std::string(message);
         }
@@ -609,7 +606,7 @@ private:
                                us::fs::blocking::FileExists(paths.websocketPathFilePath);
             if (process && process->WaitFor(chrono::milliseconds(0))) {
                 throw std::runtime_error(
-                    fmt::format(
+                    std::format(
                         "chromium exited before exposing devtools ({})", currentLaunchLogs()
                     )
                 );
@@ -622,11 +619,11 @@ private:
         }
         if (process && process->WaitFor(chrono::milliseconds(0))) {
             throw std::runtime_error(
-                fmt::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
+                std::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
             );
         }
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "{} ({})",
                 !sawWebsocketPath ? "devtools websocket path was never written"
                 : !sawCdpSocket
@@ -660,7 +657,7 @@ struct [[nodiscard]] RetainedBodyBudget {
     const auto nextRetainedBytes = budget.retainedBytes + i64(body.size());
     if (nextRetainedBytes > budget.maxBytes) {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "retained body bytes {} exceeded size limit {}", nextRetainedBytes, budget.maxBytes
             )
         );
@@ -1188,7 +1185,7 @@ private:
         if (requestIt == std::end(activeRequests)) {
             if (mainRequestId && mainRequestId.value() == requestIdText) {
                 UINVARIANT(
-                    false, fmt::format(
+                    false, std::format(
                                "main document response received for unknown request id {}",
                                requestIdText.view()
                            )
@@ -1232,7 +1229,7 @@ private:
         } else if (mainRequestId && mainRequestId.value() == requestIdText) {
             UINVARIANT(
                 false,
-                fmt::format(
+                std::format(
                     "main document loading finished for unknown request id {}", requestIdText.view()
                 )
             );
@@ -1249,7 +1246,7 @@ private:
         if (requestIt == std::end(activeRequests)) {
             if (mainRequestId && mainRequestId.value() == requestIdText) {
                 UINVARIANT(
-                    false, fmt::format(
+                    false, std::format(
                                "main document loading failed for unknown request id {}",
                                requestIdText.view()
                            )
@@ -1281,7 +1278,7 @@ private:
         const auto requestIt = activeRequests.find(requestId);
         UINVARIANT(
             requestIt != std::end(activeRequests),
-            fmt::format("redirect response for unknown request id {}", requestId.view())
+            std::format("redirect response for unknown request id {}", requestId.view())
         );
 
         auto request = std::move(requestIt->second);
@@ -1307,7 +1304,7 @@ private:
     {
         UINVARIANT(
             hasResponse(request),
-            fmt::format(
+            std::format(
                 "main redirect request missing response fields for {}", request.requestUrl.view()
             )
         );
@@ -1332,7 +1329,7 @@ private:
     void recordResourceRedirect(const TrackedRequest &request)
     {
         UINVARIANT(
-            hasResponse(request), fmt::format(
+            hasResponse(request), std::format(
                                       "resource redirect request missing response fields for {}",
                                       request.requestUrl.view()
                                   )
@@ -1399,7 +1396,7 @@ struct [[nodiscard]] DomState {
 void runSiteBehavior(crawler::CdpClient &cdp, const String &sessionId, chrono::milliseconds timeout)
 {
     dto::RuntimeEvaluateParams params;
-    params.expression = fmt::format(
+    params.expression = std::format(
         "(() => new Promise((resolve) => {{ const startedAt = Date.now(); const stepDelayMs = "
         "100; const maxSteps = Math.max(1, Math.floor({0} / stepDelayMs)); let steps = 0; const "
         "tick = () => {{ const root = document.scrollingElement || document.documentElement || "
@@ -1440,7 +1437,7 @@ public:
             } catch (const std::exception &e) {
                 auto failureDetail = browser.buildRuntimeFailureDetail(e.what());
                 if (tracker && tracker->failureReason()) {
-                    failureDetail = fmt::format(
+                    failureDetail = std::format(
                         "{}, tracker_failure={}", failureDetail, tracker->failureReason()->view()
                     );
                 }
@@ -1619,7 +1616,7 @@ private:
         disposeBrowserContext();
 
         browser.markPhase("build_exchange_start");
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "captureViaProxy building exchange for {} (body_bytes={}, resources={})", run.seedUrl,
             body.size(), resources.size()
         );
@@ -1628,7 +1625,7 @@ private:
             std::move(resources)
         );
         browser.markPhase("build_exchange_done");
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "captureViaProxy built exchange for {} (status={}, resources={}, body_bytes={})",
             run.seedUrl, exchange.statusCode, exchange.resources.size(), exchange.body.size()
         );
@@ -1637,9 +1634,9 @@ private:
 
         browser.markPhase("close_browser_success");
         browser.markPhase("before_browser_close");
-        LOG_INFO() << fmt::format("captureViaProxy closing browser for {}", run.seedUrl);
+        LOG_INFO() << std::format("captureViaProxy closing browser for {}", run.seedUrl);
         browser.close();
-        LOG_INFO() << fmt::format("captureViaProxy returning capture for {}", run.seedUrl);
+        LOG_INFO() << std::format("captureViaProxy returning capture for {}", run.seedUrl);
         return exchange;
     }
 
@@ -1756,22 +1753,22 @@ private:
     CrawlerRunArtifacts out;
     out.attempt.exited = true;
     try {
-        LOG_INFO() << fmt::format("crawler executeRun starting for {}", run.seedUrl);
+        LOG_INFO() << std::format("crawler executeRun starting for {}", run.seedUrl);
         auto exchange = captureViaProxy(
             processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), timings, run
         );
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
             exchange.statusCode
         );
         auto pages = crawler::buildPagesJsonl(exchange);
-        LOG_INFO() << fmt::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
+        LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
         out.stdoutLog = crawler::buildSuccessStdoutLog(run, exchange, 0_i64, false);
         out.stderrLog.clear();
         auto warc = crawler::buildWarc(exchange);
-        LOG_INFO() << fmt::format("crawler buildWarc finished for {}", run.seedUrl);
+        LOG_INFO() << std::format("crawler buildWarc finished for {}", run.seedUrl);
         auto wacz = crawler::buildWacz(run, pages, warc, out.stdoutLog, out.stderrLog);
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "crawler buildWacz finished for {} (wacz_bytes={}, pages_bytes={})", run.seedUrl,
             wacz.size(), pages.size()
         );
@@ -1800,7 +1797,7 @@ private:
             out.attempt.failureDetail = text::format("seed returned HTTP {}", exchange.statusCode);
         }
 
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "crawler executeRun finished for {} (exit_code={}, wacz_exists=true)", run.seedUrl,
             exitCode
         );

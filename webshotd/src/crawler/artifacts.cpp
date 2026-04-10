@@ -10,12 +10,12 @@
 
 #include <algorithm>
 #include <array>
-#include <boost/uuid/uuid_io.hpp>
+#include <format>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
 
-#include <fmt/format.h>
+#include "uuid_format.hpp"
 
 #include <userver/formats/json.hpp>
 #include <userver/http/status_code.hpp>
@@ -170,10 +170,10 @@ collectSerializableResponses(const CapturedExchange &exchange)
 serializeRecordPair(const SerializableResponse &response)
 {
     const auto recordDate = response.timestamp;
-    const auto responseRecordId = fmt::format(
+    const auto responseRecordId = std::format(
         "urn:uuid:{}", us::utils::generators::GenerateBoostUuid()
     );
-    const auto requestRecordId = fmt::format(
+    const auto requestRecordId = std::format(
         "urn:uuid:{}", us::utils::generators::GenerateBoostUuid()
     );
     const auto normalizedHeaders = normalizeResponseHeaders(response.headers);
@@ -194,14 +194,14 @@ serializeRecordPair(const SerializableResponse &response)
               )
             : response.statusMessage;
 
-    std::string httpResponseHead = fmt::format(
+    std::string httpResponseHead = std::format(
         "HTTP/1.1 {} {}\r\n", response.statusCode, statusMessage
     );
     for (const auto &[name, value] : normalizedHeaders)
-        httpResponseHead += fmt::format("{}: {}\r\n", name, value);
+        httpResponseHead += std::format("{}: {}\r\n", name, value);
     httpResponseHead += "\r\n";
 
-    std::string responseHeader = fmt::format(
+    std::string responseHeader = std::format(
         "WARC/1.1\r\n"
         "WARC-Type: response\r\n"
         "WARC-Target-URI: {}\r\n"
@@ -214,19 +214,19 @@ serializeRecordPair(const SerializableResponse &response)
         "\r\n"
         "{}",
         response.responseUrl, recordDate, responseRecordId,
-        response.pageId.empty() ? "" : fmt::format("WARC-Page-ID: {}\r\n", response.pageId),
+        response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
         response.resourceType
-            ? fmt::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
+            ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
             : std::string{},
         httpResponseHead.size() + response.body.size(), httpResponseHead
     );
 
-    std::string requestPayload = fmt::format(
+    std::string requestPayload = std::format(
         "{} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {}\r\n\r\n",
         response.method.empty() ? "GET"_t : response.method, requestPath, requestHost, kUserAgent
     );
 
-    std::string requestHeader = fmt::format(
+    std::string requestHeader = std::format(
         "WARC/1.1\r\n"
         "WARC-Type: request\r\n"
         "WARC-Target-URI: {}\r\n"
@@ -240,9 +240,9 @@ serializeRecordPair(const SerializableResponse &response)
         "\r\n"
         "{}\r\n",
         response.responseUrl, recordDate, requestRecordId, responseRecordId,
-        response.pageId.empty() ? "" : fmt::format("WARC-Page-ID: {}\r\n", response.pageId),
+        response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
         response.resourceType
-            ? fmt::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
+            ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
             : std::string{},
         requestPayload.size(), requestPayload
     );
@@ -297,11 +297,11 @@ serializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] std::string serializePageInfoRecord(const CapturedExchange &exchange)
 {
     const auto pageUrl = exchange.seedUrl.empty() ? exchange.finalUrl : exchange.seedUrl;
-    const auto pageInfoUrl = fmt::format("urn:pageinfo:{}", pageUrl);
-    const auto recordId = fmt::format("urn:uuid:{}", us::utils::generators::GenerateBoostUuid());
+    const auto pageInfoUrl = std::format("urn:pageinfo:{}", pageUrl);
+    const auto recordId = std::format("urn:uuid:{}", us::utils::generators::GenerateBoostUuid());
     const auto payload = buildPageInfoJson(exchange);
 
-    return fmt::format(
+    return std::format(
         "WARC/1.1\r\n"
         "WARC-Type: resource\r\n"
         "WARC-Target-URI: {}\r\n"
@@ -326,7 +326,7 @@ serializeRecordPair(const SerializableResponse &response)
     if (defaultPort == 0)
         return true;
 
-    return url.port().view() != std::to_string(defaultPort);
+    return url.port().view() != std::format("{}", defaultPort);
 }
 
 [[nodiscard]] String toSurtKey(const String &urlText)
@@ -375,11 +375,11 @@ serializeRecordPair(const SerializableResponse &response)
 {
     dto::WaczIndexEntry recordEntry;
     recordEntry.url = std::string(record.recordUrl.view());
-    recordEntry.status = fmt::to_string(record.statusCode);
+    recordEntry.status = std::format("{}", record.statusCode);
     recordEntry.mime = contentTypeForHeaders(record.headers);
     recordEntry.filename = std::string(kWarcPath);
-    recordEntry.length = fmt::to_string(record.length);
-    recordEntry.offset = fmt::to_string(record.offset);
+    recordEntry.length = std::format("{}", record.length);
+    recordEntry.offset = std::format("{}", record.offset);
     return recordEntry;
 }
 
@@ -479,7 +479,7 @@ std::string buildSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browserPid, bool reusedBrowser
 )
 {
-    return fmt::format(
+    return std::format(
         "browsertrix rewrite start\n"
         "seed_url={}\n"
         "final_url={}\n"

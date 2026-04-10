@@ -21,7 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-artifacts
-          bash .forgejo/devenv_ci.sh tasks run webshot:tidyBuild 2>&1 | tee ci-artifacts/tidyBuild.log
+          bash .forgejo/devenv_ci.sh tasks run proj:tidyBuild 2>&1 | tee ci-artifacts/tidyBuild.log
       - name: Upload clang-tidy artifacts
         if: failure()
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
@@ -39,9 +39,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-artifacts
-          bash .forgejo/devenv_ci.sh tasks run webshot:devBuild 2>&1 | tee ci-artifacts/devBuild.log
+          bash .forgejo/devenv_ci.sh tasks run proj:devBuild 2>&1 | tee ci-artifacts/devBuild.log
           ulimit -c unlimited || true
-          bash .forgejo/devenv_ci.sh tasks run webshot:devTest 2>&1 | tee ci-artifacts/devTest.log
+          bash .forgejo/devenv_ci.sh tasks run proj:devTest 2>&1 | tee ci-artifacts/devTest.log
       - name: Collect failure artifacts
         if: failure()
         run: |
@@ -90,4 +90,4 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          bash .forgejo/devenv_ci.sh tasks run webshot:devDown || true
+          bash .forgejo/devenv_ci.sh tasks run proj:devDown || true

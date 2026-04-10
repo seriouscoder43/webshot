@@ -8,7 +8,7 @@ description: C++ coding rules for the webshot service (style, naming, safety con
 Use these rules whenever making C++ changes in this repository.
 
 ## Language and headers
-- C++20 is required to build the service; write code in C++17 unless specifically requested otherwise.
+- C++26 is required to build the service; write code in C++26.
 - All shared headers under `webshotd/include/` MUST use `#pragma once`.
 
 ## Style and naming

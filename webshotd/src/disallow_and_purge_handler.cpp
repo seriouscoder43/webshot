@@ -13,10 +13,9 @@
 #include "text.hpp"
 
 #include <chrono>
+#include <format>
 #include <optional>
 #include <string>
-
-#include <fmt/format.h>
 
 #include <userver/components/component.hpp>
 #include <userver/engine/task/current_task.hpp>
@@ -68,7 +67,7 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
         auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
         engine::current_task::SetDeadline(finalDeadline);
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("Failed to compute handler deadline: {}", e.what());
+        LOG_ERROR() << std::format("Failed to compute handler deadline: {}", e.what());
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 
@@ -82,17 +81,17 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     try {
         link = Link::fromTextStripPortQuery(host.value(), config.queryPartLengthMax());
     } catch (const InvalidLinkException &e) {
-        LOG_INFO() << fmt::format("invalid host: {}", e.what());
+        LOG_INFO() << std::format("invalid host: {}", e.what());
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     }
-    LOG_INFO() << fmt::format("invoked for: {}", link->url.hostname());
+    LOG_INFO() << std::format("invoked for: {}", link->url.hostname());
     try {
         auto prefixKey = prefix::makePrefixKey(link.value());
         crud.disallowAndPurgePrefix(prefixKey);
         response.SetStatus(kAccepted);
         return {};
     } catch (const std::exception &e) {
-        LOG_CRITICAL() << fmt::format("failed for {}: {}", link->url.hostname(), e.what());
+        LOG_CRITICAL() << std::format("failed for {}: {}", link->url.hostname(), e.what());
         us::utils::AbortWithStacktrace("disallowing host failed");
     }
 }

@@ -5,7 +5,6 @@ function(add_cpp_test target)
   target_link_libraries(
     ${target}
     PRIVATE userver::utest
-            fmt::fmt
             ada::ada
             uni-algo::uni-algo
             absl::strings

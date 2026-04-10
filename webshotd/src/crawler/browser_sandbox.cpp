@@ -1,7 +1,7 @@
 #include "crawler/browser_sandbox.hpp"
 #include "crawler/launch_policy.hpp"
 
-#include <fmt/format.h>
+#include <format>
 
 namespace v1::crawler {
 
@@ -30,10 +30,10 @@ buildChromiumArgs(const std::string &userDataDir, const std::string &netlogPath)
         "--user-data-dir=" + userDataDir,
         "--log-net-log=" + netlogPath,
         "--net-log-capture-mode=IncludeSensitive",
-        std::string{"--proxy-server=http://127.0.0.1:"} + fmt::to_string(kProxyListenPort),
+        std::format("--proxy-server=http://127.0.0.1:{}", kProxyListenPort),
         "--proxy-bypass-list=<-loopback>",
         "--remote-debugging-address=127.0.0.1",
-        "--remote-debugging-port=" + fmt::to_string(kDevtoolsPort),
+        std::format("--remote-debugging-port={}", kDevtoolsPort),
         "--window-size=1600,900",
     };
     args.emplace_back("--enable-logging=stderr");

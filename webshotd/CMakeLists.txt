@@ -120,7 +120,7 @@ add_library(
   ${${PROJECT_NAME}_headers})
 
 function(apply_defaults target)
-  set_property(TARGET ${target} PROPERTY CXX_STANDARD 20)
+  set_property(TARGET ${target} PROPERTY CXX_STANDARD 26)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
   set_property(TARGET ${target} PROPERTY CXX_EXTENSIONS OFF)
   target_compile_options(
@@ -201,8 +201,6 @@ set_source_files_properties(
                                    "${_webshot_browser_sandbox_embed_hpp}")
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE webshotd_browser_sandbox_sh)
 target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_sh)
-find_package(fmt CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ada::ada)
 find_package(uni-algo CONFIG REQUIRED)
@@ -287,7 +285,6 @@ target_link_libraries(
   ${PROJECT_NAME}
   PRIVATE ${PROJECT_NAME}-chgen
           arkhiv::arkhiv
-          fmt::fmt
           ada::ada
           userver::core
           userver::postgresql

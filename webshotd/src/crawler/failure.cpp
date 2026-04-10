@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <exception>
 
-#include <fmt/format.h>
-
 #include <userver/fs/blocking/read.hpp>
 
 namespace us = userver;

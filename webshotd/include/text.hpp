@@ -6,15 +6,15 @@
  */
 
 #include <algorithm>
+#include <format>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <uni_algo/conv.h>
 #include <uni_algo/norm.h>
-
-#include <fmt/format.h>
 
 namespace text {
 
@@ -133,9 +133,9 @@ private:
     return lhs;
 }
 
-template <typename... Ts> String format(fmt::format_string<Ts...> fmt, Ts &&...args)
+template <typename... Ts> String format(std::format_string<Ts...> formatStr, Ts &&...args)
 {
-    return String::fromBytesThrow(fmt::format(fmt, std::forward<Ts>(args)...));
+    return String::fromBytesThrow(std::format(formatStr, std::forward<Ts>(args)...));
 }
 
 namespace literals {
@@ -149,10 +149,10 @@ namespace literals {
 
 using text::String;
 
-template <> struct fmt::formatter<String> : fmt::formatter<std::string_view> {
-    fmt::format_context::iterator format(const String &text, fmt::format_context &ctx) const
+template <> struct std::formatter<text::String, char> : std::formatter<std::string_view, char> {
+    auto format(const text::String &text, std::format_context &ctx) const
     {
-        return fmt::formatter<std::string_view>::format(text.view(), ctx);
+        return std::formatter<std::string_view, char>::format(text.view(), ctx);
     }
 };
 

@@ -11,7 +11,7 @@ add_library(arkhiv::arkhiv ALIAS arkhiv)
 target_include_directories(arkhiv PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(arkhiv PUBLIC LibArchive::LibArchive)
 
-set_property(TARGET arkhiv PROPERTY CXX_STANDARD 20)
+set_property(TARGET arkhiv PROPERTY CXX_STANDARD 26)
 set_property(TARGET arkhiv PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET arkhiv PROPERTY CXX_EXTENSIONS OFF)
 
@@ -25,7 +25,7 @@ if(BUILD_TESTING)
   target_link_libraries(arkhiv_zip_archive_test PRIVATE arkhiv
                                                         LibArchive::LibArchive
                                                         GTest::gtest_main)
-  set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_STANDARD 20)
+  set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_STANDARD 26)
   set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_STANDARD_REQUIRED ON)
   set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_EXTENSIONS OFF)
   set_property(

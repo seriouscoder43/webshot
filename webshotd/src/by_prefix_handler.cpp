@@ -11,6 +11,7 @@
 #include "text.hpp"
 
 #include <chrono>
+#include <format>
 #include <string>
 
 #include "http_utils.hpp"
@@ -102,7 +103,7 @@ std::string ByPrefixHandler::HandleRequestThrow(
             );
         }
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("Unhandled error: {}", e.what());
+        LOG_ERROR() << std::format("Unhandled error: {}", e.what());
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

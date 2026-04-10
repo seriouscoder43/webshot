@@ -23,12 +23,14 @@
 #include "server_errors.hpp"
 #include "text.hpp"
 #include "text_postgres_formatter.hpp"
+#include "uuid_format.hpp"
 
 #include <webshot/sql_queries.hpp>
 
 #include <chrono>
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -38,8 +40,6 @@
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
-
-#include <fmt/format.h>
 
 #include <userver/clients/http/component.hpp>
 #include <userver/components/component.hpp>
@@ -93,16 +93,16 @@ computeCrawlerLimitsOrThrow(i64 cpuCores, i64 memoryGib)
         return {};
     if (cpuCores <= 0_i64 || memoryGib <= 0_i64) {
         throw std::runtime_error(
-            fmt::format(
+            std::format(
                 "crawler limits must be both > 0 or both 0; got cpu_cores={}, memory_gib={}",
                 cpuCores, memoryGib
             )
         );
     }
     if (raw(memoryGib) > (std::numeric_limits<int64_t>::max() / raw(kGiB)))
-        throw std::runtime_error(fmt::format("memory GiB limit {} is too large", memoryGib));
+        throw std::runtime_error(std::format("memory GiB limit {} is too large", memoryGib));
     if (raw(cpuCores) > (std::numeric_limits<int64_t>::max() / raw(kCpuMaxPeriodUs)))
-        throw std::runtime_error(fmt::format("cpu core limit {} is too large", cpuCores));
+        throw std::runtime_error(std::format("cpu core limit {} is too large", cpuCores));
     return crawler::CgroupLimits{cpuCores, memoryGib * kGiB};
 }
 } // namespace
@@ -196,18 +196,8 @@ properties:
         type: integer
         minimum: 1
         description: 'Number of objects to delete per purge batch'
-)");
+	)");
 }
-
-Crud::Crud(
-    const us::components::ComponentConfig &config, const us::components::ComponentContext &context
-)
-    : us::components::ComponentBase(config, context),
-      impl(std::make_unique<Crud::Impl>(config, context))
-{
-}
-
-Crud::~Crud() = default;
 
 struct [[nodiscard]] CrawlContext;
 
@@ -393,6 +383,16 @@ public:
     }
 };
 
+Crud::Crud(
+    const us::components::ComponentConfig &config, const us::components::ComponentContext &context
+)
+    : us::components::ComponentBase(config, context),
+      impl(std::make_unique<Crud::Impl>(config, context))
+{
+}
+
+Crud::~Crud() = default;
+
 /** Lightweight context shared across steps of a single crawl job. */
 struct [[nodiscard]] CrawlContext {
     Link link;
@@ -402,8 +402,7 @@ struct [[nodiscard]] CrawlContext {
     String location;
 
     CrawlContext(Uuid idIn, Link linkIn, const Config &cfg)
-        : link(std::move(linkIn)), id(idIn),
-          keyOnly(String::fromBytesThrow(us::utils::ToString(id))),
+        : link(std::move(linkIn)), id(idIn), keyOnly(text::format("{}", id)),
           s3Key(text::format("{}/{}", cfg.s3Bucket(), keyOnly)),
           location(text::format("{}/{}", cfg.publicBaseUrl(), keyOnly))
     {
@@ -422,25 +421,19 @@ struct [[nodiscard]] CrawlContext {
 
     CrawlContext ctx(id, std::move(link), svcCfg);
 
-    LOG_INFO() << fmt::format(
-        "runCrawlJob starting crawler for job {} ({})", us::utils::ToString(id),
-        ctx.link.normalized()
+    LOG_INFO() << std::format(
+        "runCrawlJob starting crawler for job {} ({})", id, ctx.link.normalized()
     );
     runCrawlerForContext(ctx);
-    LOG_INFO() << fmt::format(
-        "runCrawlJob finished crawler for job {} ({})", us::utils::ToString(id),
-        ctx.link.normalized()
+    LOG_INFO() << std::format(
+        "runCrawlJob finished crawler for job {} ({})", id, ctx.link.normalized()
     );
 
-    LOG_INFO() << fmt::format(
-        "Persisting metadata for job {} ({})", us::utils::ToString(id), ctx.link.normalized()
-    );
+    LOG_INFO() << std::format("Persisting metadata for job {} ({})", id, ctx.link.normalized());
     auto createdAt = persistMetadataForContext(ctx);
     if (!createdAt)
         throw errors::CrawlerFailedException("failed to persist metadata");
-    LOG_INFO() << fmt::format(
-        "Persisted metadata for job {} ({})", us::utils::ToString(id), ctx.link.normalized()
-    );
+    LOG_INFO() << std::format("Persisted metadata for job {} ({})", id, ctx.link.normalized());
     return {ctx.id, createdAt.value(), std::string(ctx.link.normalized().view())};
 }
 
@@ -524,9 +517,7 @@ std::optional<dto::CaptureJob> Crud::Impl::loadJob(Uuid id)
 
 Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts() const
 {
-    const auto sessionUuid = String::fromBytesThrow(
-        us::utils::ToString(us::utils::generators::GenerateBoostUuid())
-    );
+    const auto sessionUuid = text::format("{}", us::utils::generators::GenerateBoostUuid());
     const auto sessionName = text::format("{}", sessionUuid);
     const auto kRoleArnDescription = "ephemeral_s3_credentials"_t;
 
@@ -579,7 +570,7 @@ void Crud::Impl::startS3RefreshTask()
         try {
             refreshS3CredentialsTask();
         } catch (const std::exception &e) {
-            LOG_ERROR() << fmt::format("S3 credentials refresh task terminated: {}", e.what());
+            LOG_ERROR() << std::format("S3 credentials refresh task terminated: {}", e.what());
         }
     });
 }
@@ -605,7 +596,7 @@ void Crud::Impl::refreshS3CredentialsTask()
             s3RefreshTask.SetSettings(settings);
             break;
         } catch (const std::exception &e) {
-            LOG_ERROR() << fmt::format("Failed to refresh S3 credentials from STS: {}", e.what());
+            LOG_ERROR() << std::format("Failed to refresh S3 credentials from STS: {}", e.what());
             engine::SleepFor(chrono::seconds{s3CredentialsRefreshRetrySec});
         }
     }
@@ -623,7 +614,7 @@ void Crud::Impl::startCrawlJobCleanupTask()
         try {
             cleanupOldJobs();
         } catch (const std::exception &e) {
-            LOG_ERROR() << fmt::format("Crawl job cleanup task failed: {}", e.what());
+            LOG_ERROR() << std::format("Crawl job cleanup task failed: {}", e.what());
         }
     });
 }
@@ -635,42 +626,42 @@ void Crud::Impl::cleanupOldJobs()
     try {
         static_cast<void>(sharedReadwrite(sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)));
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("Failed to delete old crawl jobs: {}", e.what());
+        LOG_ERROR() << std::format("Failed to delete old crawl jobs: {}", e.what());
         throw;
     }
 }
 
 crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(CrawlContext &ctx, const String &seedUrl)
 {
-    LOG_INFO() << fmt::format(
+    LOG_INFO() << std::format(
         "Submitting crawl for {} to embedded crawler with timeout={}s", seedUrl,
         crawlerRunTimeoutSec
     );
 
     const auto run = crawlerRunner.run(seedUrl);
-    LOG_INFO() << fmt::format(
+    LOG_INFO() << std::format(
         "Embedded crawler returned for {} (exit_code={}, wacz_exists={})", seedUrl,
         run.attempt.exitCode, run.attempt.waczExists ? "true" : "false"
     );
     if (!run.attempt.waczExists) {
         const auto attemptContext = crawler::formatAttemptContext(run.attempt);
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "Crawler attempt failed for {}{}", seedUrl,
-            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
+            attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
         );
         return run.attempt;
     }
 
     try {
-        LOG_INFO() << fmt::format("Uploading WACZ for {} to {}", seedUrl, ctx.s3Key);
+        LOG_INFO() << std::format("Uploading WACZ for {} to {}", seedUrl, ctx.s3Key);
         UINVARIANT(run.wacz, "embedded crawler reported missing WACZ payload");
         auto snapshot = s3State.Read();
         snapshot->client->PutObject(
             ctx.s3Key.view(), run.wacz.value(), {}, "application/zip", {}, {}
         );
-        LOG_INFO() << fmt::format("Uploaded WACZ for {} to {}", seedUrl, ctx.s3Key);
+        LOG_INFO() << std::format("Uploaded WACZ for {} to {}", seedUrl, ctx.s3Key);
     } catch (const std::exception &e) {
-        const auto msg = fmt::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
+        const auto msg = std::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
         LOG_ERROR() << msg;
         throw;
     }
@@ -696,7 +687,7 @@ void Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
     }
 
     if (result.httpsAttempt.seedProbe && result.httpAttempt) {
-        LOG_INFO() << fmt::format(
+        LOG_INFO() << std::format(
             "HTTPS seed probe before HTTP fallback: status={}, loadState={}",
             result.httpsAttempt.seedProbe->status.value_or(0),
             result.httpsAttempt.seedProbe->loadState.value_or(-1)
@@ -705,7 +696,7 @@ void Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
 
     if (result.outcome == crawler::RunOutcome::kFailedSizeLimit) {
         const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
-        const auto msg = fmt::format(
+        const auto msg = std::format(
             "Failed to crawl {} ({})", result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
             crawler::formatAttemptStatus(result.httpAttempt ? "http" : "https", attempt)
         );
@@ -716,10 +707,10 @@ void Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
     if (result.outcome == crawler::RunOutcome::kFailedChildNoExit) {
         const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
         const auto attemptContext = crawler::formatAttemptContext(attempt);
-        const auto msg = fmt::format(
+        const auto msg = std::format(
             "Failed to crawl {}, child process did not exit cleanly{}",
             result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
-            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
+            attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
         );
         LOG_INFO() << msg;
         throw errors::CrawlerFailedException(msg);
@@ -728,18 +719,18 @@ void Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
     if (result.outcome == crawler::RunOutcome::kFailedNoWacz) {
         const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
         const auto attemptContext = crawler::formatAttemptContext(attempt);
-        const auto msg = fmt::format(
+        const auto msg = std::format(
             "Failed to crawl {}, no WACZ{}", result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
-            attemptContext.empty() ? std::string() : fmt::format(" ({})", attemptContext)
+            attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
         );
         LOG_INFO() << msg;
         throw errors::CrawlerFailedException(msg);
     }
 
-    const auto msg = fmt::format(
+    const auto msg = std::format(
         "Failed to crawl {} ({})", ctx.link.normalized(),
         result.httpAttempt
-            ? fmt::format(
+            ? std::format(
                   "{}, {}", crawler::formatAttemptStatus("https", result.httpsAttempt),
                   crawler::formatAttemptStatus("http", result.httpAttempt.value())
               )
@@ -761,9 +752,9 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
             auto snapshot = s3State.Read();
             snapshot->client->DeleteObject(ctx.s3Key.view());
         } catch (const std::exception &) {
-            LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
+            LOG_ERROR() << std::format("error deleting {}", ctx.s3Key);
         }
-        LOG_INFO() << fmt::format("Host became denylisted during crawl: {}", host);
+        LOG_INFO() << std::format("Host became denylisted during crawl: {}", host);
         return {};
     }
 
@@ -785,11 +776,9 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
             auto snapshot = s3State.Read();
             snapshot->client->DeleteObject(ctx.s3Key.view());
         } catch (const std::exception &) {
-            LOG_ERROR() << fmt::format("error deleting {}", ctx.s3Key);
+            LOG_ERROR() << std::format("error deleting {}", ctx.s3Key);
         }
-        LOG_ERROR() << fmt::format(
-            "DB insert failed for {}: {}", us::utils::ToString(ctx.id), e.what()
-        );
+        LOG_ERROR() << std::format("DB insert failed for {}: {}", ctx.id, e.what());
         return {};
     }
 }
@@ -807,17 +796,17 @@ void Crud::Impl::purgePrefix(const String &prefixKey)
             if (ids.empty())
                 break;
             for (auto &&id : ids) {
-                const auto key = fmt::format("{}/{}", svcCfg.s3Bucket(), us::utils::ToString(id));
+                const auto key = std::format("{}/{}", svcCfg.s3Bucket(), id);
                 try {
                     auto snapshot = s3State.Read();
                     snapshot->client->DeleteObject(key);
                 } catch (const std::exception &e) {
-                    LOG_ERROR() << fmt::format("S3 delete failed for key {}: {}", key, e.what());
+                    LOG_ERROR() << std::format("S3 delete failed for key {}: {}", key, e.what());
                 }
             }
             static_cast<void>(readwrite(sql::kDeleteCapturesByIds, ids));
         } catch (const std::exception &e) {
-            LOG_ERROR() << fmt::format("denylist purge failed for {}: {}", prefixKey, e.what());
+            LOG_ERROR() << std::format("denylist purge failed for {}: {}", prefixKey, e.what());
             throw;
         }
     }
@@ -863,9 +852,7 @@ dto::CaptureJob Crud::createCaptureJob(Link link)
                 id, "crawler_failed"_t, String::fromBytesThrow(std::string_view(e.what()))
             );
         } catch (const std::exception &e) {
-            LOG_ERROR() << fmt::format(
-                "Unexpected crawl job failure for {}: {}", us::utils::ToString(id), e.what()
-            );
+            LOG_ERROR() << std::format("Unexpected crawl job failure for {}: {}", id, e.what());
             implPtr->markJobFailed(id, "internal_server_error"_t, "internal server error"_t);
         }
     });
@@ -888,7 +875,7 @@ std::optional<Link> Crud::findCapture(Uuid uuid)
     const auto location =
         impl->readonly(sql::kSelectCapture, uuid).AsOptionalSingleRow<std::string>();
     if (!location) {
-        LOG_INFO() << fmt::format("UUID not found: {}", us::utils::ToString(uuid));
+        LOG_INFO() << std::format("UUID not found: {}", uuid);
         return {};
     }
     return {
@@ -1048,17 +1035,17 @@ void Crud::disallowAndPurgePrefix(String prefixKey)
 {
     impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t);
 
-    LOG_INFO() << fmt::format("enqueued for prefix {}", prefixKey);
+    LOG_INFO() << std::format("enqueued for prefix {}", prefixKey);
 
     impl->purgeBackground.AsyncDetach("purge_prefix_lambda", [implPtr = impl.get(), prefixKey]() {
         try {
             engine::current_task::SetDeadline(
                 engine::Deadline::FromDuration(chrono::seconds{implPtr->purgeJobTimeoutSec})
             );
-            LOG_INFO() << fmt::format("Starting purge for denylisted prefix: {}", prefixKey);
+            LOG_INFO() << std::format("Starting purge for denylisted prefix: {}", prefixKey);
             implPtr->purgePrefix(prefixKey);
         } catch (const std::exception &e) {
-            LOG_CRITICAL() << fmt::format("Purge task failed for {}: {}", prefixKey, e.what());
+            LOG_CRITICAL() << std::format("Purge task failed for {}: {}", prefixKey, e.what());
             us::utils::AbortWithStacktrace("Purge task failed");
         }
     });

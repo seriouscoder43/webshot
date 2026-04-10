@@ -8,11 +8,12 @@
 #include "http_utils.hpp"
 #include "integers.hpp"
 #include "text.hpp"
+#include "uuid_format.hpp"
 
 #include <chrono>
 
 #include <exception>
-#include <fmt/format.h>
+#include <format>
 
 #include <userver/components/component.hpp>
 #include <userver/engine/task/current_task.hpp>
@@ -78,19 +79,19 @@ std::string ById::HandleRequestThrow(
         Uuid uuid;
         try {
             uuid = us::utils::BoostUuidFromString(uuidStr->view());
-        } catch (std::exception &e) {
+        } catch (const std::exception &) {
             return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
         }
         auto location = crud.findCapture(uuid);
         if (!location) {
-            LOG_INFO() << fmt::format("capture not found: {}", us::utils::ToString(uuid));
+            LOG_INFO() << std::format("capture not found: {}", uuid);
             return httpu::respondError(response, kNotFound, "capture not found"_t);
         }
         response.SetStatus(kFound);
         response.SetHeader(us::http::headers::kLocation, std::string(location->httpsUrl().view()));
         return {};
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("Unhandled error: {}", e.what());
+        LOG_ERROR() << std::format("Unhandled error: {}", e.what());
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

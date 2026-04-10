@@ -10,8 +10,7 @@
 #include "text.hpp"
 
 #include <chrono>
-
-#include <fmt/format.h>
+#include <format>
 
 #include <userver/components/component.hpp>
 #include <userver/engine/exception.hpp>
@@ -85,7 +84,7 @@ std::string JobHandler::HandleRequestThrow(
     } catch (const engine::WaitInterruptedException &) {
         throw;
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("Unhandled error in job_handler: {}", e.what());
+        LOG_ERROR() << std::format("Unhandled error in job_handler: {}", e.what());
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
 }

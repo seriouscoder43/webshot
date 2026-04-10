@@ -6,7 +6,6 @@
 #include "schema/webshot.hpp"
 #include "text.hpp"
 
-#include <fmt/format.h>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/utils/assert.hpp>
 

@@ -3,26 +3,14 @@
 #include <boost/safe_numerics/exception_policies.hpp>
 #include <boost/safe_numerics/safe_integer.hpp>
 
-#include <fmt/format.h>
-
 #include <userver/utils/numeric_cast.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <format>
 #include <type_traits>
-
-// fmt v12 stores formatting arguments in an internal `fmt::detail::value<Context>`.
-// boost::safe_numerics::safe_base has a templated conversion operator `operator R()`
-// enabled for any `R` that is not marked as "safe" (boost::safe_numerics::is_safe<R>).
-// That makes safe integers implicitly convertible to fmt internals, which clashes with
-// fmt's own argument handling and results in an ambiguous conversion error.
-//
-// Mark fmt's internal value type as "safe" to SFINAE-out that conversion path.
-namespace boost::safe_numerics {
-template <typename Context> struct is_safe<fmt::detail::value<Context>> : std::true_type {};
-} // namespace boost::safe_numerics
 
 namespace integers_detail {
 
@@ -108,18 +96,6 @@ template <class C> [[nodiscard]] constexpr i64 safeSize(const C &c) noexcept
 
 } // namespace integers
 
-template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
-struct fmt::formatter<boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy>>
-    : fmt::formatter<T> {
-    fmt::format_context::iterator format(
-        const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value,
-        fmt::format_context &ctx
-    ) const
-    {
-        return fmt::formatter<T>::format(integers::raw(value), ctx);
-    }
-};
-
 namespace integers::literals {
 
 [[nodiscard]] constexpr u32 operator""_u32(unsigned long long value) noexcept { return u32(value); }
@@ -136,3 +112,35 @@ using integers::numericCast;
 using integers::raw;
 using integers::safeSize;
 using namespace integers::literals;
+
+namespace std {
+
+template <> struct formatter<u32, char> : formatter<uint32_t, char> {
+    auto format(const u32 &value, format_context &ctx) const
+    {
+        return formatter<uint32_t, char>::format(integers::raw(value), ctx);
+    }
+};
+
+template <> struct formatter<i32, char> : formatter<int32_t, char> {
+    auto format(const i32 &value, format_context &ctx) const
+    {
+        return formatter<int32_t, char>::format(integers::raw(value), ctx);
+    }
+};
+
+template <> struct formatter<u64, char> : formatter<uint64_t, char> {
+    auto format(const u64 &value, format_context &ctx) const
+    {
+        return formatter<uint64_t, char>::format(integers::raw(value), ctx);
+    }
+};
+
+template <> struct formatter<i64, char> : formatter<int64_t, char> {
+    auto format(const i64 &value, format_context &ctx) const
+    {
+        return formatter<int64_t, char>::format(integers::raw(value), ctx);
+    }
+};
+
+} // namespace std

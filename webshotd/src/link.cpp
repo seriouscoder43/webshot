@@ -9,13 +9,12 @@
 #include "ip_utils.hpp"
 #include "text.hpp"
 
+#include <format>
 #include <string>
 #include <string_view>
 
 #include <absl/strings/ascii.h>
 #include <absl/strings/strip.h>
-
-#include <fmt/format.h>
 
 namespace {
 
@@ -55,7 +54,7 @@ Link fromTextImpl(const String &text, size_t queryPartLengthMax, bool stripPort,
     const auto schemePos = in.find("://");
     if (schemePos == std::string::npos ||
         !isValidScheme(std::string_view(in).substr(0, schemePos))) {
-        in = fmt::format("http://{}", in);
+        in = std::format("http://{}", in);
     } else {
         std::string scheme = in.substr(0, schemePos);
         if (!(scheme == "http" || scheme == "https"))

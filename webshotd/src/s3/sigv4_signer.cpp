@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <format>
 #include <sstream>
 
 #include <cctz/time_zone.h>
@@ -13,7 +14,6 @@
 #include <userver/crypto/hash.hpp>
 
 #include <absl/strings/ascii.h>
-#include <fmt/format.h>
 
 namespace v1::s3v4 {
 
@@ -111,14 +111,14 @@ SigV4Params::SigV4Params(
 
 std::string buildScope(const SigV4Params &params)
 {
-    return fmt::format("{}/{}/{}/aws4_request", params.date, params.region, params.service);
+    return std::format("{}/{}/{}/aws4_request", params.date, params.region, params.service);
 }
 
 std::string computeSignature(const SigV4Params &params, std::string_view stringToSign)
 {
     using userver::crypto::hash::HmacSha256;
     using userver::crypto::hash::OutputEncoding;
-    auto kSecret = fmt::format("AWS4{}", params.secretAccessKey.GetUnderlying());
+    auto kSecret = std::format("AWS4{}", params.secretAccessKey.GetUnderlying());
     auto kDate = HmacSha256(kSecret, params.date, OutputEncoding::kBinary);
     auto kRegion = HmacSha256(kDate, params.region, OutputEncoding::kBinary);
     auto kService = HmacSha256(kRegion, params.service, OutputEncoding::kBinary);
@@ -231,14 +231,14 @@ std::unordered_map<std::string, std::string> signHeaders(
     );
 
     auto scope = buildScope(p);
-    auto stringToSign = fmt::format(
+    auto stringToSign = std::format(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}", p.amzDate, scope, sha256Hex(cr.canonicalRequest)
     );
 
     auto signature = computeSignature(p, stringToSign);
 
-    auto credential = fmt::format("{}/{}", p.accessKeyId.GetUnderlying(), scope);
-    auto authorization = fmt::format(
+    auto credential = std::format("{}/{}", p.accessKeyId.GetUnderlying(), scope);
+    auto authorization = std::format(
         "AWS4-HMAC-SHA256 Credential={}, SignedHeaders={}, Signature={}", credential,
         cr.signedHeaders, signature
     );

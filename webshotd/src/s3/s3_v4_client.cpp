@@ -12,11 +12,10 @@
 #include "text.hpp"
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 #include <stdexcept>
 #include <utility>
-
-#include <fmt/format.h>
 
 #include <absl/strings/match.h>
 
@@ -398,7 +397,7 @@ detail::BuiltUrl S3V4Client::makeVirtualHostUrl(String path, String protocol) co
     const auto proto = std::string(protocol.view());
     UINVARIANT(url.set_protocol(proto), "invalid protocol for S3 presign");
     UINVARIANT(
-        url.set_hostname(fmt::format("{}.{}", bucketName.view(), endpoint.hostname.view())),
+        url.set_hostname(std::format("{}.{}", bucketName.view(), endpoint.hostname.view())),
         "bad hostname"
     );
     if (!endpoint.port.empty())
@@ -468,10 +467,12 @@ String S3V4Client::buildPresignedUrl(
     std::vector<std::pair<std::string, std::string>> query;
     query.emplace_back("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
     query.emplace_back(
-        "X-Amz-Credential", fmt::format("{}/{}", params.accessKeyId.GetUnderlying(), scope)
+        "X-Amz-Credential", std::format("{}/{}", params.accessKeyId.GetUnderlying(), scope)
     );
     query.emplace_back("X-Amz-Date", params.amzDate);
-    query.emplace_back("X-Amz-Expires", std::to_string(computePresignTtl(now, expiresAt).count()));
+    query.emplace_back(
+        "X-Amz-Expires", std::format("{}", computePresignTtl(now, expiresAt).count())
+    );
 
     std::vector<std::pair<std::string, std::string>> headersUtf8;
     headersUtf8.reserve(headers.size());
@@ -487,7 +488,7 @@ String S3V4Client::buildPresignedUrl(
     const auto cr = buildCanonicalRequest(
         method.view(), built.rawPath.view(), query, headersUtf8, "UNSIGNED-PAYLOAD"
     );
-    const std::string stringToSign = fmt::format(
+    const std::string stringToSign = std::format(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}", params.amzDate, scope, sha256Hex(cr.canonicalRequest)
     );
     const std::string signature = computeSignature(params, stringToSign);

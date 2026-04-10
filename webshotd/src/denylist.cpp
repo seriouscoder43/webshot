@@ -8,9 +8,8 @@
 #include "prefix_utils.hpp"
 #include "text_postgres_formatter.hpp"
 
+#include <format>
 #include <string>
-
-#include <fmt/format.h>
 
 #include <userver/components/component.hpp>
 #include <userver/logging/log.hpp>
@@ -64,7 +63,7 @@ bool Denylist::isAllowedPrefix(const String &prefixKey) noexcept
                 .AsSingleRow<bool>();
         return !blocked;
     } catch (const std::exception &e) {
-        LOG_ERROR() << fmt::format("denylist check failed: {}", e.what());
+        LOG_ERROR() << std::format("denylist check failed: {}", e.what());
         return false;
     }
 }
@@ -77,7 +76,7 @@ void Denylist::insertPrefix(const String &prefixKey, const String &reason)
             pg::ClusterHostType::kMaster, sql::kInsertDenylistHost, prefixKey, tree, reason
         ));
     } catch (const std::exception &e) {
-        LOG_CRITICAL() << fmt::format("denylist insert failed for {}: {}", prefixKey, e.what());
+        LOG_CRITICAL() << std::format("denylist insert failed for {}: {}", prefixKey, e.what());
         us::utils::AbortWithStacktrace("denylist insert failed");
     }
 }
