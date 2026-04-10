@@ -102,9 +102,9 @@
     '';
   };
 in {
-  tasks."webshot:devBuild" = mkBuildTaskForMode "dev";
+  tasks."proj:devBuild" = mkBuildTaskForMode "dev";
 
-  tasks."webshot:tidyBuild" = {
+  tasks."proj:tidyBuild" = {
     cwd = config.devenv.root;
     exec = ''
       set -euo pipefail
@@ -116,43 +116,43 @@ in {
     '';
   };
 
-  tasks."webshot:devUp" = mkUpTask "dev";
+  tasks."proj:devUp" = mkUpTask "dev";
 
-  tasks."webshot:devDown" = mkRuntimeTask "down" "dev";
+  tasks."proj:devDown" = mkRuntimeTask "down" "dev";
 
-  tasks."webshot:devStatus" =
+  tasks."proj:devStatus" =
     (mkRuntimeTask "status" "dev")
     // {
       showOutput = true;
     };
 
-  tasks."webshot:devLogs" =
+  tasks."proj:devLogs" =
     (mkRuntimeTask "logs" "dev")
     // {
       showOutput = true;
     };
 
-  tasks."webshot:devTest" = mkTestTask "dev";
+  tasks."proj:devTest" = mkTestTask "dev";
 
-  tasks."webshot:prodlikeBuild" = mkBuildTaskForMode "prodlike";
+  tasks."proj:prodlikeBuild" = mkBuildTaskForMode "prodlike";
 
-  tasks."webshot:prodlikeUp" = mkUpTask "prodlike";
+  tasks."proj:prodlikeUp" = mkUpTask "prodlike";
 
-  tasks."webshot:prodlikeDown" = mkRuntimeTask "down" "prodlike";
+  tasks."proj:prodlikeDown" = mkRuntimeTask "down" "prodlike";
 
-  tasks."webshot:prodlikeStatus" =
+  tasks."proj:prodlikeStatus" =
     (mkRuntimeTask "status" "prodlike")
     // {
       showOutput = true;
     };
 
-  tasks."webshot:prodlikeLogs" =
+  tasks."proj:prodlikeLogs" =
     (mkRuntimeTask "logs" "prodlike")
     // {
       showOutput = true;
     };
 
-  tasks."webshot:ty" = {
+  tasks."proj:ty" = {
     cwd = config.devenv.root;
     exec = ''
       set -euo pipefail

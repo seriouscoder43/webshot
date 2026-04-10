@@ -146,6 +146,8 @@ components_manager:
       snapshots_per_link_max: 2
       snapshots_links_per_page_max: 10
       crawler_run_timeout_sec: $crawler_run_timeout_sec
+      crawler_cpu_cores: $crawler_cpu_cores
+      crawler_memory_gib: $crawler_memory_gib
       crawler_job_overhead_timeout_sec: $crawler_job_overhead_timeout_sec
       link_cooldown_sec: $link_cooldown_sec
       crawl_job_retention_sec: 604800

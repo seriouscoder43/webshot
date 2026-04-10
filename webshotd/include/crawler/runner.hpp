@@ -2,6 +2,7 @@
 
 #include "crawler/artifacts.hpp"
 #include "crawler/fallback.hpp"
+#include "crawler/limits.hpp"
 #include "integers.hpp"
 
 #include <optional>
@@ -27,7 +28,7 @@ public:
     CrawlerRunner(
         us::clients::http::Client &httpClient,
         us::engine::subprocess::ProcessStarter &processStarter, i64 runTimeoutSec,
-        std::string stateDir
+        std::string stateDir, std::optional<crawler::CgroupLimits> limits
     );
 
     [[nodiscard]] CrawlerRunArtifacts run(const String &seedUrl) const;
@@ -37,6 +38,8 @@ private:
     us::engine::subprocess::ProcessStarter &processStarter;
     i64 runTimeoutSec;
     std::string browserRunsRoot;
+    std::string cgroupRootPath;
+    std::optional<crawler::CgroupLimits> cgroupLimits;
 };
 
 } // namespace v1

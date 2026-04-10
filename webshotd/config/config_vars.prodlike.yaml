@@ -13,3 +13,5 @@ crawler_run_timeout_sec: 15
 crawler_job_overhead_timeout_sec: 45
 link_cooldown_sec: 0
 secdist_path: secdist.json
+crawler_cpu_cores: 0
+crawler_memory_gib: 0

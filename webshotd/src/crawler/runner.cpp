@@ -2,15 +2,17 @@
 
 #include "crawler/artifacts.hpp"
 #include "crawler/browser_sandbox.hpp"
-#include "crawler/browser_sandbox.sh.hpp"
 #include "crawler/cdp_client.hpp"
 #include "crawler/failure.hpp"
 #include "crawler/launch_policy.hpp"
+#include "crawler/limits.hpp"
 #include "deadline_utils.hpp"
 #include "integers.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
 #include "url.hpp"
+
+#include <generated/browser_sandbox.sh.hpp>
 
 #include <algorithm>
 #include <array>
@@ -45,6 +47,7 @@
 #include <userver/utils/assert.hpp>
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
+#include <userver/utils/resources.hpp>
 
 namespace us = userver;
 namespace chrono = std::chrono;
@@ -57,7 +60,13 @@ namespace {
 
 constexpr auto kMaxBodyBytes = 50_i64 * 1024_i64 * 1024_i64;
 constexpr size_t kMaxLogBytes = 64UL * 1024UL;
-const std::string kBwrapStatusWrapperScript = R"(exec 3>"$1"; shift; exec "$@")";
+constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
+
+[[nodiscard]] const std::string &browserSandboxScript()
+{
+    static const std::string script = us::utils::FindResource("webshot_browser_sandbox_sh");
+    return script;
+}
 
 [[nodiscard]] std::string normalizeDirPath(std::string value)
 {
@@ -73,6 +82,52 @@ const std::string kBwrapStatusWrapperScript = R"(exec 3>"$1"; shift; exec "$@")"
     if (root == "/")
         return "/browser_runs";
     return fmt::format("{}/browser_runs", root);
+}
+
+[[nodiscard]] std::string readSelfCgroupV2PathOrThrow()
+{
+    const auto raw = us::fs::blocking::ReadFileContents("/proc/self/cgroup");
+    size_t pos = 0;
+    while (pos <= raw.size()) {
+        const auto next = raw.find('\n', pos);
+        const auto line = raw.substr(
+            pos, next == std::string::npos ? std::string::npos : next - pos
+        );
+        if (line.rfind("0::", 0) == 0) {
+            auto path = normalizeDirPath(line.substr(3));
+            if (path.empty() || path.front() != '/')
+                throw std::runtime_error("invalid cgroup v2 path in /proc/self/cgroup");
+            return path;
+        }
+        if (next == std::string::npos)
+            break;
+        pos = next + 1;
+    }
+    throw std::runtime_error("failed to locate cgroup v2 path in /proc/self/cgroup");
+}
+
+[[nodiscard]] std::string parentCgroupPathOrThrow(const std::string &path)
+{
+    if (path.empty() || path.front() != '/')
+        throw std::runtime_error("cgroup path must be absolute");
+    if (path == "/")
+        throw std::runtime_error("webshotd must run inside a delegated systemd subgroup");
+
+    const auto slashPos = path.find_last_of('/');
+    if (slashPos == std::string::npos)
+        throw std::runtime_error("failed to locate parent cgroup path");
+    if (slashPos == 0)
+        return "/";
+    return path.substr(0, slashPos);
+}
+
+[[nodiscard]] std::string resolveDelegatedCgroupRootPathOrThrow()
+{
+    const auto currentPath = readSelfCgroupV2PathOrThrow();
+    const auto parentPath = parentCgroupPathOrThrow(currentPath);
+    if (parentPath == "/")
+        return "/sys/fs/cgroup";
+    return fmt::format("/sys/fs/cgroup{}", parentPath);
 }
 
 [[nodiscard]] String currentTimestamp()
@@ -134,6 +189,7 @@ template <typename T> [[nodiscard]] T parseEventParams(const crawler::CdpEvent &
 
 struct [[nodiscard]] BrowserPaths {
     std::string rootDir;
+    std::string runId;
     std::string userDataDir;
     std::string xdgConfigHome;
     std::string xdgCacheHome;
@@ -157,16 +213,12 @@ struct [[nodiscard]] BrowserPaths {
     auto tempRoot = normalizeDirPath(std::string(browserRunsRoot));
     us::fs::blocking::CreateDirectories(tempRoot);
 
-    paths.rootDir = fmt::format(
-        "{}/browser-{}", tempRoot,
-        boost::uuids::to_string(us::utils::generators::GenerateBoostUuid())
-    );
+    paths.runId = boost::uuids::to_string(us::utils::generators::GenerateBoostUuid());
+    paths.rootDir = fmt::format("{}/browser-{}", tempRoot, paths.runId);
     us::fs::blocking::CreateDirectories(paths.rootDir);
 
     const auto rootDir = paths.rootDir;
-    us::fs::blocking::RewriteFileContents(
-        rootDir + "/browser_sandbox.sh", std::string(crawler::kBrowserSandboxScript)
-    );
+    us::fs::blocking::RewriteFileContents(rootDir + "/browser_sandbox.sh", browserSandboxScript());
     paths.userDataDir = rootDir + "/profile";
     paths.xdgConfigHome = rootDir + "/xdg-config";
     paths.xdgCacheHome = rootDir + "/xdg-cache";
@@ -310,9 +362,14 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
 }
 
 [[nodiscard]] us::engine::subprocess::ChildProcess spawnSandboxedBrowser(
-    us::engine::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths
+    us::engine::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths,
+    std::string_view cgroupRootPath, const std::optional<crawler::CgroupLimits> &cgroupLimits
 )
 {
+    const auto cpuCores = cgroupLimits ? cgroupLimits->cpuCores : 0_i64;
+    const auto memoryBytes = cgroupLimits ? cgroupLimits->memoryBytes : 0_i64;
+    const auto cgroupName = fmt::format("webshotd_crawler_{}", paths.runId);
+
     auto chromiumArgs = crawler::buildChromiumArgs(paths.userDataDir, paths.netlogPath);
     auto bwrapArgs = std::vector<std::string>{
         "bwrap",
@@ -330,6 +387,9 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
         "--ro-bind",
         "/",
         "/",
+        "--bind",
+        "/sys/fs/cgroup",
+        "/sys/fs/cgroup",
         "--tmpfs",
         "/tmp",
         "--chmod",
@@ -365,6 +425,10 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
         paths.websocketPathFilePath,
         fmt::format("{}", crawler::kProxyListenPort),
         fmt::format("{}", crawler::kDevtoolsPort),
+        std::string(cgroupRootPath),
+        cgroupName,
+        fmt::format("{}", cpuCores),
+        fmt::format("{}", memoryBytes),
         "--",
         "chromium",
     };
@@ -372,7 +436,7 @@ spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const B
 
     auto args = std::vector<std::string>{
         "-c",
-        kBwrapStatusWrapperScript,
+        std::string(crawler::kBwrapStatusWrapperScript),
         "bash",
         paths.bwrapStatusFilePath,
     };
@@ -400,10 +464,12 @@ template <typename Process> void stopProcess(Process &process, chrono::milliseco
 class [[nodiscard]] BrowserInstance final {
 public:
     BrowserInstance(
-        us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn
+        us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
+        std::string cgroupRootPathIn, std::optional<crawler::CgroupLimits> cgroupLimitsIn
     )
         : processStarter(processStarter),
-          browserRunsRoot(normalizeDirPath(std::move(browserRunsRootIn)))
+          browserRunsRoot(normalizeDirPath(std::move(browserRunsRootIn))),
+          cgroupRootPath(std::move(cgroupRootPathIn)), cgroupLimits(std::move(cgroupLimitsIn))
     {
     }
 
@@ -418,9 +484,11 @@ public:
     {
         paths = createBrowserPaths(browserRunsRoot);
         markPhase("launch_browser");
-        const auto devtoolsDeadline = us::engine::Deadline::FromDuration(chrono::seconds(8));
+        const auto devtoolsDeadline = us::engine::Deadline::FromDuration(
+            kBrowserDevtoolsStartupTimeout
+        );
         proxyBridge.emplace(spawnProxyBridge(processStarter, paths));
-        process.emplace(spawnSandboxedBrowser(processStarter, paths));
+        process.emplace(spawnSandboxedBrowser(processStarter, paths, cgroupRootPath, cgroupLimits));
         websocketPath = waitForDevtoolsPath(devtoolsDeadline);
     }
 
@@ -571,6 +639,8 @@ private:
 
     us::engine::subprocess::ProcessStarter &processStarter;
     std::string browserRunsRoot;
+    std::string cgroupRootPath;
+    std::optional<crawler::CgroupLimits> cgroupLimits;
     BrowserPaths paths;
     std::optional<us::engine::subprocess::ChildProcess> proxyBridge;
     std::optional<us::engine::subprocess::ChildProcess> process;
@@ -1349,11 +1419,15 @@ class [[nodiscard]] CaptureSession final {
 public:
     CaptureSession(
         us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
+        std::string cgroupRootPathIn, std::optional<crawler::CgroupLimits> cgroupLimitsIn,
         crawler::RunRequest runIn
     )
         : run(std::move(runIn)),
           deadline(us::engine::Deadline::FromDuration(chrono::milliseconds{raw(run.jobTimeoutMs)})),
-          browser(processStarter, std::move(browserRunsRootIn))
+          browser(
+              processStarter, std::move(browserRunsRootIn), std::move(cgroupRootPathIn),
+              std::move(cgroupLimitsIn)
+          )
     {
     }
 
@@ -1656,19 +1730,21 @@ private:
 
 [[nodiscard]] crawler::CapturedExchange captureViaProxy(
     us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
+    const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
     const crawler::RunRequest &run
 )
 {
     auto session = CaptureSession(
-        processStarter, std::string(browserRunsRoot),
-        crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
+        processStarter, std::string(browserRunsRoot), std::string(cgroupRootPath),
+        std::move(cgroupLimits), crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
     );
     return session.capture();
 }
 
 [[nodiscard]] CrawlerRunArtifacts executeRun(
     us::clients::http::Client &httpClient, us::engine::subprocess::ProcessStarter &processStarter,
-    const std::string &browserRunsRoot, const crawler::RunRequest &run
+    const std::string &browserRunsRoot, const std::string &cgroupRootPath,
+    std::optional<crawler::CgroupLimits> cgroupLimits, const crawler::RunRequest &run
 )
 {
     static_cast<void>(httpClient);
@@ -1676,7 +1752,9 @@ private:
     out.attempt.exited = true;
     try {
         LOG_INFO() << fmt::format("crawler executeRun starting for {}", run.seedUrl);
-        auto exchange = captureViaProxy(processStarter, browserRunsRoot, run);
+        auto exchange = captureViaProxy(
+            processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), run
+        );
         LOG_INFO() << fmt::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
             exchange.statusCode
@@ -1758,17 +1836,19 @@ private:
 CrawlerRunner::CrawlerRunner(
     us::clients::http::Client &httpClientIn,
     us::engine::subprocess::ProcessStarter &processStarterIn, i64 runTimeoutSecIn,
-    std::string stateDir
+    std::string stateDir, std::optional<crawler::CgroupLimits> limitsIn
 )
     : httpClient(httpClientIn), processStarter(processStarterIn), runTimeoutSec(runTimeoutSecIn),
-      browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir)))
+      browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir))),
+      cgroupRootPath(limitsIn ? resolveDelegatedCgroupRootPathOrThrow() : std::string())
 {
+    cgroupLimits = std::move(limitsIn);
 }
 
 CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
     return executeRun(
-        httpClient, processStarter, browserRunsRoot,
+        httpClient, processStarter, browserRunsRoot, cgroupRootPath, cgroupLimits,
         crawler::RunRequest{seedUrl, runTimeoutSec * 1000_i64}
     );
 }

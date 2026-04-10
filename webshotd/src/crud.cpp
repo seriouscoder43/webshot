@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +83,28 @@ using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 namespace {
 constexpr i64 kCrawlerSeedAttemptsMax = 2_i64;
+constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;
+constexpr i64 kCpuMaxPeriodUs = 100000_i64;
+
+[[nodiscard]] std::optional<crawler::CgroupLimits>
+computeCrawlerLimitsOrThrow(i64 cpuCores, i64 memoryGib)
+{
+    if (cpuCores == 0_i64 && memoryGib == 0_i64)
+        return {};
+    if (cpuCores <= 0_i64 || memoryGib <= 0_i64) {
+        throw std::runtime_error(
+            fmt::format(
+                "crawler limits must be both > 0 or both 0; got cpu_cores={}, memory_gib={}",
+                cpuCores, memoryGib
+            )
+        );
+    }
+    if (raw(memoryGib) > (std::numeric_limits<int64_t>::max() / raw(kGiB)))
+        throw std::runtime_error(fmt::format("memory GiB limit {} is too large", memoryGib));
+    if (raw(cpuCores) > (std::numeric_limits<int64_t>::max() / raw(kCpuMaxPeriodUs)))
+        throw std::runtime_error(fmt::format("cpu core limit {} is too large", cpuCores));
+    return crawler::CgroupLimits{cpuCores, memoryGib * kGiB};
+}
 } // namespace
 
 us::yaml_config::Schema Crud::GetStaticConfigSchema()
@@ -107,6 +130,14 @@ properties:
         type: integer
         minimum: 1
         description: 'Timeout sent to a single blocking crawler run in seconds'
+    crawler_cpu_cores:
+        type: integer
+        minimum: 0
+        description: 'Crawler browser CPU quota in whole cores; 0 disables limits'
+    crawler_memory_gib:
+        type: integer
+        minimum: 0
+        description: 'Crawler browser memory limit in GiB; 0 disables limits'
     crawler_job_overhead_timeout_sec:
         type: integer
         minimum: 1
@@ -171,6 +202,8 @@ public:
     const i64 perLinkMax;
     const i64 linksPerPageMax;
     const i64 crawlerRunTimeoutSec;
+    const i64 crawlerCpuCores;
+    const i64 crawlerMemoryGib;
     const i64 crawlerJobOverheadTimeoutSec;
     const i64 linkCooldownSec;
     const i64 crawlJobRetentionSec;
@@ -232,6 +265,8 @@ public:
           perLinkMax(cfg["snapshots_per_link_max"].As<int64_t>()),
           linksPerPageMax(cfg["snapshots_links_per_page_max"].As<int64_t>()),
           crawlerRunTimeoutSec(cfg["crawler_run_timeout_sec"].As<int64_t>()),
+          crawlerCpuCores(cfg["crawler_cpu_cores"].As<int64_t>()),
+          crawlerMemoryGib(cfg["crawler_memory_gib"].As<int64_t>()),
           crawlerJobOverheadTimeoutSec(cfg["crawler_job_overhead_timeout_sec"].As<int64_t>()),
           linkCooldownSec(cfg["link_cooldown_sec"].As<int64_t>()),
           crawlJobRetentionSec(cfg["crawl_job_retention_sec"].As<int64_t>()),
@@ -253,7 +288,8 @@ public:
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           processStarter(ctx.FindComponent<us::components::ProcessStarter>().Get()),
           crawlerRunner(
-              httpClient, processStarter, crawlerRunTimeoutSec, std::string(svcCfg.stateDir())
+              httpClient, processStarter, crawlerRunTimeoutSec, std::string(svcCfg.stateDir()),
+              computeCrawlerLimitsOrThrow(crawlerCpuCores, crawlerMemoryGib)
           ),
           denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),

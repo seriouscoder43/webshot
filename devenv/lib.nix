@@ -222,6 +222,7 @@
       "-DCMAKE_CXX_COMPILER_LAUNCHER="
       "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
       "-DCMAKE_INSTALL_RPATH=${lib.makeLibraryPath ([userverPkg uniAlgoPkgs.default pkgsWithOverlay.libarchive pkgsWithOverlay.stdenv.cc.cc.lib] ++ userverDeps)}"
+      "-DWEBSHOT_RUNTIME_EXTRA_PATH=${lib.makeBinPath crawlerRuntimeBins}"
     ]
     ++ mkCmakeCommonFlags {
       userverDir = "${userverPkg}/lib/cmake/userver";
@@ -250,7 +251,7 @@
 
       dontStrip = true;
 
-      nativeBuildInputs = buildDeps.native ++ [toolchain.cc pkgsWithOverlay.makeWrapper];
+      nativeBuildInputs = buildDeps.native ++ [toolchain.cc];
       buildInputs =
         [
           userverPkg
@@ -262,11 +263,6 @@
       cmakeFlags = mkOutputCmakeFlags {
         inherit userverPkg variant;
       };
-
-      postFixup = ''
-        wrapProgram "$out/webshotd/webshotd" \
-          --prefix PATH : "${lib.makeBinPath crawlerRuntimeBins}"
-      '';
     };
 
   mkClangdConfig = name: buildDir:

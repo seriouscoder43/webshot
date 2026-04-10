@@ -32,6 +32,10 @@ set(WEBSHOT_RAPIDOC_ASSETS_DIR
     ""
     CACHE STRING
           "Absolute path to pinned RapiDoc assets")
+set(WEBSHOT_RUNTIME_EXTRA_PATH
+    ""
+    CACHE STRING
+          "Colon-separated PATH prefix exported by the runtime wrapper")
 
 option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
 
@@ -54,39 +58,6 @@ set(CMAKE_LINKER_TYPE MOLD)
 # `LD_LIBRARY_PATH` by embedding runtime search paths for linked dependencies.
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
-set_property(
-  DIRECTORY
-  APPEND
-  PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/browser_sandbox.sh")
-
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/browser_sandbox.sh"
-     WEBSHOT_BROWSER_SANDBOX_SH_CONTENT)
-set(_webshot_browser_sandbox_delim "WSBSH")
-set(_webshot_browser_sandbox_terminator ")${_webshot_browser_sandbox_delim}\"")
-string(FIND "${WEBSHOT_BROWSER_SANDBOX_SH_CONTENT}"
-            "${_webshot_browser_sandbox_terminator}"
-            _webshot_browser_sandbox_terminator_pos)
-if(NOT _webshot_browser_sandbox_terminator_pos EQUAL -1)
-  message(
-    FATAL_ERROR
-      "browser_sandbox.sh contains raw-string terminator '${_webshot_browser_sandbox_terminator}'. Please change the delimiter in CMakeLists.txt.")
-endif()
-
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/src/crawler")
-file(
-  WRITE "${CMAKE_CURRENT_BINARY_DIR}/src/crawler/browser_sandbox.sh.hpp"
-  "#pragma once\n"
-  "\n"
-  "#include <string_view>\n"
-  "\n"
-  "namespace v1::crawler {\n"
-  "\n"
-  "inline constexpr std::string_view kBrowserSandboxScript = R\"${_webshot_browser_sandbox_delim}(\n"
-  "${WEBSHOT_BROWSER_SANDBOX_SH_CONTENT}\n"
-  ")${_webshot_browser_sandbox_delim}\";\n"
-  "\n"
-  "} // namespace v1::crawler\n")
-
 set(${PROJECT_NAME}_headers
     include/integers.hpp
     include/s3_credentials_types.hpp
@@ -104,6 +75,7 @@ set(${PROJECT_NAME}_headers
 	    include/crawler/runner.hpp
 	    include/crawler/artifacts.hpp
 	    include/crawler/browser_sandbox.hpp
+	    include/crawler/limits.hpp
 	    include/crawler/launch_policy.hpp
 	    include/crawler/cdp_client.hpp
     include/config.hpp
@@ -174,11 +146,24 @@ add_executable(${PROJECT_NAME} src/main.cpp
 apply_defaults(${PROJECT_NAME}_objs)
 apply_defaults(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME webshotd)
+set(WEBSHOT_RUNTIME_WRAPPER_TEMPLATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/webshotd_wrapper.sh.in")
+set(WEBSHOT_RUNTIME_WRAPPER
+    "${CMAKE_CURRENT_BINARY_DIR}/webshotd_wrapper.sh")
+configure_file("${WEBSHOT_RUNTIME_WRAPPER_TEMPLATE}"
+               "${WEBSHOT_RUNTIME_WRAPPER}" @ONLY)
+file(
+  CHMOD "${WEBSHOT_RUNTIME_WRAPPER}"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE)
 add_custom_target(
   ${PROJECT_NAME}_stage_runtime_layout ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}>
+    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_bin"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
     "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
@@ -200,6 +185,22 @@ endif()
 
 find_package(Boost CONFIG REQUIRED COMPONENTS context)
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
+include("${userver_DIR}/UserverEmbedFile.cmake")
+userver_embed_file(
+  webshotd_browser_sandbox_sh
+  NAME
+  "webshot_browser_sandbox_sh"
+  FILEPATH
+  "${CMAKE_CURRENT_SOURCE_DIR}/browser_sandbox.sh"
+  HPP_FILENAME
+  "browser_sandbox.sh")
+set(_webshot_browser_sandbox_embed_hpp
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox.sh.hpp")
+set_source_files_properties(
+  src/crawler/runner.cpp PROPERTIES OBJECT_DEPENDS
+                                   "${_webshot_browser_sandbox_embed_hpp}")
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE webshotd_browser_sandbox_sh)
+target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_sh)
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE fmt::fmt)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)

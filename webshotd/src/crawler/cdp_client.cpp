@@ -41,7 +41,7 @@ using namespace text::literals;
 
 namespace {
 
-constexpr auto kHandshakeTimeout = chrono::seconds(5);
+constexpr auto kHandshakeTimeout = chrono::seconds(10);
 constexpr size_t kMaxHandshakeResponseBytes = 16UL * 1024UL;
 constexpr size_t kMaxHandshakeDumpBytes = 1024UL;
 constexpr std::string_view kWebsocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";

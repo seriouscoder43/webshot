@@ -26,7 +26,6 @@ from s6.common import (
     tail_lines,
     wait_for_pid_exit,
 )
-from s6.resolve_cpu_limit import resolve_cpu_limit
 from s6.s3_bucket import ensure_s3_bucket_exists
 
 _start_timeout_sec = 120.0
@@ -35,6 +34,21 @@ _cmd_timeout_sec = 30.0
 _poll_interval_sec = 0.2
 _logs_wait_timeout_sec = 5.0
 _webshotd_ready_url = "http://127.0.0.1:8081/service/monitor?format=json"
+_systemd_scope_env = "WEBSHOT_SYSTEMD_SCOPE"
+_systemd_scope_subgroup = "service"
+_delegated_cgroup_controllers = ("cpu", "memory")
+_systemd_passthrough_env = (
+    "PATH",
+    "PYTHONPATH",
+    "LD_LIBRARY_PATH",
+    "SSL_CERT_FILE",
+    "NIX_SSL_CERT_FILE",
+    "XDG_DATA_DIRS",
+    "XDG_CONFIG_DIRS",
+    "TMPDIR",
+    "HOME",
+    "USER",
+)
 
 
 @dataclass(frozen=True)
@@ -71,7 +85,6 @@ class RuntimeUpContext(RuntimeInspectContext):
     binary_path: Path
     config_vars_source: Path
     runtime_ld_library_path: str
-    deploy_vcpu_limit: str
     postgres_data_dir: Path
     postgres_run_dir: Path
     postgres_bootstrap_done_file: Path
@@ -168,6 +181,182 @@ def _fixed_state_dir(mode: str) -> Path:
     return Path("/tmp/webshot") / mode
 
 
+def _current_cgroup_v2_relative_path() -> str:
+    try:
+        raw = Path("/proc/self/cgroup").read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise ToolError(message="Missing /proc/self/cgroup", exit_code=1) from e
+
+    for line in raw.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        if parts[0] != "0" or parts[1] != "":
+            continue
+        path = parts[2].strip()
+        if not path:
+            break
+        return path
+
+    die("Failed to determine cgroup v2 path from /proc/self/cgroup", exit_code=1)
+
+
+def _current_cgroup_v2_dir() -> Path:
+    relative = _current_cgroup_v2_relative_path()
+    if not relative.startswith("/"):
+        die(f"Invalid cgroup v2 path: {relative}", exit_code=1)
+    return Path("/sys/fs/cgroup") / relative.lstrip("/")
+
+
+def _assert_delegated_systemd_scope() -> None:
+    if os.environ.get(_systemd_scope_env) != "1":
+        die("s6: startup requires the managed systemd --user scope", exit_code=1)
+
+    current_cgroup = _current_cgroup_v2_dir()
+    if current_cgroup.name != _systemd_scope_subgroup:
+        die(
+            (
+                "s6: expected to run inside delegated systemd subgroup "
+                f"'{_systemd_scope_subgroup}', got {current_cgroup}"
+            ),
+            exit_code=1,
+        )
+
+    delegated_root = current_cgroup.parent
+    if delegated_root == current_cgroup:
+        die("s6: delegated cgroup root is missing", exit_code=1)
+
+    controllers_path = delegated_root / "cgroup.controllers"
+    subtree_control_path = delegated_root / "cgroup.subtree_control"
+    if not controllers_path.is_file() or not subtree_control_path.is_file():
+        die(
+            f"s6: delegated cgroup root is not writable from {delegated_root}",
+            exit_code=1,
+        )
+
+    controllers = set(controllers_path.read_text(encoding="utf-8").split())
+    missing = [name for name in _delegated_cgroup_controllers if name not in controllers]
+    if missing:
+        die(
+            ("s6: delegated cgroup root is missing required controllers: " + ", ".join(missing)),
+            exit_code=1,
+        )
+
+    subtree_control = set(subtree_control_path.read_text(encoding="utf-8").split())
+    missing = [name for name in _delegated_cgroup_controllers if name not in subtree_control]
+    if missing:
+        die(
+            (
+                "s6: delegated cgroup root is missing required subtree controllers: "
+                + ", ".join(missing)
+            ),
+            exit_code=1,
+        )
+
+
+def _enter_systemd_subgroup() -> None:
+    if os.environ.get(_systemd_scope_env) != "1":
+        die("s6: startup requires the managed systemd --user scope", exit_code=1)
+
+    current_cgroup = _current_cgroup_v2_dir()
+    if current_cgroup.name == _systemd_scope_subgroup:
+        return
+
+    subgroup = current_cgroup / _systemd_scope_subgroup
+    subgroup.mkdir(exist_ok=True)
+    try:
+        (subgroup / "cgroup.procs").write_text(f"{os.getpid()}\n", encoding="utf-8")
+    except OSError as e:
+        raise ToolError(
+            message=(
+                f"s6: failed to move startup process into delegated cgroup subgroup {subgroup}: {e}"
+            ),
+            exit_code=1,
+        ) from e
+
+    if _current_cgroup_v2_dir().name != _systemd_scope_subgroup:
+        die(
+            (f"s6: startup process did not enter delegated subgroup '{_systemd_scope_subgroup}'"),
+            exit_code=1,
+        )
+
+
+def _enable_delegated_systemd_scope_controllers() -> None:
+    current_cgroup = _current_cgroup_v2_dir()
+    if current_cgroup.name != _systemd_scope_subgroup:
+        die(
+            (f"s6: startup process is not inside delegated subgroup '{_systemd_scope_subgroup}'"),
+            exit_code=1,
+        )
+
+    delegated_root = current_cgroup.parent
+    controllers_path = delegated_root / "cgroup.controllers"
+    subtree_control_path = delegated_root / "cgroup.subtree_control"
+    if not controllers_path.is_file() or not subtree_control_path.is_file():
+        die(f"s6: delegated cgroup root is not writable from {delegated_root}", exit_code=1)
+
+    controllers = set(controllers_path.read_text(encoding="utf-8").split())
+    missing = [name for name in _delegated_cgroup_controllers if name not in controllers]
+    if missing:
+        die(
+            ("s6: delegated cgroup root is missing required controllers: " + ", ".join(missing)),
+            exit_code=1,
+        )
+
+    subtree_control = set(subtree_control_path.read_text(encoding="utf-8").split())
+    enable = [f"+{name}" for name in _delegated_cgroup_controllers if name not in subtree_control]
+    if not enable:
+        return
+
+    try:
+        subtree_control_path.write_text(" ".join(enable) + "\n", encoding="utf-8")
+    except OSError as e:
+        raise ToolError(
+            message=(
+                f"s6: failed to enable delegated subtree controllers at {subtree_control_path}: {e}"
+            ),
+            exit_code=1,
+        ) from e
+
+
+def _start_up_inside_systemd_scope(
+    argv: list[str], *, mode: str, service_profile: str
+) -> int | None:
+    if os.environ.get(_systemd_scope_env) == "1":
+        return None
+
+    need_cmd("systemd-run")
+    env_args = [f"--setenv={_systemd_scope_env}=1"]
+    for name in _systemd_passthrough_env:
+        value = os.environ.get(name)
+        if not value:
+            continue
+        env_args.append(f"--setenv={name}={value}")
+    cmd = [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "--collect",
+        "--same-dir",
+        f"--description=webshot {mode} runtime ({service_profile})",
+        "--property=Delegate=cpu memory",
+        *env_args,
+        sys.executable,
+        "-m",
+        "s6.runtime",
+        *argv,
+    ]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+    if proc.returncode != 0 and not proc.stderr:
+        print("s6: failed to enter delegated systemd --user scope", file=sys.stderr)
+    return proc.returncode
+
+
 def _build_state_context(*, mode: str) -> RuntimeStateContext:
     repo_root = _repo_root()
     state_dir = _fixed_state_dir(mode)
@@ -242,7 +431,6 @@ def _build_up_context(
         binary_path=Path(binary_path),
         config_vars_source=config_path,
         runtime_ld_library_path=runtime_ld_library_path,
-        deploy_vcpu_limit=os.environ.get("DEPLOY_VCPU_LIMIT", ""),
         postgres_data_dir=inspect_ctx.state_dir / "postgres" / "data",
         postgres_run_dir=inspect_ctx.state_dir / "postgres" / "run",
         postgres_bootstrap_done_file=inspect_ctx.state_dir / "postgres" / ".bootstrap-complete",
@@ -497,7 +685,7 @@ def _wait_script(cmd: list[str]) -> str:
     )
 
 
-def _render_service_tree(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[ServiceSpec]:
+def _render_service_tree(ctx: RuntimeUpContext) -> list[ServiceSpec]:
     active_specs = _service_specs(ctx)
     active_names = {spec.name for spec in active_specs}
     ctx.scan_dir.mkdir(parents=True, exist_ok=True)
@@ -507,8 +695,6 @@ def _render_service_tree(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[Servi
 
     python_exe = _shell_quote(sys.executable)
     repo_root = _shell_quote(ctx.repo_root)
-    cpu_limit_quoted = _shell_quote(cpu_limit)
-    deploy_vcpu_limit = _shell_quote(ctx.deploy_vcpu_limit)
 
     postgres_service = ctx.scan_dir / "postgres"
     _write_executable(
@@ -667,8 +853,8 @@ def _render_service_tree(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[Servi
                 "#!/bin/sh\n"
                 f"exec >>{_shell_quote(ctx.webshotd_log_file)} 2>&1\n"
                 f"cd {webshot_root}\n" + webshotd_waits + "exec "
-                f"env LD_LIBRARY_PATH={ld_library_path} CPU_LIMIT={cpu_limit_quoted} "
-                f"DEPLOY_VCPU_LIMIT={deploy_vcpu_limit} "
+                "env -u CPU_LIMIT -u DEPLOY_VCPU_LIMIT -u VCPU_LIMIT "
+                f"LD_LIBRARY_PATH={ld_library_path} "
                 f"{binary_path} --config "
                 f"{_shell_quote(ctx.repo_root / 'webshotd/config/static_config.yaml')} "
                 f"--config_vars {config_vars_path} "
@@ -835,7 +1021,7 @@ def _show_service_status(spec: ServiceSpec) -> None:
 
 
 def _up_task_name(ctx: RuntimeStateContext) -> str:
-    return f"webshot:{ctx.mode}Up"
+    return f"proj:{ctx.mode}Up"
 
 
 def _wait_for_log_files(ctx: RuntimeInspectContext) -> list[Path]:
@@ -912,7 +1098,7 @@ def _ensure_dev_bucket(ctx: RuntimeStateContext) -> None:
     )
 
 
-def _prepare_runtime(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[ServiceSpec]:
+def _prepare_runtime(ctx: RuntimeUpContext) -> list[ServiceSpec]:
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     _bootstrap_postgres(ctx)
     _render_proxy_runtime(ctx)
@@ -921,7 +1107,7 @@ def _prepare_runtime(ctx: RuntimeUpContext, *, cpu_limit: str) -> list[ServiceSp
     if ctx.mode == "dev":
         ctx.seaweed_data_dir.mkdir(parents=True, exist_ok=True)
         ctx.test_target_dir.mkdir(parents=True, exist_ok=True)
-    return _render_service_tree(ctx, cpu_limit=cpu_limit)
+    return _render_service_tree(ctx)
 
 
 def _up(ctx: RuntimeUpContext) -> None:
@@ -938,8 +1124,7 @@ def _up(ctx: RuntimeUpContext) -> None:
             _ensure_dev_bucket(ctx)
         return
 
-    cpu_limit = resolve_cpu_limit()
-    services = _prepare_runtime(ctx, cpu_limit=cpu_limit)
+    services = _prepare_runtime(ctx)
     _start_supervisor(ctx, services)
     if ctx.mode == "dev":
         _ensure_dev_bucket(ctx)
@@ -993,11 +1178,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     try:
         if args.action == "up":
+            delegated_rc = _start_up_inside_systemd_scope(
+                argv, mode=args.mode, service_profile=args.service_profile
+            )
+            if delegated_rc is not None:
+                return delegated_rc
+            _enter_systemd_subgroup()
+            _enable_delegated_systemd_scope_controllers()
+            _assert_delegated_systemd_scope()
             ctx = _build_up_context(
                 mode=args.mode,
                 service_profile=args.service_profile,

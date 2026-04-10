@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 7 ]]; then
-  echo "usage: $0 <proxy-upstream-socket> <cdp-socket> <websocket-path-file> <proxy-listen-port> <devtools-port> -- <browser-bin> <browser-args...>" >&2
+if [[ $# -lt 11 ]]; then
+  echo "usage: $0 <proxy-upstream-socket> <cdp-socket> <websocket-path-file> <proxy-listen-port> <devtools-port> <cgroup-root> <cgroup-name> <cpu-cores> <memory-bytes> -- <browser-bin> <browser-args...>" >&2
   exit 2
 fi
 
@@ -11,7 +11,11 @@ cdp_socket=$2
 websocket_path_file=$3
 proxy_listen_port=$4
 devtools_port=$5
-shift 5
+cgroup_root=$6
+cgroup_name=$7
+cpu_cores=$8
+memory_bytes=$9
+shift 9
 
 if [[ ${1-} != "--" ]]; then
   echo "missing -- separator before browser command" >&2
@@ -60,6 +64,43 @@ trap 'cleanup' EXIT INT TERM
 rm -f "$chromium_stderr_path"
 rm -f "$cdp_socket"
 rm -f "$websocket_path_file"
+
+if [[ $cpu_cores != 0 ]]; then
+  if [[ $cgroup_root != /* ]]; then
+    echo "delegated cgroup root must be absolute: $cgroup_root" >&2
+    exit 2
+  fi
+  if [[ ! -f $cgroup_root/cgroup.controllers ]]; then
+    echo "delegated cgroup root is not available in the sandbox: $cgroup_root" >&2
+    exit 2
+  fi
+
+  mkdir -p "$cgroup_root/$cgroup_name"
+  printf '%s\n' 0 >"$cgroup_root/$cgroup_name/cgroup.procs"
+
+  controllers=$(cat "$cgroup_root/cgroup.controllers")
+  for controller in cpu memory; do
+    if [[ " $controllers " != *" $controller "* ]]; then
+      echo "cgroup controller '$controller' is not available" >&2
+      exit 2
+    fi
+  done
+
+  enabled=$(cat "$cgroup_root/cgroup.subtree_control")
+  enable_args=()
+  for controller in cpu memory; do
+    if [[ " $enabled " != *" $controller "* ]]; then
+      enable_args+=("+$controller")
+    fi
+  done
+  if (( ${#enable_args[@]} > 0 )); then
+    printf '%s\n' "${enable_args[*]}" >"$cgroup_root/cgroup.subtree_control"
+  fi
+
+  quota_us=$(( cpu_cores * 100000 ))
+  printf '%s %s\n' "$quota_us" "100000" >"$cgroup_root/$cgroup_name/cpu.max"
+  printf '%s\n' "$memory_bytes" >"$cgroup_root/$cgroup_name/memory.max"
+fi
 
 socat \
   TCP-LISTEN:"${proxy_listen_port}",bind=127.0.0.1,reuseaddr,fork \

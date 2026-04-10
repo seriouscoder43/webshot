@@ -9,3 +9,5 @@ crawler_run_timeout_sec: 15
 crawler_job_overhead_timeout_sec: 45
 link_cooldown_sec: 0
 secdist_path: secret/test_secdist.json
+crawler_cpu_cores: 1
+crawler_memory_gib: 1

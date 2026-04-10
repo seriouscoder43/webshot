@@ -8,3 +8,5 @@ pg_shared_state_db_dsn:
 crawler_run_timeout_sec: 15
 crawler_job_overhead_timeout_sec: 45
 link_cooldown_sec: 60
+crawler_cpu_cores: 1
+crawler_memory_gib: 1

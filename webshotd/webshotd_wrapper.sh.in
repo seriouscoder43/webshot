@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_extra_path='@WEBSHOT_RUNTIME_EXTRA_PATH@'
+systemd_scope_env=WEBSHOT_SYSTEMD_SCOPE
+systemd_scope_subgroup=service
+delegated_controllers=( cpu memory )
+
+if [[ -n $runtime_extra_path ]]; then
+  export PATH="$runtime_extra_path:$PATH"
+fi
+
+if [[ ${!systemd_scope_env:-} != 1 ]]; then
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "webshotd: managed startup requires systemd-run" >&2
+    exit 1
+  fi
+  env_args=( "--setenv=${systemd_scope_env}=1" )
+  for name in PATH LD_LIBRARY_PATH SSL_CERT_FILE NIX_SSL_CERT_FILE XDG_DATA_DIRS XDG_CONFIG_DIRS TMPDIR HOME USER; do
+    if [[ -n ${!name-} ]]; then
+      env_args+=( "--setenv=$name=${!name}" )
+    fi
+  done
+  exec systemd-run --user --scope --quiet --collect --same-dir \
+    '--property=Delegate=cpu memory' \
+    "${env_args[@]}" \
+    "$0" "$@"
+fi
+
+current_cgroup=$(sed -n 's/^0:://p' /proc/self/cgroup | tail -n 1)
+if [[ -z $current_cgroup || $current_cgroup != /* ]]; then
+  echo "webshotd: failed to determine current cgroup v2 path" >&2
+  exit 1
+fi
+current_cgroup_dir=/sys/fs/cgroup${current_cgroup}
+if [[ ${current_cgroup_dir##*/} != ${systemd_scope_subgroup} ]]; then
+  mkdir -p "$current_cgroup_dir/$systemd_scope_subgroup"
+  printf '%s\n' "$$" >"$current_cgroup_dir/$systemd_scope_subgroup/cgroup.procs"
+  delegated_root_dir=$current_cgroup_dir
+else
+  delegated_root_dir=$(dirname "$current_cgroup_dir")
+fi
+
+if [[ ! -f $delegated_root_dir/cgroup.controllers || ! -f $delegated_root_dir/cgroup.subtree_control ]]; then
+  echo "webshotd: delegated cgroup root is not writable: $delegated_root_dir" >&2
+  exit 1
+fi
+
+controllers=$(cat "$delegated_root_dir/cgroup.controllers")
+for controller in "${delegated_controllers[@]}"; do
+  if [[ " $controllers " != *" $controller "* ]]; then
+    echo "webshotd: delegated cgroup root is missing controller '$controller'" >&2
+    exit 1
+  fi
+done
+
+enabled=$(cat "$delegated_root_dir/cgroup.subtree_control")
+enable_args=()
+for controller in "${delegated_controllers[@]}"; do
+  if [[ " $enabled " != *" $controller "* ]]; then
+    enable_args+=( "+$controller" )
+  fi
+done
+if (( ${#enable_args[@]} > 0 )); then
+  printf '%s\n' "${enable_args[*]}" >"$delegated_root_dir/cgroup.subtree_control"
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+unset CPU_LIMIT DEPLOY_VCPU_LIMIT VCPU_LIMIT
+exec "$script_dir/webshotd_bin" "$@"
