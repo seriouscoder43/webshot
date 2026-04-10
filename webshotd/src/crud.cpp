@@ -142,6 +142,22 @@ properties:
         type: integer
         minimum: 1
         description: 'Extra timeout budget added around crawler runs for upload and metadata persistence'
+    crawler_post_load_delay_sec:
+        type: integer
+        minimum: 0
+        description: 'Extra delay after page load event before reading DOM and resources in seconds; 0 disables'
+    crawler_net_idle_wait_sec:
+        type: integer
+        minimum: 0
+        description: 'How long to wait for network to go idle after behaviors in seconds; 0 disables'
+    crawler_page_extra_delay_sec:
+        type: integer
+        minimum: 0
+        description: 'Extra delay after network idle wait in seconds; 0 disables'
+    crawler_behavior_timeout_sec:
+        type: integer
+        minimum: 0
+        description: 'Upper bound for running site behavior JS in seconds; 0 disables'
     s3_credentials_endpoint:
         type: string
         description: 'STS url used to obtain temporary S3 credentials; S3 data url s3_endpoint (in config) must be http(s)://host[:port] with optional trailing slash and no additional path or query'
@@ -205,6 +221,10 @@ public:
     const i64 crawlerCpuCores;
     const i64 crawlerMemoryGib;
     const i64 crawlerJobOverheadTimeoutSec;
+    const i64 crawlerPostLoadDelaySec;
+    const i64 crawlerNetIdleWaitSec;
+    const i64 crawlerPageExtraDelaySec;
+    const i64 crawlerBehaviorTimeoutSec;
     const i64 linkCooldownSec;
     const i64 crawlJobRetentionSec;
     const i64 crawlJobCleanupIntervalSec;
@@ -268,6 +288,10 @@ public:
           crawlerCpuCores(cfg["crawler_cpu_cores"].As<int64_t>()),
           crawlerMemoryGib(cfg["crawler_memory_gib"].As<int64_t>()),
           crawlerJobOverheadTimeoutSec(cfg["crawler_job_overhead_timeout_sec"].As<int64_t>()),
+          crawlerPostLoadDelaySec(cfg["crawler_post_load_delay_sec"].As<int64_t>()),
+          crawlerNetIdleWaitSec(cfg["crawler_net_idle_wait_sec"].As<int64_t>()),
+          crawlerPageExtraDelaySec(cfg["crawler_page_extra_delay_sec"].As<int64_t>()),
+          crawlerBehaviorTimeoutSec(cfg["crawler_behavior_timeout_sec"].As<int64_t>()),
           linkCooldownSec(cfg["link_cooldown_sec"].As<int64_t>()),
           crawlJobRetentionSec(cfg["crawl_job_retention_sec"].As<int64_t>()),
           crawlJobCleanupIntervalSec(cfg["crawl_job_cleanup_interval_sec"].As<int64_t>()),
@@ -289,7 +313,13 @@ public:
           processStarter(ctx.FindComponent<us::components::ProcessStarter>().Get()),
           crawlerRunner(
               httpClient, processStarter, crawlerRunTimeoutSec, std::string(svcCfg.stateDir()),
-              computeCrawlerLimitsOrThrow(crawlerCpuCores, crawlerMemoryGib)
+              computeCrawlerLimitsOrThrow(crawlerCpuCores, crawlerMemoryGib),
+              crawler::CaptureTimings{
+                  crawlerPostLoadDelaySec,
+                  crawlerNetIdleWaitSec,
+                  crawlerPageExtraDelaySec,
+                  crawlerBehaviorTimeoutSec,
+              }
           ),
           denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
@@ -299,6 +329,12 @@ public:
           s3RefreshTask(), crawlJobCleanupTask(), purgeBackground(purgeTaskProcessor),
           crawlBackground(mainTaskProcessor)
     {
+        const auto fixedTimingBudgetSec = crawlerPostLoadDelaySec + crawlerNetIdleWaitSec +
+                                          crawlerPageExtraDelaySec + crawlerBehaviorTimeoutSec;
+        UINVARIANT(
+            fixedTimingBudgetSec <= crawlerRunTimeoutSec,
+            "crawler fixed timing budget must be <= crawler_run_timeout_sec"
+        );
         UINVARIANT(
             s3CredentialsDurationSec > s3CredentialsRefreshMarginSec,
             "s3_credentials_duration_sec must be greater than s3_credentials_refresh_margin_sec"

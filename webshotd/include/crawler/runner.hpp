@@ -14,6 +14,16 @@
 namespace us = userver;
 
 namespace v1 {
+namespace crawler {
+
+struct [[nodiscard]] CaptureTimings {
+    i64 postLoadDelaySec;
+    i64 netIdleWaitSec;
+    i64 pageExtraDelaySec;
+    i64 behaviorTimeoutSec;
+};
+
+} // namespace crawler
 
 struct [[nodiscard]] CrawlerRunArtifacts {
     crawler::AttemptSummary attempt;
@@ -28,7 +38,8 @@ public:
     CrawlerRunner(
         us::clients::http::Client &httpClient,
         us::engine::subprocess::ProcessStarter &processStarter, i64 runTimeoutSec,
-        std::string stateDir, std::optional<crawler::CgroupLimits> limits
+        std::string stateDir, std::optional<crawler::CgroupLimits> limits,
+        crawler::CaptureTimings timings
     );
 
     [[nodiscard]] CrawlerRunArtifacts run(const String &seedUrl) const;
@@ -40,6 +51,7 @@ private:
     std::string browserRunsRoot;
     std::string cgroupRootPath;
     std::optional<crawler::CgroupLimits> cgroupLimits;
+    crawler::CaptureTimings timings;
 };
 
 } // namespace v1

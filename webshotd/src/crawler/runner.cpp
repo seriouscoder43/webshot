@@ -1420,9 +1420,9 @@ public:
     CaptureSession(
         us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
         std::string cgroupRootPathIn, std::optional<crawler::CgroupLimits> cgroupLimitsIn,
-        crawler::RunRequest runIn
+        crawler::CaptureTimings timingsIn, crawler::RunRequest runIn
     )
-        : run(std::move(runIn)),
+        : timings(std::move(timingsIn)), run(std::move(runIn)),
           deadline(us::engine::Deadline::FromDuration(chrono::milliseconds{raw(run.jobTimeoutMs)})),
           browser(
               processStarter, std::move(browserRunsRootIn), std::move(cgroupRootPathIn),
@@ -1561,15 +1561,15 @@ private:
 
         browser.markPhase("wait_for_load");
         pageTracker().waitForLoad(cdpClient(), deadline);
-        if (crawler::kPostLoadDelayMs > 0_i64) {
+        if (timings.postLoadDelaySec > 0_i64) {
             browser.markPhase("post_load_delay");
             sleepWithinDeadline(
-                deadline, chrono::milliseconds{crawler::kPostLoadDelayMs},
+                deadline, chrono::milliseconds{timings.postLoadDelaySec * 1000_i64},
                 "timed out waiting for post-load delay"
             );
             browser.markPhase("post_load_delay_done");
         }
-        if (crawler::kBehaviorTimeoutMs > 0_i64) {
+        if (timings.behaviorTimeoutSec > 0_i64) {
             browser.markPhase("run_site_behavior");
             browser.markPhase("run_site_behavior_runtime_evaluate");
             const auto behaviorBudget = timeLeftOrThrowMs(
@@ -1577,22 +1577,24 @@ private:
             );
             runSiteBehavior(
                 cdpClient(), attachedSessionId(),
-                std::min(chrono::milliseconds{crawler::kBehaviorTimeoutMs}, behaviorBudget)
+                std::min(
+                    chrono::milliseconds{timings.behaviorTimeoutSec * 1000_i64}, behaviorBudget
+                )
             );
             browser.markPhase("run_site_behavior_done");
         }
-        if (crawler::kNetIdleWaitMs > 0_i64) {
+        if (timings.netIdleWaitSec > 0_i64) {
             browser.markPhase("wait_for_idle");
             browser.markPhase("wait_for_idle_wait");
             pageTracker().waitForIdle(
-                cdpClient(), chrono::milliseconds{crawler::kNetIdleWaitMs}, deadline
+                cdpClient(), chrono::milliseconds{timings.netIdleWaitSec * 1000_i64}, deadline
             );
             browser.markPhase("wait_for_idle_done");
         }
-        if (crawler::kPageExtraDelayMs > 0_i64) {
+        if (timings.pageExtraDelaySec > 0_i64) {
             browser.markPhase("page_extra_delay");
             sleepWithinDeadline(
-                deadline, chrono::milliseconds{crawler::kPageExtraDelayMs},
+                deadline, chrono::milliseconds{timings.pageExtraDelaySec * 1000_i64},
                 "timed out waiting for extra page delay"
             );
             browser.markPhase("page_extra_delay_done");
@@ -1717,6 +1719,7 @@ private:
         return sessionId.value();
     }
 
+    crawler::CaptureTimings timings;
     crawler::RunRequest run;
     us::engine::Deadline deadline;
     BrowserInstance browser;
@@ -1731,12 +1734,13 @@ private:
 [[nodiscard]] crawler::CapturedExchange captureViaProxy(
     us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
     const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
-    const crawler::RunRequest &run
+    crawler::CaptureTimings timings, const crawler::RunRequest &run
 )
 {
     auto session = CaptureSession(
         processStarter, std::string(browserRunsRoot), std::string(cgroupRootPath),
-        std::move(cgroupLimits), crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
+        std::move(cgroupLimits), std::move(timings),
+        crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
     );
     return session.capture();
 }
@@ -1744,7 +1748,8 @@ private:
 [[nodiscard]] CrawlerRunArtifacts executeRun(
     us::clients::http::Client &httpClient, us::engine::subprocess::ProcessStarter &processStarter,
     const std::string &browserRunsRoot, const std::string &cgroupRootPath,
-    std::optional<crawler::CgroupLimits> cgroupLimits, const crawler::RunRequest &run
+    std::optional<crawler::CgroupLimits> cgroupLimits, const crawler::CaptureTimings &timings,
+    const crawler::RunRequest &run
 )
 {
     static_cast<void>(httpClient);
@@ -1753,7 +1758,7 @@ private:
     try {
         LOG_INFO() << fmt::format("crawler executeRun starting for {}", run.seedUrl);
         auto exchange = captureViaProxy(
-            processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), run
+            processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), timings, run
         );
         LOG_INFO() << fmt::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
@@ -1836,11 +1841,13 @@ private:
 CrawlerRunner::CrawlerRunner(
     us::clients::http::Client &httpClientIn,
     us::engine::subprocess::ProcessStarter &processStarterIn, i64 runTimeoutSecIn,
-    std::string stateDir, std::optional<crawler::CgroupLimits> limitsIn
+    std::string stateDir, std::optional<crawler::CgroupLimits> limitsIn,
+    crawler::CaptureTimings timingsIn
 )
     : httpClient(httpClientIn), processStarter(processStarterIn), runTimeoutSec(runTimeoutSecIn),
       browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir))),
-      cgroupRootPath(limitsIn ? resolveDelegatedCgroupRootPathOrThrow() : std::string())
+      cgroupRootPath(limitsIn ? resolveDelegatedCgroupRootPathOrThrow() : std::string()),
+      timings(std::move(timingsIn))
 {
     cgroupLimits = std::move(limitsIn);
 }
@@ -1848,7 +1855,7 @@ CrawlerRunner::CrawlerRunner(
 CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
     return executeRun(
-        httpClient, processStarter, browserRunsRoot, cgroupRootPath, cgroupLimits,
+        httpClient, processStarter, browserRunsRoot, cgroupRootPath, cgroupLimits, timings,
         crawler::RunRequest{seedUrl, runTimeoutSec * 1000_i64}
     );
 }

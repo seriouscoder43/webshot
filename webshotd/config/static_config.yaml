@@ -149,6 +149,10 @@ components_manager:
       crawler_cpu_cores: $crawler_cpu_cores
       crawler_memory_gib: $crawler_memory_gib
       crawler_job_overhead_timeout_sec: $crawler_job_overhead_timeout_sec
+      crawler_post_load_delay_sec: $crawler_post_load_delay_sec
+      crawler_net_idle_wait_sec: $crawler_net_idle_wait_sec
+      crawler_page_extra_delay_sec: $crawler_page_extra_delay_sec
+      crawler_behavior_timeout_sec: $crawler_behavior_timeout_sec
       link_cooldown_sec: $link_cooldown_sec
       crawl_job_retention_sec: 604800
       crawl_job_cleanup_interval_sec: 3600

@@ -7,6 +7,10 @@ pg_capture_meta_db_dsn:
 pg_shared_state_db_dsn:
 crawler_run_timeout_sec: 15
 crawler_job_overhead_timeout_sec: 45
+crawler_post_load_delay_sec: 1
+crawler_net_idle_wait_sec: 0
+crawler_page_extra_delay_sec: 1
+crawler_behavior_timeout_sec: 1
 link_cooldown_sec: 60
 crawler_cpu_cores: 1
 crawler_memory_gib: 1
