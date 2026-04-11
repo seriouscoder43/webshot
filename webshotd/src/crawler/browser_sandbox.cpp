@@ -10,9 +10,11 @@ buildChromiumArgs(const std::string &userDataDir, const std::string &netlogPath)
 {
     std::vector<std::string> args = {
         "--headless=new",
+        "--ozone-platform=headless",
         "--disable-gpu",
         "--disable-gpu-compositing",
         "--disable-gpu-rasterization",
+        "--disable-vulkan",
         "--disable-dev-shm-usage",
         "--disable-background-networking",
         "--disable-breakpad",

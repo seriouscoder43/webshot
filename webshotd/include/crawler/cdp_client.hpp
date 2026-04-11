@@ -55,7 +55,7 @@ public:
 
     template <typename T> [[nodiscard]] T send(std::string_view method, const String &sessionId)
     {
-        return send<T>(method, std::make_optional(sessionId));
+        return send<T>(method, std::optional{sessionId});
     }
 
     template <typename T>

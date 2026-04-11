@@ -44,7 +44,7 @@ EndpointParts parseEndpoint(const String &ep)
     UINVARIANT(url.isHttp() || url.isHttps(), "S3 endpoint must be http or https");
 
     UINVARIANT(!url.hasSearch(), "S3 endpoint must not include query");
-    std::string path = std::string(url.pathname().view());
+    std::string path{url.pathname().view()};
     if (path.empty())
         path = "/";
     UINVARIANT(path == "/", "S3 endpoint path must be root");
@@ -82,7 +82,7 @@ std::string S3V4Client::PutObject(
     const String payloadHash = sha256Hex(data);
     signRequest("PUT"_t, built.rawPath, built.host, headers, payloadHash);
 
-    const std::string url = std::string(built.href.view());
+    const std::string url{built.href.view()};
     auto resp = httpClient.CreateNotSignedRequest()
                     .put(url, std::move(data))
                     .headers(headers)
@@ -100,7 +100,7 @@ void S3V4Client::DeleteObject(std::string_view path) const
     const auto payloadHash = sha256Hex("");
     signRequest("DELETE"_t, built.rawPath, built.host, headers, payloadHash);
 
-    const std::string url = std::string(built.href.view());
+    const std::string url{built.href.view()};
     auto resp = httpClient.CreateNotSignedRequest()
                     .delete_method(url)
                     .headers(headers)
@@ -260,7 +260,7 @@ S3V4Client::GenerateDownloadUrl(std::string_view path, time_t expiresEpoch, bool
     const auto pathText = String::fromBytesThrow(path);
     const auto protocolText = useSsl ? "https"_t : "http"_t;
     const auto urlText = presignPathStyle(method, pathText, expiresAt, protocolText);
-    return std::string(urlText.view());
+    return std::string{urlText.view()};
 }
 
 std::string S3V4Client::GenerateDownloadUrlVirtualHostAddressing(
@@ -273,7 +273,7 @@ std::string S3V4Client::GenerateDownloadUrlVirtualHostAddressing(
     auto method = "GET"_t;
     auto pathText = String::fromBytesThrow(path);
     auto protocolText = String::fromBytesThrow(protocol);
-    return std::string(presignVirtualHost(method, pathText, expiresAt, protocolText, {}).view());
+    return std::string{presignVirtualHost(method, pathText, expiresAt, protocolText, {}).view()};
 }
 
 std::string S3V4Client::GenerateUploadUrlVirtualHostAddressing(
@@ -291,7 +291,7 @@ std::string S3V4Client::GenerateUploadUrlVirtualHostAddressing(
     auto pathText = String::fromBytesThrow(path);
     auto protocolText = String::fromBytesThrow(protocol);
     auto urlText = presignVirtualHost(method, pathText, expiresAt, protocolText, std::move(hdrs));
-    return std::string(urlText.view());
+    return std::string{urlText.view()};
 }
 
 std::chrono::seconds S3V4Client::computePresignTtl(
@@ -341,7 +341,7 @@ void S3V4Client::signRequest(
         headers[kv.first] = kv.second;
 }
 
-String S3V4Client::buildRawPath(String path, bool includeBucket) const
+String S3V4Client::buildRawPath(String path, IncludeBucket includeBucket) const
 {
     const auto basePath = std::string(endpoint.basePath.view());
     const auto bucket = std::string(bucketName.view());
@@ -355,7 +355,7 @@ String S3V4Client::buildRawPath(String path, bool includeBucket) const
     if (!raw.empty() && raw.back() != '/')
         raw.push_back('/');
 
-    if (includeBucket && !bucket.empty()) {
+    if (includeBucket == IncludeBucket::kYes && !bucket.empty()) {
         raw.append(bucket);
         if (!pathBytes.empty())
             raw.push_back('/');
@@ -372,7 +372,7 @@ detail::BuiltUrl
 S3V4Client::makePathStyleUrl(String path, std::optional<String> protocolOverride) const
 {
     detail::BuiltUrl out;
-    out.rawPath = buildRawPath(std::move(path), /*includeBucket*/ true);
+    out.rawPath = buildRawPath(std::move(path), IncludeBucket::kYes);
 
     auto url = endpoint.url.copyParsed();
     if (protocolOverride) {
@@ -391,7 +391,7 @@ S3V4Client::makePathStyleUrl(String path, std::optional<String> protocolOverride
 detail::BuiltUrl S3V4Client::makeVirtualHostUrl(String path, String protocol) const
 {
     detail::BuiltUrl out;
-    out.rawPath = buildRawPath(std::move(path), /*includeBucket*/ false);
+    out.rawPath = buildRawPath(std::move(path), IncludeBucket::kNo);
 
     auto url = endpoint.url.copyParsed();
     const auto proto = std::string(protocol.view());

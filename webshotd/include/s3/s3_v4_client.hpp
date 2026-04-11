@@ -138,6 +138,11 @@ public:
     ) const override;
 
 private:
+    enum class IncludeBucket {
+        kNo,
+        kYes,
+    };
+
     static std::chrono::seconds computePresignTtl(
         const std::chrono::system_clock::time_point &now,
         const std::chrono::system_clock::time_point &expiresAt
@@ -151,7 +156,7 @@ private:
     [[nodiscard]] detail::BuiltUrl
     makePathStyleUrl(String path, std::optional<String> protocolOverride) const;
     [[nodiscard]] detail::BuiltUrl makeVirtualHostUrl(String path, String protocol) const;
-    [[nodiscard]] String buildRawPath(String path, bool includeBucket) const;
+    [[nodiscard]] String buildRawPath(String path, IncludeBucket includeBucket) const;
     String presignVirtualHost(
         String method, String path, const std::chrono::system_clock::time_point &expiresAt,
         String protocol, std::optional<userver::clients::http::Headers> extraHeaders

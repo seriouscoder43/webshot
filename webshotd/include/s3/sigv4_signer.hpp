@@ -15,6 +15,11 @@
 
 namespace v1::s3v4 {
 
+enum class EncodeSlash {
+    kNo,
+    kYes,
+};
+
 /**
  * @brief Canonical request and signed headers list as defined by SigV4.
  */
@@ -55,7 +60,7 @@ computeSignature(const SigV4Params &params, std::string_view stringToSign);
 [[nodiscard]] String sha256Hex(std::string_view data);
 
 /** RFC3986 percent-encoding for AWS canonicalization. */
-[[nodiscard]] String percentEncode(const String &s, bool encodeSlash);
+[[nodiscard]] String percentEncode(const String &s, EncodeSlash encodeSlash);
 
 /** Encode, sort, and join query parameters per SigV4 canonical rules. */
 [[nodiscard]] std::string

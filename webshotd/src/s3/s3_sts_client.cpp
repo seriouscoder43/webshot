@@ -87,7 +87,7 @@ StsCredentials detail::fetchStsWithExecutor(
             body += "&"_t;
         body += name;
         body += "="_t;
-        body += s3v4::percentEncode(value, true);
+        body += s3v4::percentEncode(value, s3v4::EncodeSlash::kYes);
     };
     appendParam("Action"_t, "AssumeRole"_t);
     appendParam("Version"_t, "2011-06-15"_t);

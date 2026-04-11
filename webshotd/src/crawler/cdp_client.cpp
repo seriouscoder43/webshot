@@ -357,9 +357,8 @@ json::Value CdpClient::sendRaw(
         request.sessionId = std::string(sessionId->view());
     pendingRequests.emplace(
         id, PendingRequestTrace{
-                std::string(method),
-                sessionId ? std::make_optional(String::fromBytesThrow(sessionId->view()))
-                          : std::optional<String>{},
+                .method = std::string{method},
+                .sessionId = sessionId,
             }
     );
     traceCommand(id, method, sessionId);
@@ -528,19 +527,15 @@ void CdpClient::handleMessage(const std::string &payload)
     UINVARIANT(!value["method"].IsMissing(), "cdp message missing id and method");
 
     auto eventMessage = value.As<dto::CdpEventMessage>();
-    traceEvent(
-        eventMessage.method,
-        eventMessage.sessionId
-            ? std::make_optional(String::fromBytesThrow(eventMessage.sessionId.value()))
-            : std::optional<String>{}
-    );
+    const auto sessionId = eventMessage.sessionId.transform([](const auto &s) {
+        return String::fromBytesThrow(s);
+    });
+    traceEvent(eventMessage.method, sessionId);
     dispatchEvent(
         CdpEvent{
-            String::fromBytesThrow(eventMessage.method),
-            std::move(eventMessage.params),
-            eventMessage.sessionId
-                ? std::make_optional(String::fromBytesThrow(eventMessage.sessionId.value()))
-                : std::optional<String>{},
+            .method = String::fromBytesThrow(eventMessage.method),
+            .params = std::move(eventMessage.params),
+            .sessionId = sessionId,
         }
     );
 }
@@ -551,8 +546,8 @@ std::string CdpClient::makeEndpointPath() const
         return "/";
     const auto path = websocketPath.view();
     if (websocketPath.startsWith('/'))
-        return std::string(path);
-    return "/" + std::string(path);
+        return std::string{path};
+    return "/" + std::string{path};
 }
 
 void CdpClient::writeTraceLine(const json::Value &value)

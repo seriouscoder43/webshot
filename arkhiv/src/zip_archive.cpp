@@ -359,7 +359,7 @@ std::optional<ZipArchive> ZipArchive::fromBytes(std::string_view bytes, ZipArchi
     }
 
     errorOut = {};
-    return ZipArchive(std::move(filesOut), std::move(pathsOut));
+    return ZipArchive{std::move(filesOut), std::move(pathsOut)};
 }
 
 std::optional<std::string_view> ZipArchive::findFile(std::string_view path) const noexcept
@@ -367,7 +367,7 @@ std::optional<std::string_view> ZipArchive::findFile(std::string_view path) cons
     const auto it = files.find(path);
     if (it == files.end())
         return {};
-    return std::string_view(it->second.data(), it->second.size());
+    return std::string_view{it->second.data(), it->second.size()};
 }
 
 const std::vector<std::string> &ZipArchive::entryPathsInOrder() const noexcept { return paths; }

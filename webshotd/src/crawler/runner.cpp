@@ -575,10 +575,10 @@ public:
                 appendDiagnosticField(diagnostics, "preserved_browser_dir", preservedDir.value());
 
             if (diagnostics.empty())
-                return std::string(message);
+                return std::string{message};
             return std::format("{}, {}", message, diagnostics);
         } catch (const std::exception &) {
-            return std::string(message);
+            return std::string{message};
         }
     }
 
@@ -1386,10 +1386,9 @@ struct [[nodiscard]] DomState {
     );
     const auto &value = result.result.value;
     return {
-        String::fromBytesThrow(value.finalUrl),
-        value.title ? std::make_optional(String::fromBytesThrow(value.title.value()))
-                    : std::optional<String>{},
-        value.html,
+        .finalUrl = String::fromBytesThrow(value.finalUrl),
+        .title = value.title.transform([](const auto &t) { return String::fromBytesThrow(t); }),
+        .html = value.html,
     };
 }
 
@@ -1763,7 +1762,9 @@ private:
         );
         auto pages = crawler::buildPagesJsonl(exchange);
         LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
-        out.stdoutLog = crawler::buildSuccessStdoutLog(run, exchange, 0_i64, false);
+        out.stdoutLog = crawler::buildSuccessStdoutLog(
+            run, exchange, 0_i64, crawler::ReusedBrowser::kNo
+        );
         out.stderrLog.clear();
         auto warc = crawler::buildWarc(exchange);
         LOG_INFO() << std::format("crawler buildWarc finished for {}", run.seedUrl);

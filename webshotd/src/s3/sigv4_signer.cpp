@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <format>
-#include <sstream>
 
 #include <cctz/time_zone.h>
 
@@ -29,7 +28,7 @@ inline bool isUnreserved(char c)
 /** Collapse runs of spaces and trim at both ends. */
 std::string trimSpaces(const std::string &s)
 {
-    auto out = std::string(s);
+    auto out = s;
     absl::RemoveExtraAsciiWhitespace(&out);
     return out;
 }
@@ -37,21 +36,21 @@ std::string trimSpaces(const std::string &s)
 /** Join header names with semicolons in order. */
 std::string joinSignedHeaders(const std::vector<std::pair<std::string, std::string>> &headers)
 {
-    std::ostringstream oss;
-    for (std::size_t i = 0; i < headers.size(); i++) {
+    std::string out;
+    for (size_t i = 0; i < headers.size(); i++) {
         if (i)
-            oss << ';';
-        oss << headers[i].first;
+            out.push_back(';');
+        out += headers[i].first;
     }
-    return oss.str();
+    return out;
 }
 
-std::string percentEncodeBytes(std::string_view s, bool encodeSlash)
+std::string percentEncodeBytes(std::string_view s, EncodeSlash encodeSlash)
 {
     std::string out;
     out.reserve(s.size() * 3);
     for (char c : s) {
-        if (isUnreserved(c) || (!encodeSlash && c == '/')) {
+        if (isUnreserved(c) || (encodeSlash == EncodeSlash::kNo && c == '/')) {
             out.push_back(c);
         } else {
             unsigned char uc = static_cast<unsigned char>(c);
@@ -66,23 +65,21 @@ std::string percentEncodeBytes(std::string_view s, bool encodeSlash)
 
 std::string canonicalizeQueryImpl(const std::vector<std::pair<std::string, std::string>> &query)
 {
-    std::vector<std::pair<std::string, std::string>> q = query;
-    for (auto &kv : q) {
-        kv.first = percentEncodeBytes(kv.first, /*encodeSlash*/ true);
-        kv.second = percentEncodeBytes(kv.second, /*encodeSlash*/ true);
+    auto q = query;
+    for (auto &[k, v] : q) {
+        k = percentEncodeBytes(k, EncodeSlash::kYes);
+        v = percentEncodeBytes(v, EncodeSlash::kYes);
     }
-    std::sort(std::begin(q), std::end(q), [](const auto &a, const auto &b) {
-        if (a.first == b.first)
-            return a.second < b.second;
-        return a.first < b.first;
-    });
-    std::ostringstream canonQuery;
+    std::ranges::sort(q);
+    std::string out;
     for (size_t i = 0; i < q.size(); i++) {
         if (i)
-            canonQuery << '&';
-        canonQuery << q[i].first << '=' << q[i].second;
+            out.push_back('&');
+        out += q[i].first;
+        out.push_back('=');
+        out += q[i].second;
     }
-    return canonQuery.str();
+    return out;
 }
 
 std::vector<std::pair<std::string, std::string>>
@@ -90,8 +87,8 @@ toUtf8Pairs(const std::vector<std::pair<String, String>> &in)
 {
     auto out = std::vector<std::pair<std::string, std::string>>{};
     out.reserve(in.size());
-    for (const auto &kv : in) {
-        out.emplace_back(std::string(kv.first.view()), std::string(kv.second.view()));
+    for (const auto &[k, v] : in) {
+        out.emplace_back(std::string{k.view()}, std::string{v.view()});
     }
     return out;
 }
@@ -143,7 +140,7 @@ String sha256Hex(std::string_view data)
     );
 }
 
-String percentEncode(const String &s, bool encodeSlash)
+String percentEncode(const String &s, EncodeSlash encodeSlash)
 {
     return String::fromBytesThrow(percentEncodeBytes(s.view(), encodeSlash));
 }
@@ -156,24 +153,28 @@ CanonicalRequestParts buildCanonicalRequest(
 )
 {
     // Canonical URI must be URI-encoded with slash preserved
-    const std::string canonicalUriEncoded = percentEncodeBytes(canonicalUri, /*encodeSlash*/ false);
+    const auto canonicalUriEncoded = percentEncodeBytes(canonicalUri, EncodeSlash::kNo);
 
-    const std::string canonicalQuery = canonicalizeQueryImpl(query);
+    const auto canonicalQuery = canonicalizeQueryImpl(query);
 
-    std::ostringstream canonicalHeaders;
-    for (const auto &kv : headersLowercaseTrimmedSorted)
-        canonicalHeaders << kv.first << ':' << trimSpaces(kv.second) << "\n";
-    std::string signedHeaders = joinSignedHeaders(headersLowercaseTrimmedSorted);
+    std::string canonicalHeaders;
+    for (const auto &[k, v] : headersLowercaseTrimmedSorted) {
+        canonicalHeaders += k;
+        canonicalHeaders.push_back(':');
+        canonicalHeaders += trimSpaces(v);
+        canonicalHeaders.push_back('\n');
+    }
+    auto signedHeaders = joinSignedHeaders(headersLowercaseTrimmedSorted);
 
-    std::ostringstream oss;
-    oss << method << "\n"
-        << canonicalUriEncoded << "\n"
-        << canonicalQuery << "\n"
-        << canonicalHeaders.str() << "\n"
-        << signedHeaders << "\n"
-        << payloadSha256Hex;
+    auto canonicalRequest = std::format(
+        "{}\n{}\n{}\n{}\n{}\n{}", method, canonicalUriEncoded, canonicalQuery, canonicalHeaders,
+        signedHeaders, payloadSha256Hex
+    );
 
-    return {oss.str(), signedHeaders};
+    return {
+        .canonicalRequest = std::move(canonicalRequest),
+        .signedHeaders = std::move(signedHeaders),
+    };
 }
 
 std::string canonicalizeQuery(const std::vector<std::pair<std::string, std::string>> &decoded)

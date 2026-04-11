@@ -36,7 +36,7 @@ std::string serializeHref(const ada::url_aggregator &url)
 {
     auto href = std::string_view(url.get_href());
     absl::ConsumeSuffix(&href, "/");
-    return std::string(href);
+    return std::string{href};
 }
 
 } // namespace
@@ -45,7 +45,19 @@ namespace v1 {
 
 namespace {
 
-Link fromTextImpl(const String &text, size_t queryPartLengthMax, bool stripPort, bool stripQuery)
+enum class StripPort {
+    kNo,
+    kYes,
+};
+
+enum class StripQuery {
+    kNo,
+    kYes,
+};
+
+Link fromTextImpl(
+    const String &text, size_t queryPartLengthMax, StripPort stripPort, StripQuery stripQuery
+)
 {
     std::string in(text.view());
     absl::StripAsciiWhitespace(&in);
@@ -79,9 +91,9 @@ Link fromTextImpl(const String &text, size_t queryPartLengthMax, bool stripPort,
     url->set_username("");
     url->set_password("");
     url->clear_hash();
-    if (stripPort)
+    if (stripPort == StripPort::kYes)
         url->clear_port();
-    if (stripQuery)
+    if (stripQuery == StripQuery::kYes)
         url->set_search("");
 
     if (auto hostname = url->get_hostname(); !hostname.empty() && hostname.back() == '.')
@@ -94,17 +106,17 @@ Link fromTextImpl(const String &text, size_t queryPartLengthMax, bool stripPort,
 
 Link Link::fromTextStripPort(const String &text, size_t queryPartLengthMax)
 {
-    return fromTextImpl(text, queryPartLengthMax, true, false);
+    return fromTextImpl(text, queryPartLengthMax, StripPort::kYes, StripQuery::kNo);
 }
 
 Link Link::fromText(const String &text, size_t queryPartLengthMax)
 {
-    return fromTextImpl(text, queryPartLengthMax, false, false);
+    return fromTextImpl(text, queryPartLengthMax, StripPort::kNo, StripQuery::kNo);
 }
 
 Link Link::fromTextStripPortQuery(const String &text, size_t queryPartLengthMax)
 {
-    return fromTextImpl(text, queryPartLengthMax, true, true);
+    return fromTextImpl(text, queryPartLengthMax, StripPort::kYes, StripQuery::kYes);
 }
 
 String Link::host() const { return url.hostname(); }

@@ -56,7 +56,7 @@ constexpr std::string_view kWarcPath = "archive/data.warc.gz";
     const auto end = body.find("</title>", start + 1);
     if (end == std::string_view::npos)
         return {};
-    return std::string(body.substr(start + 1, end - start - 1));
+    return std::string{body.substr(start + 1, end - start - 1)};
 }
 
 template <typename T> [[nodiscard]] std::string toJsonString(const T &value)
@@ -282,8 +282,7 @@ serializeRecordPair(const SerializableResponse &response)
     appendUrl(exchange.finalUrl, exchange.statusCode, exchange.headers, "Document"_t);
     for (const auto &resource : exchange.resources) {
         appendUrl(
-            resource.resourceUrl, resource.statusCode, resource.headers,
-            resource.resourceType ? resource.resourceType : std::optional<String>{}
+            resource.resourceUrl, resource.statusCode, resource.headers, resource.resourceType
         );
     }
     pageInfo["urls"] = urls.ExtractValue();
@@ -476,7 +475,8 @@ std::string buildPagesJsonl(const CapturedExchange &exchange)
 }
 
 std::string buildSuccessStdoutLog(
-    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid, bool reusedBrowser
+    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
+    ReusedBrowser reusedBrowser
 )
 {
     return std::format(
@@ -491,7 +491,7 @@ std::string buildSuccessStdoutLog(
         "browsertrix rewrite done\n\n",
         run.seedUrl, exchange.finalUrl, exchange.statusCode,
         exchange.redirectChain.empty() ? 0 : exchange.redirectChain.size() - 1, "chromium",
-        browserPid, reusedBrowser ? "true" : "false"
+        browserPid, reusedBrowser == ReusedBrowser::kYes ? "true" : "false"
     );
 }
 

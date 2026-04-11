@@ -12,6 +12,11 @@
 
 namespace v1::crawler {
 
+enum class ReusedBrowser {
+    kNo,
+    kYes,
+};
+
 struct [[nodiscard]] CapturedMainDocumentRedirect {
     String redirectUrl;
     i64 statusCode{0};
@@ -68,7 +73,8 @@ struct [[nodiscard]] WarcBuildOutput {
 [[nodiscard]] std::string buildPagesJsonl(const CapturedExchange &exchange);
 
 [[nodiscard]] std::string buildSuccessStdoutLog(
-    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid, bool reusedBrowser
+    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
+    ReusedBrowser reusedBrowser
 );
 
 [[nodiscard]] WarcBuildOutput buildWarc(const CapturedExchange &exchange);

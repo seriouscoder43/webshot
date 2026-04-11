@@ -13,6 +13,7 @@
 using v1::s3v4::AccessKeyId;
 using v1::s3v4::buildCanonicalRequest;
 using v1::s3v4::CanonicalRequestParts;
+using v1::s3v4::EncodeSlash;
 using v1::s3v4::percentEncode;
 using v1::s3v4::S3Credentials;
 using v1::s3v4::S3V4Client;
@@ -24,11 +25,11 @@ using namespace text::literals;
 
 UTEST(S3SigV4, PercentEncodeBasicCharacters)
 {
-    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, false).view(), std::string{"abcXYZ-_.~"});
-    EXPECT_EQ(percentEncode(" "_t, true).view(), std::string{"%20"});
-    EXPECT_EQ(percentEncode("!"_t, true).view(), std::string{"%21"});
-    EXPECT_EQ(percentEncode("/"_t, true).view(), std::string{"%2F"});
-    EXPECT_EQ(percentEncode("/"_t, false).view(), std::string{"/"});
+    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, EncodeSlash::kNo).view(), std::string{"abcXYZ-_.~"});
+    EXPECT_EQ(percentEncode(" "_t, EncodeSlash::kYes).view(), std::string{"%20"});
+    EXPECT_EQ(percentEncode("!"_t, EncodeSlash::kYes).view(), std::string{"%21"});
+    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kYes).view(), std::string{"%2F"});
+    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kNo).view(), std::string{"/"});
 }
 
 UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
