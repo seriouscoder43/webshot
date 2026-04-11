@@ -8,7 +8,6 @@
 namespace {
 constexpr size_t kQueryPartLengthMax = 1024UL;
 
-using v1::InvalidLinkException;
 using v1::Link;
 
 [[nodiscard]] std::string normalizeKey(std::string_view input)
@@ -18,8 +17,14 @@ using v1::Link;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(text.value(), kQueryPartLengthMax);
-    const auto normalizedText = link.normalized();
+    const auto link = Link::fromText(
+        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
+    );
+    if (!link) {
+        ADD_FAILURE() << "Link::fromText failed";
+        return {};
+    }
+    const auto normalizedText = link->normalized();
     return std::string(normalizedText.view());
 }
 
@@ -31,8 +36,14 @@ using v1::Link;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(text.value(), kQueryPartLengthMax);
-    const auto normalizedText = link.normalized();
+    const auto link = Link::fromText(
+        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
+    );
+    if (!link) {
+        ADD_FAILURE() << "Link::fromText failed";
+        return {};
+    }
+    const auto normalizedText = link->normalized();
     return std::string(normalizedText.view());
 }
 } // namespace
@@ -43,36 +54,27 @@ UTEST(LinkFromText, AcceptsHttpsWithHostname)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromText(text.value(), kQueryPartLengthMax);
-    EXPECT_EQ(std::string(link.url.hostname().view()), std::string{"example.com"});
-    EXPECT_EQ(std::string(link.httpUrl().view()), std::string{"http://example.com"});
-    EXPECT_EQ(std::string(link.normalized().view()), std::string{"example.com"});
+    const auto link = Link::fromText(
+        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
+    );
+    ASSERT_TRUE(link);
+    EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
+    EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com"});
+    EXPECT_EQ(std::string(link->normalized().view()), std::string{"example.com"});
 }
 
 UTEST(LinkFromText, RejectsUnsupportedScheme)
 {
-    EXPECT_THROW(
-        {
-            auto text = String::fromBytes(std::string{"ftp://example.com/"});
-            if (!text)
-                throw std::runtime_error("String::fromBytes failed");
-            [[maybe_unused]] auto link = Link::fromText(text.value(), kQueryPartLengthMax);
-        },
-        InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"ftp://example.com/"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsMissingHostname)
 {
-    EXPECT_THROW(
-        {
-            auto text = String::fromBytes(std::string{"http:///"});
-            if (!text)
-                throw std::runtime_error("String::fromBytes failed");
-            [[maybe_unused]] auto link = Link::fromText(text.value(), kQueryPartLengthMax);
-        },
-        InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"http:///"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, AcceptsQueryAtLimit)
@@ -89,7 +91,9 @@ UTEST(LinkFromText, RejectsQueryOverLimit)
 {
     std::string urlString = "https://example.com/?";
     urlString.append(kQueryPartLengthMax + 1, 'a');
-    EXPECT_THROW({ [[maybe_unused]] auto value = normalizeKey(urlString); }, InvalidLinkException);
+    auto text = String::fromBytes(urlString);
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, NormalizesScheme)
@@ -128,31 +132,30 @@ UTEST(LinkFromText, PreservesQueryWithinLimit)
 
 UTEST(LinkFromText, RejectsNetworkPathReference)
 {
-    EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalizeKey("//example.com/path"); }, InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"//example.com/path"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsOverlargePort)
 {
-    EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalizeKey("http://example.com:99999/"); },
-        InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"http://example.com:99999/"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv6Host)
 {
-    EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalizeKey("http://[::1]/"); }, InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"http://[::1]/"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv4Host)
 {
-    EXPECT_THROW(
-        { [[maybe_unused]] auto value = normalizeKey("http://192.0.2.1/"); }, InvalidLinkException
-    );
+    auto text = String::fromBytes(std::string{"http://192.0.2.1/"});
+    ASSERT_TRUE(text);
+    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, KeepsEscapedSlashInPath)
@@ -202,10 +205,13 @@ UTEST(LinkMembers, HostAndHttpUrlNormalized)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromTextStripPort(text.value(), kQueryPartLengthMax);
-    EXPECT_EQ(std::string(link.url.hostname().view()), std::string{"example.com"});
-    EXPECT_EQ(std::string(link.httpUrl().view()), std::string{"http://example.com/Path"});
-    EXPECT_EQ(std::string(link.normalized().view()), std::string{"example.com/Path"});
+    const auto link = Link::fromText(
+        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kStripPort
+    );
+    ASSERT_TRUE(link);
+    EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
+    EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com/Path"});
+    EXPECT_EQ(std::string(link->normalized().view()), std::string{"example.com/Path"});
 }
 
 UTEST(LinkFromTextBytes, MatchesUtf8Normalization)

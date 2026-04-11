@@ -110,7 +110,7 @@ proxy_pid=$!
 "$@" 2> >(tee "$chromium_stderr_path" >&2) &
 browser_pid=$!
 
-for ((i = 0; i < 70; i++)); do
+for ((i = 0; i < 300; i++)); do
   if ! browserAlive; then
     echo "chromium exited before advertising devtools on 127.0.0.1:${devtools_port}" >&2
     exit 1

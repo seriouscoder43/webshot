@@ -1,4 +1,6 @@
 #pragma once
+
+#include "expected.hpp"
 #include "text.hpp"
 
 #include <memory>
@@ -7,6 +9,10 @@
 #include <userver/yaml_config/schema.hpp>
 
 namespace v1 {
+
+enum class DenylistError {
+    kDbFailure,
+};
 
 /**
  * @brief Host denylist management and purge helper.
@@ -26,9 +32,10 @@ public:
     ~Denylist() override;
 
     /** @brief Returns true if the normalized prefix key is not deny-listed. */
-    [[nodiscard]] bool isAllowedPrefix(const String &prefixKey) noexcept;
+    [[nodiscard]] Expected<bool, DenylistError> isAllowedPrefix(const String &prefixKey) noexcept;
     /** @brief Insert a prefix key into the denylist (noop if already present). */
-    void insertPrefix(const String &prefixKey, const String &reason);
+    [[nodiscard]] Expected<void, DenylistError>
+    insertPrefix(const String &prefixKey, const String &reason) noexcept;
     static userver::yaml_config::Schema GetStaticConfigSchema();
 
 private:

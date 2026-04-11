@@ -1,18 +1,26 @@
 #pragma once
 
+#include "expected.hpp"
 #include "url.hpp"
 
-#include <stdexcept>
 #include <string>
+#include <type_traits>
 
 #include "text.hpp"
 
 namespace v1 {
-/**
- * @brief Thrown when a user-supplied URL cannot be normalized or is disallowed.
- */
-struct InvalidLinkException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
+
+struct [[nodiscard]] LinkError final {
+    enum class Code {
+        kMissingScheme,
+        kUnsupportedScheme,
+        kFailedToParse,
+        kMissingHostname,
+        kIpAddressNotAllowed,
+        kInvalidHost,
+        kQueryTooLong,
+    };
+    Code code;
 };
 
 /**
@@ -30,6 +38,30 @@ struct InvalidLinkException : public std::runtime_error {
 struct [[nodiscard]] Link {
     Url url;
 
+    enum class FromTextOptions {
+        kNone = 0,
+        kStripPort = 1 << 0,
+        kStripQuery = 1 << 1,
+    };
+
+    friend constexpr FromTextOptions operator|(FromTextOptions lhs, FromTextOptions rhs) noexcept
+    {
+        using U = std::underlying_type_t<FromTextOptions>;
+        return static_cast<FromTextOptions>(static_cast<U>(lhs) | static_cast<U>(rhs));
+    }
+
+    friend constexpr FromTextOptions operator&(FromTextOptions lhs, FromTextOptions rhs) noexcept
+    {
+        using U = std::underlying_type_t<FromTextOptions>;
+        return static_cast<FromTextOptions>(static_cast<U>(lhs) & static_cast<U>(rhs));
+    }
+
+    static constexpr bool hasOption(FromTextOptions options, FromTextOptions flag) noexcept
+    {
+        using U = std::underlying_type_t<FromTextOptions>;
+        return static_cast<U>(options & flag) != 0;
+    }
+
     /**
      * @brief Construct a Link from normalized UTF-8 text.
      *
@@ -40,12 +72,11 @@ struct [[nodiscard]] Link {
      *
      * @param text Prevalidated, normalized UTF-8 text.
      * @param queryPartLengthMax Maximum allowed length of the query component.
+     * @param options Extra normalization options (for example strip port or query).
      * @return Normalized Link.
-     * @throws InvalidLinkException on parse/validation errors.
      */
-    [[nodiscard]] static Link fromText(const String &text, size_t queryPartLengthMax);
-    [[nodiscard]] static Link fromTextStripPortQuery(const String &text, size_t queryPartLengthMax);
-    [[nodiscard]] static Link fromTextStripPort(const String &text, size_t queryPartLengthMax);
+    [[nodiscard]] static Expected<Link, LinkError>
+    fromText(const String &text, size_t queryPartLengthMax, FromTextOptions options);
 
     /** @return Normalized, lower-cased host, punycode if applicable. */
     [[nodiscard]] String host() const;

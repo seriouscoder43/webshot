@@ -31,7 +31,9 @@ std::string makeValidXml()
 
 UTEST(S3StsClient, ParsesHappyPathXml)
 {
-    const StsCredentials creds(String::fromBytesThrow(makeValidXml()));
+    const auto parsed = StsCredentials::fromXml(String::fromBytes(makeValidXml()).expect());
+    ASSERT_TRUE(parsed);
+    const auto &creds = parsed.value();
 
     EXPECT_EQ(creds.accessKeyId.GetUnderlying().view(), std::string("AKIA_TEST_KEY"));
     EXPECT_EQ(creds.secretAccessKey.GetUnderlying().view(), std::string("SECRET_TEST_KEY"));
@@ -46,13 +48,17 @@ UTEST(S3StsClient, MissingTagThrows)
 {
     const std::string xml =
         R"(<AssumeRoleResponse><Credentials></Credentials></AssumeRoleResponse>)";
-    EXPECT_THROW(StsCredentials creds(String::fromBytesThrow(xml)), std::runtime_error);
+    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    ASSERT_FALSE(parsed);
+    EXPECT_EQ(parsed.error(), v1::StsError::kXmlMissingTag);
 }
 
 UTEST(S3StsClient, MissingClosingTagThrows)
 {
     const std::string xml = R"(<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>id)";
-    EXPECT_THROW(StsCredentials creds(String::fromBytesThrow(xml)), std::runtime_error);
+    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    ASSERT_FALSE(parsed);
+    EXPECT_EQ(parsed.error(), v1::StsError::kXmlMissingClosingTag);
 }
 
 UTEST(S3StsClient, BuildsRequestWithExecutor)
@@ -73,12 +79,14 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
     };
 
     const std::string endpoint = "https://sts.example.com/assume?foo=bar";
-    const auto creds = v1::detail::fetchStsWithExecutor(
-        exec, String::fromBytesThrow(endpoint), v1::s3v4::AccessKeyId{"AKIA_STATIC"_t},
+    const auto parsed = v1::detail::fetchStsWithExecutor(
+        exec, String::fromBytes(endpoint).expect(), v1::s3v4::AccessKeyId{"AKIA_STATIC"_t},
         v1::s3v4::SecretAccessKey{"SECRET"_t}, "us-east-1"_t,
         "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t,
         std::chrono::seconds{900}, std::chrono::milliseconds{1500}
     );
+    ASSERT_TRUE(parsed);
+    const auto &creds = parsed.value();
 
     EXPECT_EQ(capturedUrl, endpoint);
     const std::string authKey = "authorization";

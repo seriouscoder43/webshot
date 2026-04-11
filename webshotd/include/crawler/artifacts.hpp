@@ -1,5 +1,6 @@
 #pragma once
 
+#include "expected.hpp"
 #include "integers.hpp"
 #include "text.hpp"
 
@@ -12,9 +13,21 @@
 
 namespace v1::crawler {
 
+using v1::Expected;
+
 enum class ReusedBrowser {
     kNo,
     kYes,
+};
+
+enum class ArtifactError {
+    kGzipFailed,
+    kZipFailed,
+};
+
+struct [[nodiscard]] ArtifactFailure {
+    ArtifactError code;
+    std::string detail;
 };
 
 struct [[nodiscard]] CapturedMainDocumentRedirect {
@@ -72,14 +85,15 @@ struct [[nodiscard]] WarcBuildOutput {
 
 [[nodiscard]] std::string buildPagesJsonl(const CapturedExchange &exchange);
 
-[[nodiscard]] std::string buildSuccessStdoutLog(
+[[nodiscard]] Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
     ReusedBrowser reusedBrowser
 );
 
-[[nodiscard]] WarcBuildOutput buildWarc(const CapturedExchange &exchange);
+[[nodiscard]] Expected<WarcBuildOutput, ArtifactFailure>
+buildWarc(const CapturedExchange &exchange);
 
-[[nodiscard]] std::string buildWacz(
+[[nodiscard]] Expected<std::string, ArtifactFailure> buildWacz(
     const RunRequest &run, const std::string &pagesJsonl, const WarcBuildOutput &warc,
     const std::string &stdoutLog, const std::string &stderrLog
 );

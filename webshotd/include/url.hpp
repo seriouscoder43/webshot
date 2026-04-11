@@ -12,7 +12,6 @@ namespace v1 {
 class [[nodiscard]] Url final {
 public:
     [[nodiscard]] static std::optional<Url> fromText(const String &text);
-    [[nodiscard]] static Url fromTextThrow(const String &text);
     [[nodiscard]] static Url fromParsed(ada::url_aggregator url);
 
     [[nodiscard]] String host() const;

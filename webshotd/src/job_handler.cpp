@@ -11,6 +11,9 @@
 
 #include <chrono>
 #include <format>
+#include <optional>
+
+#include <boost/uuid/string_generator.hpp>
 
 #include <userver/components/component.hpp>
 #include <userver/engine/exception.hpp>
@@ -27,6 +30,20 @@
 using namespace v1;
 using namespace text::literals;
 namespace engine = userver::engine;
+
+namespace {
+
+[[nodiscard]] std::optional<Uuid> parseUuid(std::string_view text) noexcept
+{
+    boost::uuids::string_generator gen;
+    try {
+        return gen(std::string{text});
+    } catch (const std::runtime_error &) {
+        return {};
+    }
+}
+
+} // namespace
 
 JobHandler::JobHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -54,37 +71,29 @@ std::string JobHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpStatus::kBadRequest;
-    using server::http::HttpStatus::kInternalServerError;
-    using server::http::HttpStatus::kNotFound;
-    using server::http::HttpStatus::kOk;
+    using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    try {
-        const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
-        auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-        engine::current_task::SetDeadline(finalDeadline);
+    const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
+    auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
+    engine::current_task::SetDeadline(finalDeadline);
 
-        const std::string arg = request.GetPathArg("uuid");
-        if (arg.empty())
-            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "missing parameter"_t);
-        auto uuidStr = String::fromBytes(arg);
-        if (!uuidStr)
-            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
-        Uuid uuid;
-        try {
-            uuid = us::utils::BoostUuidFromString(uuidStr->view());
-        } catch (const std::exception &) {
-            return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
-        }
-        auto job = crud.findCaptureJob(uuid);
-        if (!job)
-            return httpu::respondError(response, kNotFound, "job not found"_t);
-        return httpu::respondJson(response, kOk, job.value());
-    } catch (const engine::WaitInterruptedException &) {
-        throw;
-    } catch (const std::exception &e) {
-        LOG_ERROR() << std::format("Unhandled error in job_handler: {}", e.what());
+    const std::string arg = request.GetPathArg("uuid");
+    if (arg.empty())
+        return httpu::respondParamError(response, kBadRequest, "uuid"_t, "missing parameter"_t);
+
+    auto uuidStr = String::fromBytes(arg);
+    if (!uuidStr)
+        return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
+
+    const auto uuidOpt = parseUuid(uuidStr->view());
+    if (!uuidOpt)
+        return httpu::respondParamError(response, kBadRequest, "uuid"_t, "invalid parameter"_t);
+
+    auto job = crud.findCaptureJob(uuidOpt.value());
+    if (!job)
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-    }
+    if (!job.value())
+        return httpu::respondError(response, kNotFound, "job not found"_t);
+    return httpu::respondJson(response, kOk, job.value().value());
 }

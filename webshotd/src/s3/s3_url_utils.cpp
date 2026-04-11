@@ -1,13 +1,12 @@
 #include "s3/s3_url_utils.hpp"
 
-#include <stdexcept>
 #include <string>
 
 #include <ada/unicode.h>
 
 namespace v1::s3v4 {
 
-std::vector<std::pair<String, String>> decodeQueryString(String search)
+Expected<std::vector<std::pair<String, String>>, QueryStringError> decodeQueryString(String search)
 {
     std::vector<std::pair<String, String>> query;
     if (search.empty())
@@ -37,10 +36,10 @@ std::vector<std::pair<String, String>> decodeQueryString(String search)
         );
         const auto keyText = String::fromBytes(key);
         if (!keyText)
-            throw std::runtime_error("invalid UTF-8 in S3 query key");
+            return std::unexpected(QueryStringError::kInvalidUtf8Key);
         const auto valueText = String::fromBytes(value);
         if (!valueText)
-            throw std::runtime_error("invalid UTF-8 in S3 query value");
+            return std::unexpected(QueryStringError::kInvalidUtf8Value);
         query.emplace_back(keyText.value(), valueText.value());
         if (amp == std::string::npos)
             break;

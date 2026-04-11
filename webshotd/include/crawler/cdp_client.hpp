@@ -1,17 +1,22 @@
 #pragma once
 
+#include "expected.hpp"
 #include "integers.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
 
+#include <chrono>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <userver/engine/deadline.hpp>
+#include <userver/engine/sleep.hpp>
 #include <userver/formats/json/value.hpp>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/fs/blocking/file_descriptor.hpp>
@@ -21,10 +26,35 @@ namespace us = userver;
 
 namespace v1::crawler {
 
+using v1::Expected;
+
 struct [[nodiscard]] CdpEvent {
     String method;
     std::optional<dto::CdpEventMessage::Params> params;
     std::optional<String> sessionId;
+};
+
+enum class CdpError {
+    kTraceFileOpenFailed,
+    kTraceWriteFailed,
+    kSocketConnectFailed,
+    kHandshakeTimeout,
+    kHandshakeResponseTooLarge,
+    kHandshakeUnexpectedEof,
+    kHandshakeMalformedResponse,
+    kHandshakeRejected,
+    kHandshakeMissingHeader,
+    kSocketClosed,
+    kTransport,
+    kTimeout,
+    kJsonParseFailed,
+    kProtocol,
+    kCommandFailed,
+};
+
+struct [[nodiscard]] CdpFailure final {
+    CdpError code;
+    std::optional<String> detail;
 };
 
 class [[nodiscard]] CdpClient final {
@@ -32,7 +62,8 @@ public:
     using ListenerId = int64_t;
     using EventListener = std::function<void(CdpEvent)>;
 
-    CdpClient(std::string socketPath, String websocketPath, std::string tracePathIn);
+    [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpFailure>
+    connect(std::string socketPath, String websocketPath, std::string tracePath);
 
     ~CdpClient() noexcept;
 
@@ -41,67 +72,107 @@ public:
     CdpClient &operator=(const CdpClient &) = delete;
     CdpClient &operator=(CdpClient &&) = delete;
 
-    template <typename T> [[nodiscard]] T send(std::string_view method)
+    template <typename T> [[nodiscard]] Expected<T, CdpFailure> send(std::string_view method)
     {
-        const auto value = sendRaw(method, us::formats::json::Value{}, {});
-        return value.As<T>();
+        auto value = sendRaw(method, us::formats::json::Value{}, {});
+        if (!value)
+            return std::unexpected(value.error());
+        try {
+            return value.value().As<T>();
+        } catch (const us::formats::json::Exception &) {
+            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
+        }
     }
 
     template <typename T, typename Params>
-    [[nodiscard]] T send(std::string_view method, const Params &params)
+    [[nodiscard]] Expected<T, CdpFailure> send(std::string_view method, const Params &params)
     {
         return send<T>(method, params, {});
     }
 
-    template <typename T> [[nodiscard]] T send(std::string_view method, const String &sessionId)
+    template <typename T>
+    [[nodiscard]] Expected<T, CdpFailure> send(std::string_view method, const String &sessionId)
     {
         return send<T>(method, std::optional{sessionId});
     }
 
     template <typename T>
-    [[nodiscard]] T send(std::string_view method, const std::optional<String> &sessionId)
+    [[nodiscard]] Expected<T, CdpFailure>
+    send(std::string_view method, const std::optional<String> &sessionId)
     {
-        const auto value = sendRaw(method, us::formats::json::Value{}, sessionId);
-        return value.As<T>();
+        auto value = sendRaw(method, us::formats::json::Value{}, sessionId);
+        if (!value)
+            return std::unexpected(value.error());
+        try {
+            return value.value().As<T>();
+        } catch (const us::formats::json::Exception &) {
+            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
+        }
     }
 
     template <typename T, typename Params>
-    [[nodiscard]] T
+    [[nodiscard]] Expected<T, CdpFailure>
     send(std::string_view method, const Params &params, const std::optional<String> &sessionId)
     {
-        const auto value = sendRaw(
+        auto value = sendRaw(
             method, us::formats::json::ValueBuilder(params).ExtractValue(), sessionId
         );
-        return value.As<T>();
+        if (!value)
+            return std::unexpected(value.error());
+        try {
+            return value.value().As<T>();
+        } catch (const us::formats::json::Exception &) {
+            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
+        }
     }
 
     ListenerId addListener(EventListener listener);
     void removeListener(ListenerId id);
 
-    bool tryPumpOnce();
-    void waitUntil(
-        const std::function<bool()> &predicate, us::engine::Deadline deadline,
-        std::string_view timeoutMessage
-    );
+    Expected<bool, CdpFailure> tryPumpOnce();
+    template <typename Predicate>
+    Expected<void, CdpFailure>
+    waitUntil(Predicate &&predicate, us::engine::Deadline deadline, std::string_view timeoutMessage)
+    {
+        using enum CdpError;
+        static_cast<void>(timeoutMessage);
+        while (!std::invoke(std::forward<Predicate>(predicate))) {
+            auto pumped = tryPumpOnce();
+            if (!pumped)
+                return std::unexpected(pumped.error());
+            if (pumped.value())
+                continue;
+            if (deadline.IsReachable() && deadline.IsReached())
+                return std::unexpected(CdpFailure{.code = kTimeout, .detail = {}});
+            us::engine::SleepFor(std::chrono::milliseconds(10));
+        }
+        return {};
+    }
 
-    void close();
+    Expected<void, CdpFailure> close();
 
 private:
+    CdpClient(
+        std::string socketPath, String websocketPath,
+        std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string tracePath,
+        us::fs::blocking::FileDescriptor traceFile
+    );
+
     struct [[nodiscard]] PendingRequestTrace {
         std::string method;
         std::optional<String> sessionId;
     };
 
-    [[nodiscard]] us::formats::json::Value sendRaw(
+    [[nodiscard]] Expected<us::formats::json::Value, CdpFailure> sendRaw(
         std::string_view method, const us::formats::json::Value &params,
         const std::optional<String> &sessionId
     );
-    void pumpOne();
+    Expected<void, CdpFailure> pumpOne();
     void dispatchEvent(CdpEvent event);
-    void handleMessage(const std::string &payload);
-    void closeNoThrow() noexcept;
+    Expected<void, CdpFailure> handleMessage(const std::string &payload);
+    void closeQuietly() noexcept;
     [[nodiscard]] std::string makeEndpointPath() const;
-    void writeTraceLine(const us::formats::json::Value &value);
+    Expected<void, CdpFailure> writeTraceLine(const us::formats::json::Value &value);
     void traceCommand(int64_t id, std::string_view method, const std::optional<String> &sessionId);
     void traceResponse(
         int64_t id, const PendingRequestTrace *request, const std::optional<String> &error

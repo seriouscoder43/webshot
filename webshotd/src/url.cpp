@@ -1,6 +1,5 @@
 #include "url.hpp"
 
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -16,25 +15,17 @@ std::optional<Url> Url::fromText(const String &text)
     return Url(std::move(parsed.value()));
 }
 
-Url Url::fromTextThrow(const String &text)
-{
-    const auto maybeUrl = fromText(text);
-    if (!maybeUrl)
-        throw std::runtime_error("invalid url");
-    return maybeUrl.value();
-}
-
 Url Url::fromParsed(ada::url_aggregator url) { return Url(std::move(url)); }
 
-String Url::host() const { return String::fromBytesThrow(adaUrl.get_host()); }
+String Url::host() const { return String::fromBytes(adaUrl.get_host()).expect(); }
 
-String Url::hostname() const { return String::fromBytesThrow(adaUrl.get_hostname()); }
+String Url::hostname() const { return String::fromBytes(adaUrl.get_hostname()).expect(); }
 
-String Url::port() const { return String::fromBytesThrow(adaUrl.get_port()); }
+String Url::port() const { return String::fromBytes(adaUrl.get_port()).expect(); }
 
-String Url::pathname() const { return String::fromBytesThrow(adaUrl.get_pathname()); }
+String Url::pathname() const { return String::fromBytes(adaUrl.get_pathname()).expect(); }
 
-String Url::search() const { return String::fromBytesThrow(adaUrl.get_search()); }
+String Url::search() const { return String::fromBytes(adaUrl.get_search()).expect(); }
 
 String Url::pathWithSearch() const
 {
@@ -42,10 +33,10 @@ String Url::pathWithSearch() const
     if (path.empty())
         path = "/";
     path += std::string(adaUrl.get_search());
-    return String::fromBytesThrow(path);
+    return String::fromBytes(path).expect();
 }
 
-String Url::href() const { return String::fromBytesThrow(adaUrl.get_href()); }
+String Url::href() const { return String::fromBytes(adaUrl.get_href()).expect(); }
 
 bool Url::hasHostname() const { return adaUrl.has_hostname() && !adaUrl.get_hostname().empty(); }
 

@@ -57,19 +57,12 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpStatus::kAccepted;
-    using server::http::HttpStatus::kBadRequest;
-    using server::http::HttpStatus::kInternalServerError;
+    using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    try {
-        const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
-        auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-        engine::current_task::SetDeadline(finalDeadline);
-    } catch (const std::exception &e) {
-        LOG_ERROR() << std::format("Failed to compute handler deadline: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-    }
+    const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
+    auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
+    engine::current_task::SetDeadline(finalDeadline);
 
     const std::string arg = request.GetArg("host");
     if (arg.empty())
@@ -77,21 +70,21 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     const auto host = String::fromBytes(arg);
     if (!host)
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
-    std::optional<Link> link;
-    try {
-        link = Link::fromTextStripPortQuery(host.value(), config.queryPartLengthMax());
-    } catch (const InvalidLinkException &e) {
-        LOG_INFO() << std::format("invalid host: {}", e.what());
+    const auto link = Link::fromText(
+        host.value(), config.queryPartLengthMax(),
+        Link::FromTextOptions::kStripPort | Link::FromTextOptions::kStripQuery
+    );
+    if (!link) {
+        LOG_INFO() << "invalid host";
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     }
     LOG_INFO() << std::format("invoked for: {}", link->url.hostname());
-    try {
-        auto prefixKey = prefix::makePrefixKey(link.value());
-        crud.disallowAndPurgePrefix(prefixKey);
-        response.SetStatus(kAccepted);
-        return {};
-    } catch (const std::exception &e) {
-        LOG_CRITICAL() << std::format("failed for {}: {}", link->url.hostname(), e.what());
-        us::utils::AbortWithStacktrace("disallowing host failed");
+    auto prefixKey = prefix::makePrefixKey(link.value());
+    auto ok = crud.disallowAndPurgePrefix(prefixKey);
+    if (!ok) {
+        LOG_ERROR() << std::format("disallow_and_purge failed for {}", link->url.hostname());
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     }
+    response.SetStatus(kAccepted);
+    return {};
 }

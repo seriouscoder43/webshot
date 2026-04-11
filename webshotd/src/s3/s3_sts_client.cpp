@@ -9,7 +9,6 @@
 
 #include <format>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -29,7 +28,7 @@ namespace v1 {
 
 namespace {
 
-[[nodiscard]] String extractXmlTag(const String &xml, String tag)
+[[nodiscard]] Expected<String, StsError> extractXmlTag(const String &xml, String tag) noexcept
 {
     std::string open = "<";
     std::string xmlBytes(xml.view()), tagBytes(tag.view());
@@ -38,36 +37,52 @@ namespace {
     close.append(tagBytes.data(), tagBytes.size()).push_back('>');
     const auto startPos = xmlBytes.find(open);
     if (startPos == std::string::npos)
-        throw std::runtime_error("STS XML missing tag");
+        return std::unexpected(StsError::kXmlMissingTag);
     const auto valuePos = startPos + open.size();
     const auto endPos = xmlBytes.find(close, valuePos);
     if (endPos == std::string::npos)
-        throw std::runtime_error("STS XML missing closing tag");
-    return String::fromBytesThrow(xmlBytes.substr(valuePos, endPos - valuePos));
+        return std::unexpected(StsError::kXmlMissingClosingTag);
+    const auto extracted = String::fromBytes(xmlBytes.substr(valuePos, endPos - valuePos));
+    if (!extracted)
+        return std::unexpected(StsError::kInvalidUtf8);
+    return extracted.value();
 }
 
 } // namespace
 
-StsCredentials::StsCredentials(const String &xml)
-    : accessKeyId(s3v4::AccessKeyId(extractXmlTag(xml, "AccessKeyId"_t))),
-      secretAccessKey(s3v4::SecretAccessKey(extractXmlTag(xml, "SecretAccessKey"_t))),
-      sessionToken(s3v4::SessionToken(extractXmlTag(xml, "SessionToken"_t))),
-      expiresAt(
-          userver::utils::datetime::FromRfc3339StringSaturating(
-              std::string(extractXmlTag(xml, "Expiration"_t).view())
-          )
-      )
+Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml) noexcept
 {
+    auto accessKeyId = extractXmlTag(xml, "AccessKeyId"_t);
+    if (!accessKeyId)
+        return std::unexpected(accessKeyId.error());
+    auto secretAccessKey = extractXmlTag(xml, "SecretAccessKey"_t);
+    if (!secretAccessKey)
+        return std::unexpected(secretAccessKey.error());
+    auto sessionToken = extractXmlTag(xml, "SessionToken"_t);
+    if (!sessionToken)
+        return std::unexpected(sessionToken.error());
+    auto expiration = extractXmlTag(xml, "Expiration"_t);
+    if (!expiration)
+        return std::unexpected(expiration.error());
+
+    StsCredentials creds{
+        s3v4::AccessKeyId(std::move(accessKeyId).value()),
+        s3v4::SecretAccessKey(std::move(secretAccessKey).value()),
+        s3v4::SessionToken(std::move(sessionToken).value()),
+        userver::utils::datetime::FromRfc3339StringSaturating(std::string(expiration->view())),
+    };
+    return creds;
 }
 
-StsCredentials detail::fetchStsWithExecutor(
+Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     const StsExecutor &exec, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
     const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
     const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
     std::chrono::milliseconds timeout
 )
 {
-    const auto stsLink = Link::fromText(stsEndpoint, stsEndpoint.sizeBytes());
+    const auto stsLink =
+        Link::fromText(stsEndpoint, stsEndpoint.sizeBytes(), Link::FromTextOptions::kNone).expect();
     UINVARIANT(stsLink.url.isHttps(), "STS endpoint must use https scheme");
 
     const auto host = stsLink.url.host();
@@ -79,7 +94,10 @@ StsCredentials detail::fetchStsWithExecutor(
     std::vector<std::pair<String, String>> query;
     if (stsLink.url.hasSearch()) {
         const auto search = stsLink.url.search();
-        query = s3v4::decodeQueryString(search);
+        auto decoded = s3v4::decodeQueryString(search);
+        if (!decoded)
+            return std::unexpected(StsError::kInvalidQuery);
+        query = std::move(decoded).value();
     }
     String body;
     auto appendParam = [&body](const String &name, const String &value) {
@@ -115,10 +133,17 @@ StsCredentials detail::fetchStsWithExecutor(
     headers[userver::http::headers::kContentType] = std::string(kUrlEncoded.view());
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
-    return StsCredentials{String::fromBytesThrow(exec(stsLink.httpsUrl(), body, headers, timeout))};
+    const auto response = exec(stsLink.httpsUrl(), body, headers, timeout);
+    if (!response)
+        return std::unexpected(response.error());
+
+    const auto responseXml = String::fromBytes(response.value());
+    if (!responseXml)
+        return std::unexpected(StsError::kInvalidUtf8);
+    return StsCredentials::fromXml(responseXml.value());
 }
 
-StsCredentials fetchStsCredentials(
+Expected<StsCredentials, StsError> fetchStsCredentials(
     http::Client &httpClient, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
     const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
     const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
@@ -128,7 +153,7 @@ StsCredentials fetchStsCredentials(
     detail::StsExecutor exec = [&httpClient](
                                    const String &url, const String &body,
                                    const http::Headers &headers, std::chrono::milliseconds timeoutMs
-                               ) {
+                               ) -> Expected<std::string, StsError> {
         auto urlBytes = std::string(url.view());
         auto bodyBytes = std::string(body.view());
         auto resp = httpClient.CreateNotSignedRequest()
@@ -138,20 +163,9 @@ StsCredentials fetchStsCredentials(
                         .perform();
         const auto status = numericCast<int>(resp->status_code());
         if (status >= 300) {
-            const auto bodyOut = resp->body();
-            if (const auto bodyUtf8 = String::fromBytes(bodyOut)) {
-                LOG_ERROR() << std::format(
-                    "STS request failed: url={}, status={}, body={}", urlBytes, status,
-                    bodyUtf8.value()
-                );
-            } else {
-                LOG_ERROR() << std::format(
-                    "STS request failed: url={}, status={}, body is not valid UTF-8 ({} bytes)",
-                    urlBytes, status, bodyOut.size()
-                );
-            }
+            LOG_ERROR() << std::format("STS request failed: url={}, status={}", urlBytes, status);
+            return std::unexpected(StsError::kHttpFailure);
         }
-        resp->raise_for_status();
         return resp->body();
     };
 

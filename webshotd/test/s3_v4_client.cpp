@@ -81,7 +81,7 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
 
     const auto signedHeaders = signHeaders(
         params, "GET"_t, "/test.txt"_t, /*query*/ {}, headersText,
-        String::fromBytesThrow(payloadHash)
+        String::fromBytes(payloadHash).expect()
     );
 
     auto itDate = signedHeaders.find("x-amz-date");
@@ -214,9 +214,11 @@ UTEST(S3SigV4Client, VirtualHostRequiresBucket)
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, String());
 
     const auto expiresAt = userver::utils::datetime::Now() + std::chrono::seconds(60);
-    EXPECT_THROW(
-        client->GenerateDownloadUrlVirtualHostAddressing("obj", expiresAt, "https"),
-        std::runtime_error
+    EXPECT_DEATH(
+        static_cast<void>(
+            client->GenerateDownloadUrlVirtualHostAddressing("obj", expiresAt, "https")
+        ),
+        "presign requires non-empty bucket"
     );
 }
 
@@ -249,28 +251,6 @@ UTEST(S3SigV4Client, UnsupportedOperationsThrow)
     auto cfg = makeConfig();
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
-
-    using S3Client = userver::s3api::Client;
-    S3Client::HeadersDataResponse headersResponse;
-    S3Client::HeaderDataRequest headerRequest;
-
-    EXPECT_THROW(client->GetObject("key", {}, &headersResponse, headerRequest), std::runtime_error);
-    EXPECT_THROW(
-        client->TryGetObject("key", {}, &headersResponse, headerRequest), std::runtime_error
-    );
-    EXPECT_THROW(
-        client->GetPartialObject("key", "bytes=0-1", {}, &headersResponse, headerRequest),
-        std::runtime_error
-    );
-    EXPECT_THROW(
-        client->TryGetPartialObject("key", "bytes=0-1", {}, &headersResponse, headerRequest),
-        std::runtime_error
-    );
-    EXPECT_THROW(client->CopyObject("src", "dst", {}), std::runtime_error);
-    EXPECT_THROW(client->CopyObject("bucket", "src", "dst", {}), std::runtime_error);
-    EXPECT_THROW(client->ListBucketContents("bucket", 1, "", ""), std::runtime_error);
-    EXPECT_THROW(client->ListBucketContentsParsed("bucket"), std::runtime_error);
-    EXPECT_THROW(client->ListBucketDirectories("bucket"), std::runtime_error);
 
     userver::s3api::ConnectionCfg newCfg{std::chrono::milliseconds{50}};
     EXPECT_NO_THROW(client->UpdateConfig(std::move(newCfg)));

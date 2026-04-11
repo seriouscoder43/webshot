@@ -15,9 +15,9 @@ UTEST(DeadlineUtils, TimeLeftOrZeroExpiredIsZero)
 
 UTEST(DeadlineUtils, TimeLeftOrThrowExpiredThrows)
 {
-    EXPECT_THROW(
-        static_cast<void>(v1::timeLeftOrThrowMs(Deadline::Passed(), "timeout")), std::runtime_error
-    );
+    const auto left = v1::timeLeftMs(Deadline::Passed());
+    ASSERT_FALSE(left);
+    EXPECT_EQ(left.error(), v1::DeadlineError::kTimeout);
 }
 
 UTEST(DeadlineUtils, TimeLeftOrZeroUnreachableIsMax)
@@ -29,7 +29,9 @@ UTEST(DeadlineUtils, TimeLeftOrZeroUnreachableIsMax)
 
 UTEST(DeadlineUtils, SleepWithinDeadlineExpiredThrows)
 {
-    EXPECT_THROW(v1::sleepWithinDeadline(Deadline::Passed(), 1ms, "timeout"), std::runtime_error);
+    const auto slept = v1::sleepWithinDeadline(Deadline::Passed(), 1ms);
+    ASSERT_FALSE(slept);
+    EXPECT_EQ(slept.error(), v1::DeadlineError::kTimeout);
 }
 
 UTEST(DeadlineUtils, ChoosesExpiredOverFuture)

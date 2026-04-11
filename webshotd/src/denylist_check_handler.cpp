@@ -11,7 +11,6 @@
 #include "prefix_utils.hpp"
 
 #include <chrono>
-#include <exception>
 #include <format>
 #include <optional>
 #include <string>
@@ -59,53 +58,46 @@ std::string DenylistCheckHandler::HandleRequestThrow(
 ) const
 {
     using server::http::HttpMethod::kPost;
-    using server::http::HttpStatus::kBadRequest;
-    using server::http::HttpStatus::kForbidden;
-    using server::http::HttpStatus::kInternalServerError;
-    using server::http::HttpStatus::kMethodNotAllowed;
-    using server::http::HttpStatus::kNoContent;
+    using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
 
-    try {
-        const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
-        auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-        engine::current_task::SetDeadline(finalDeadline);
+    const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
+    auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
+    engine::current_task::SetDeadline(finalDeadline);
 
-        if (request.GetMethod() != kPost) {
-            response.SetStatus(kMethodNotAllowed);
-            return {};
-        }
-
-        auto body = String::fromBytes(request.RequestBody());
-        if (!body || body->view().empty()) {
-            response.SetStatus(kBadRequest);
-            return {};
-        }
-
-        std::optional<Link> link;
-        try {
-            link = Link::fromTextStripPort(body.value(), config.queryPartLengthMax());
-        } catch (const InvalidLinkException &) {
-            response.SetStatus(kBadRequest);
-            return {};
-        }
-
-        auto prefixKey = prefix::makePrefixKey(link.value());
-        if (!denylist.isAllowedPrefix(prefixKey)) {
-            response.SetStatus(kForbidden);
-            return {};
-        }
-
-        response.SetStatus(kNoContent);
+    if (request.GetMethod() != kPost) {
+        response.SetStatus(kMethodNotAllowed);
         return {};
-    } catch (const engine::WaitInterruptedException &) {
-        throw;
-    } catch (const std::exception &e) {
-        LOG_ERROR() << std::format("Unhandled error in denylist check handler: {}", e.what());
+    }
+
+    auto body = String::fromBytes(request.RequestBody());
+    if (!body || body->view().empty()) {
+        response.SetStatus(kBadRequest);
+        return {};
+    }
+
+    const auto link = Link::fromText(
+        body.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+    );
+    if (!link) {
+        response.SetStatus(kBadRequest);
+        return {};
+    }
+
+    auto prefixKey = prefix::makePrefixKey(link.value());
+    const auto allowed = denylist.isAllowedPrefix(prefixKey);
+    if (!allowed) {
         response.SetStatus(kInternalServerError);
         return {};
     }
+    if (!allowed.value()) {
+        response.SetStatus(kForbidden);
+        return {};
+    }
+
+    response.SetStatus(kNoContent);
+    return {};
 }
 
 } // namespace v1

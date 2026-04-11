@@ -1,8 +1,9 @@
 #include "crawler/failure.hpp"
 
 #include <algorithm>
-#include <exception>
+#include <stdexcept>
 
+#include <userver/engine/exception.hpp>
 #include <userver/fs/blocking/read.hpp>
 
 namespace us = userver;
@@ -24,7 +25,7 @@ constexpr size_t kProcessOutputCharsMax = 240UL;
             escaped.push_back('\\');
         escaped.push_back(ch);
     }
-    return String::fromBytesThrow(escaped);
+    return String::fromBytes(escaped).expect();
 }
 
 [[nodiscard]] std::optional<String> readSanitizedProcessOutput(const std::string &path)
@@ -33,7 +34,7 @@ constexpr size_t kProcessOutputCharsMax = 240UL;
         auto text = sanitizeProcessOutputTail(us::fs::blocking::ReadFileContents(path));
         if (!text.empty())
             return text;
-    } catch (const std::exception &) {
+    } catch (const std::runtime_error &) {
         // Best-effort diagnostics: ignore unreadable or missing process-output files.
     }
     return {};

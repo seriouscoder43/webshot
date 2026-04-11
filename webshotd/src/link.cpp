@@ -45,24 +45,17 @@ namespace v1 {
 
 namespace {
 
-enum class StripPort {
-    kNo,
-    kYes,
-};
-
-enum class StripQuery {
-    kNo,
-    kYes,
-};
-
-Link fromTextImpl(
-    const String &text, size_t queryPartLengthMax, StripPort stripPort, StripQuery stripQuery
-)
+Expected<Link, LinkError>
+fromTextImpl(const String &text, size_t queryPartLengthMax, Link::FromTextOptions options)
 {
+    using enum Link::FromTextOptions;
+    const bool stripPort = Link::hasOption(options, kStripPort);
+    const bool stripQuery = Link::hasOption(options, kStripQuery);
+
     std::string in(text.view());
     absl::StripAsciiWhitespace(&in);
     if (in.rfind("//", 0) == 0)
-        throw InvalidLinkException("missing scheme");
+        return std::unexpected(LinkError{.code = LinkError::Code::kMissingScheme});
     const auto schemePos = in.find("://");
     if (schemePos == std::string::npos ||
         !isValidScheme(std::string_view(in).substr(0, schemePos))) {
@@ -70,53 +63,44 @@ Link fromTextImpl(
     } else {
         std::string scheme = in.substr(0, schemePos);
         if (!(scheme == "http" || scheme == "https"))
-            throw InvalidLinkException("unsupported scheme");
+            return std::unexpected(LinkError{.code = LinkError::Code::kUnsupportedScheme});
     }
     auto url = ada::parse<ada::url_aggregator>(in);
     if (!url)
-        throw InvalidLinkException("failed to parse");
+        return std::unexpected(LinkError{.code = LinkError::Code::kFailedToParse});
     if (url->type != ada::scheme::type::HTTP && url->type != ada::scheme::type::HTTPS)
-        throw InvalidLinkException("unsupported scheme");
+        return std::unexpected(LinkError{.code = LinkError::Code::kUnsupportedScheme});
     if (!url->has_hostname() || url->get_hostname().empty())
-        throw InvalidLinkException("missing hostname");
+        return std::unexpected(LinkError{.code = LinkError::Code::kMissingHostname});
 
     if (isIpLiteralHostname(url->get_hostname()))
-        throw InvalidLinkException("ip address not allowed");
+        return std::unexpected(LinkError{.code = LinkError::Code::kIpAddressNotAllowed});
 
     if (!url->has_valid_domain())
-        throw InvalidLinkException("invalid host");
+        return std::unexpected(LinkError{.code = LinkError::Code::kInvalidHost});
     if (url->get_search().size() > queryPartLengthMax)
-        throw InvalidLinkException("query too long");
+        return std::unexpected(LinkError{.code = LinkError::Code::kQueryTooLong});
 
     url->set_username("");
     url->set_password("");
     url->clear_hash();
-    if (stripPort == StripPort::kYes)
+    if (stripPort)
         url->clear_port();
-    if (stripQuery == StripQuery::kYes)
+    if (stripQuery)
         url->set_search("");
 
     if (auto hostname = url->get_hostname(); !hostname.empty() && hostname.back() == '.')
         url->set_hostname(std::string(begin(hostname), end(hostname) - 1));
 
-    return {Url::fromParsed(std::move(url.value()))};
+    return Link{Url::fromParsed(std::move(url.value()))};
 }
 
 } // namespace
 
-Link Link::fromTextStripPort(const String &text, size_t queryPartLengthMax)
+Expected<Link, LinkError>
+Link::fromText(const String &text, size_t queryPartLengthMax, FromTextOptions options)
 {
-    return fromTextImpl(text, queryPartLengthMax, StripPort::kYes, StripQuery::kNo);
-}
-
-Link Link::fromText(const String &text, size_t queryPartLengthMax)
-{
-    return fromTextImpl(text, queryPartLengthMax, StripPort::kNo, StripQuery::kNo);
-}
-
-Link Link::fromTextStripPortQuery(const String &text, size_t queryPartLengthMax)
-{
-    return fromTextImpl(text, queryPartLengthMax, StripPort::kYes, StripQuery::kYes);
+    return fromTextImpl(text, queryPartLengthMax, options);
 }
 
 String Link::host() const { return url.hostname(); }
@@ -125,14 +109,14 @@ String Link::httpUrl() const
 {
     auto copy = url.copyParsed();
     copy.set_protocol("http");
-    return String::fromBytesThrow(serializeHref(copy));
+    return String::fromBytes(serializeHref(copy)).expect();
 }
 
 String Link::httpsUrl() const
 {
     auto copy = url.copyParsed();
     copy.set_protocol("https");
-    return String::fromBytesThrow(serializeHref(copy));
+    return String::fromBytes(serializeHref(copy)).expect();
 }
 
 String Link::normalized() const
@@ -140,7 +124,7 @@ String Link::normalized() const
     auto copy = url.copyParsed();
     copy.set_protocol("http");
     constexpr std::string_view kHttpPrefix = "http://";
-    return String::fromBytesThrow(serializeHref(copy).substr(kHttpPrefix.size()));
+    return String::fromBytes(serializeHref(copy).substr(kHttpPrefix.size())).expect();
 }
 
 } // namespace v1

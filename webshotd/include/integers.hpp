@@ -22,10 +22,6 @@ struct Abort {
     [[noreturn]] void
     operator()(const boost::safe_numerics::safe_numerics_error &e, const char *msg) const noexcept
     {
-        // Fatal error: show what failed and include a stacktrace for file:line context.
-        //
-        // Keep this noexcept and allocation-free: it may run in failure paths where throwing
-        // or allocating would be risky.
         const char *msgSafe = msg ? msg : "(no details)";
         const char *errorSafe = boost::safe_numerics::literal_string(e);
 
@@ -111,7 +107,7 @@ raw(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value
     return numericCast(value);
 }
 
-template <class C> [[nodiscard]] constexpr i64 safeSize(const C &c) noexcept
+template <typename C> [[nodiscard]] constexpr i64 safeSize(const C &c) noexcept
 {
     const auto sizeValue = usize(c.size());
     return i64(sizeValue);

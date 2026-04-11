@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <format>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,10 +15,17 @@
 #include <uni_algo/conv.h>
 #include <uni_algo/norm.h>
 
+#include "expected.hpp"
+
 namespace text {
 
-struct InvalidTextException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
+using v1::Expected;
+
+struct [[nodiscard]] TextError final {
+    enum class Code {
+        kInvalidUtf8,
+    };
+    Code code;
 };
 
 class [[nodiscard]] String {
@@ -31,21 +37,18 @@ public:
     constexpr String &operator=(String &&) noexcept = default;
     ~String() = default;
 
-    [[nodiscard]] static constexpr std::optional<String> fromBytes(std::string_view bytes)
+    [[nodiscard]] static constexpr Expected<String, TextError> fromBytes(std::string_view bytes)
     {
-        if (!una::is_valid_utf8(bytes))
-            return {};
+        if (!una::is_valid_utf8(bytes)) {
+            return std::unexpected(
+                TextError{
+                    .code = TextError::Code::kInvalidUtf8,
+                }
+            );
+        }
         String result;
         result.data = una::norm::to_nfc_utf8(bytes);
         return result;
-    }
-
-    [[nodiscard]] static constexpr String fromBytesThrow(std::string_view bytes)
-    {
-        auto ret = fromBytes(bytes);
-        if (!ret)
-            throw InvalidTextException("not valid UTF-8");
-        return ret.value();
     }
 
     [[nodiscard]] constexpr std::string_view view() const noexcept
@@ -135,13 +138,13 @@ private:
 
 template <typename... Ts> String format(std::format_string<Ts...> formatStr, Ts &&...args)
 {
-    return String::fromBytesThrow(std::format(formatStr, std::forward<Ts>(args)...));
+    return String::fromBytes(std::format(formatStr, std::forward<Ts>(args)...)).expect();
 }
 
 namespace literals {
 [[nodiscard]] constexpr String operator""_t(const char *bytes, size_t n)
 {
-    return String::fromBytesThrow(std::string_view{bytes, n});
+    return String::fromBytes(std::string_view{bytes, n}).expect();
 }
 } // namespace literals
 

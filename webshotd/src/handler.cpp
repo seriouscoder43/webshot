@@ -16,13 +16,11 @@
 #include "text.hpp"
 
 #include <chrono>
-#include <exception>
 #include <format>
 #include <optional>
 #include <string>
 
 #include <userver/components/component.hpp>
-#include <userver/engine/exception.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/formats/serialize/common_containers.hpp>
@@ -71,72 +69,69 @@ std::string Handler::HandleRequestThrow(
 ) const
 {
     using server::http::HttpMethod::kPost;
-    using server::http::HttpStatus::kAccepted;
-    using server::http::HttpStatus::kBadRequest;
-    using server::http::HttpStatus::kForbidden;
-    using server::http::HttpStatus::kInternalServerError;
-    using server::http::HttpStatus::kOk;
+    using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    try {
-        const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
-        auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-        engine::current_task::SetDeadline(finalDeadline);
+    const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
+    auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
+    engine::current_task::SetDeadline(finalDeadline);
 
-        if (request.GetMethod() == kPost) {
-            dto::CreateCaptureRequest req;
-            try {
-                auto str = String::fromBytes(request.RequestBody());
-                if (!str)
-                    throw std::exception();
-                req = json::FromString(str->view()).As<dto::CreateCaptureRequest>();
-            } catch (const std::exception &e) {
-                return httpu::respondError(response, kBadRequest, "invalid request body"_t);
-            }
-            try {
-                auto parsed = Link::fromTextStripPort(
-                    String::fromBytesThrow(req.link), config.queryPartLengthMax()
-                );
-                auto prefixKey = prefix::makePrefixKey(parsed);
-                if (!denylist.isAllowedPrefix(prefixKey))
-                    return httpu::respondError(response, kForbidden, "host in denylist"_t);
-                auto job = crud.createCaptureJob(std::move(parsed));
-                return httpu::respondJson(response, kAccepted, job);
-            } catch (const InvalidLinkException &e) {
-                return httpu::respondError(response, kBadRequest, String::fromBytesThrow(e.what()));
-            }
+    if (request.GetMethod() == kPost) {
+        const auto body = String::fromBytes(request.RequestBody());
+        if (!body)
+            return httpu::respondError(response, kBadRequest, "invalid request body"_t);
+        dto::CreateCaptureRequest req;
+        try {
+            req = json::FromString(body->view()).As<dto::CreateCaptureRequest>();
+        } catch (const json::Exception &) {
+            return httpu::respondError(response, kBadRequest, "invalid request body"_t);
         }
 
-        const std::string arg = request.GetArg("link");
-        if (arg.empty())
-            return httpu::respondParamError(response, kBadRequest, "link"_t, "missing parameter"_t);
-        auto str = String::fromBytes(arg);
-        if (!str)
-            return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
-        std::optional<Link> link;
-        try {
-            link = Link::fromTextStripPort(str.value(), config.queryPartLengthMax());
-        } catch (const InvalidLinkException &e) {
-            return httpu::respondError(response, kBadRequest, String::fromBytesThrow(e.what()));
-        }
-        const std::string tokenArg = request.GetArg("page_token");
-        const auto token = String::fromBytes(tokenArg);
-        if (!token)
-            return httpu::respondParamError(
-                response, kBadRequest, "page_token"_t, "missing parameter"_t
-            );
-        try {
-            auto page = crud.findCapturesByLinkPage(link.value(), token.value());
-            return httpu::respondJson(response, kOk, page);
-        } catch (const errors::InvalidPageTokenException &) {
-            return httpu::respondParamError(
-                response, kBadRequest, "page_token"_t, "invalid page_token"_t
-            );
-        }
-    } catch (const engine::WaitInterruptedException &) {
-        throw;
-    } catch (const std::exception &e) {
-        LOG_ERROR() << std::format("Unhandled error in handler: {}", e.what());
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        const auto linkText = String::fromBytes(req.link);
+        if (!linkText)
+            return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
+        auto parsed = Link::fromText(
+            linkText.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+        );
+        if (!parsed)
+            return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
+        auto prefixKey = prefix::makePrefixKey(parsed.value());
+        const auto allowed = denylist.isAllowedPrefix(prefixKey);
+        if (!allowed)
+            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        if (!allowed.value())
+            return httpu::respondError(response, kForbidden, "host in denylist"_t);
+        auto job = crud.createCaptureJob(std::move(parsed).value());
+        if (!job)
+            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::respondJson(response, kAccepted, job.value());
     }
+
+    const std::string arg = request.GetArg("link");
+    if (arg.empty())
+        return httpu::respondParamError(response, kBadRequest, "link"_t, "missing parameter"_t);
+    auto str = String::fromBytes(arg);
+    if (!str)
+        return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
+    const auto link = Link::fromText(
+        str.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+    );
+    if (!link)
+        return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
+    const std::string tokenArg = request.GetArg("page_token");
+    const auto token = String::fromBytes(tokenArg);
+    if (!token)
+        return httpu::respondParamError(
+            response, kBadRequest, "page_token"_t, "missing parameter"_t
+        );
+    auto page = crud.findCapturesByLinkPage(link.value(), token.value());
+    if (!page) {
+        using enum errors::CapturePageError;
+        if (page.error() == kDbFailure)
+            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::respondParamError(
+            response, kBadRequest, "page_token"_t, "invalid page_token"_t
+        );
+    }
+    return httpu::respondJson(response, kOk, page.value());
 }

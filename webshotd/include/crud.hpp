@@ -1,9 +1,12 @@
 #pragma once
 
+#include "expected.hpp"
 #include "link.hpp"
 #include "schema/webshot.hpp"
+#include "server_errors.hpp"
 #include "text.hpp"
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -16,6 +19,7 @@ namespace us = userver;
 using Uuid = boost::uuids::uuid;
 
 namespace v1 {
+enum class DenylistError;
 /**
  * @brief Persistence and background-crawl facade.
  *
@@ -38,7 +42,7 @@ public:
      * On success returns a single capture descriptor including UUID, creation
      * time and normalized link.
      */
-    [[nodiscard]] dto::UuidWithTimeLink createCapture(Link link);
+    [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure> createCapture(Link link);
 
     /**
      * @brief Enqueue a crawl job for the given link and return its job descriptor.
@@ -47,23 +51,25 @@ public:
      * succeeds. Job execution is scheduled asynchronously; callers should poll
      * job status via findCaptureJob().
      */
-    [[nodiscard]] dto::CaptureJob createCaptureJob(Link link);
+    [[nodiscard]] Expected<dto::CaptureJob, errors::CreateJobError> createCaptureJob(Link link);
     /** @brief Look up a capture by id. */
-    [[nodiscard]] std::optional<Link> findCapture(Uuid uuid);
+    [[nodiscard]] Expected<std::optional<Link>, errors::CrudError> findCapture(Uuid uuid);
 
     /** @brief Look up a capture job by id. */
-    [[nodiscard]] std::optional<dto::CaptureJob> findCaptureJob(Uuid uuid);
+    [[nodiscard]] Expected<std::optional<dto::CaptureJob>, errors::CrudError>
+    findCaptureJob(Uuid uuid);
 
     /** @brief All capture ids for a link (newest first). */
-    [[nodiscard]] std::vector<dto::UuidWithTime> findCapturesByLink(const Link &link);
+    [[nodiscard]] Expected<std::vector<dto::UuidWithTime>, errors::CrudError>
+    findCapturesByLink(const Link &link);
     /** @brief Paged variant for capture ids by link. */
-    [[nodiscard]] dto::PagedFindCapturesByUrlResponse
+    [[nodiscard]] Expected<dto::PagedFindCapturesByUrlResponse, errors::CapturePageError>
     findCapturesByLinkPage(const Link &link, String pageToken);
     /** @brief Paged list of captures grouped by normalized link prefix. */
-    [[nodiscard]] dto::PagedFindCapturesByPrefixResponse
+    [[nodiscard]] Expected<dto::PagedFindCapturesByPrefixResponse, errors::CapturePageError>
     findCapturesByPrefixPage(String normalizedPrefix, String pageToken);
     /** @brief Disallow a prefix and enqueue purge of its captures. */
-    void disallowAndPurgePrefix(String prefixKey);
+    [[nodiscard]] Expected<void, DenylistError> disallowAndPurgePrefix(String prefixKey) noexcept;
     /** @brief Static config schema for this component. */
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 

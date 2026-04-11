@@ -97,8 +97,8 @@ UTEST(TextString, FromBytesNormalizesEquivalents)
     std::string precomposed("\xC3\xA9", 2);
     std::string decomposed("e\xCC\x81", 3);
 
-    const auto s1 = String::fromBytesThrow(precomposed);
-    const auto s2 = String::fromBytesThrow(decomposed);
+    const auto s1 = String::fromBytes(precomposed).expect();
+    const auto s2 = String::fromBytes(decomposed).expect();
     EXPECT_EQ(s1.view(), s2.view());
     EXPECT_TRUE(isUtf8(s1.view()));
     EXPECT_TRUE(isStreamSafe(s1.view()));
@@ -153,12 +153,12 @@ UTEST(TextString, PlusNormalizesCrossBoundary)
 {
     auto lhs = "e"_t;
     std::string combining("\xCC\x81", 2);
-    auto rhs = String::fromBytesThrow(combining);
+    auto rhs = String::fromBytes(combining).expect();
 
     auto combined = lhs + rhs;
 
     std::string precomposed("\xC3\xA9", 2);
-    const auto expected = String::fromBytesThrow(precomposed);
+    const auto expected = String::fromBytes(precomposed).expect();
 
     EXPECT_EQ(combined.view(), expected.view());
 }
@@ -193,7 +193,7 @@ UTEST(TextString, ReversedIsUtf8AndNormalized)
     input.push_back('\xCC');
     input.push_back('\x81');
     input.append("abc");
-    auto value = String::fromBytesThrow(input);
+    auto value = String::fromBytes(input).expect();
 
     auto rev = value.reversed();
     EXPECT_TRUE(isUtf8(rev.view()));
@@ -209,7 +209,7 @@ UTEST(TextString, HandlesLongCombiningSequenceStreamSafe)
         input.push_back('\x81');
     }
 
-    auto value = String::fromBytesThrow(input);
+    auto value = String::fromBytes(input).expect();
 
     EXPECT_TRUE(isUtf8(value.view()));
     constexpr size_t kNonStarters = 1000UL;
@@ -220,9 +220,9 @@ UTEST(TextString, HandlesLongCombiningSequenceStreamSafe)
 UTEST(TextString, Idempotence)
 {
     std::string raw = "e\xCC\x81"; // e + combining acute
-    const auto value = String::fromBytesThrow(raw);
+    const auto value = String::fromBytes(raw).expect();
 
-    const auto value2 = String::fromBytesThrow(std::string{value.view()});
+    const auto value2 = String::fromBytes(std::string{value.view()}).expect();
     EXPECT_EQ(value.view(), value2.view());
 }
 
@@ -245,7 +245,7 @@ UTEST(TextString, HandlesNonBmpCharacters)
 {
     std::string emoji("\xF0\x9F\x98\x80\xF0\x9F\x92\xA9", 8); // U+1F600 U+1F4A9
 
-    const auto value = String::fromBytesThrow(emoji);
+    const auto value = String::fromBytes(emoji).expect();
     EXPECT_TRUE(isUtf8(value.view()));
     EXPECT_TRUE(isStreamSafe(value.view()));
     EXPECT_EQ(value.view(), std::string_view{emoji});

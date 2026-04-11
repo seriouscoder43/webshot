@@ -17,10 +17,10 @@ Config::Config(
     : us::components::ComponentBase(config, context),
       queryPartLengthMaxValue(config["query_part_length_max"].As<size_t>()),
       stateDirValue(config["state_dir"].As<std::string>()),
-      s3BucketName(String::fromBytesThrow(config["s3_bucket"].As<std::string>())),
-      s3EndpointUrl(String::fromBytesThrow(config["s3_endpoint"].As<std::string>())),
-      s3RegionName(String::fromBytesThrow(config["s3_region"].As<std::string>())),
-      publicBaseUrlValue(String::fromBytesThrow(config["public_base_url"].As<std::string>())),
+      s3BucketName(String::fromBytes(config["s3_bucket"].As<std::string>()).expect()),
+      s3EndpointUrl(String::fromBytes(config["s3_endpoint"].As<std::string>()).expect()),
+      s3RegionName(String::fromBytes(config["s3_region"].As<std::string>()).expect()),
+      publicBaseUrlValue(String::fromBytes(config["public_base_url"].As<std::string>()).expect()),
       s3TimeoutDuration(std::chrono::milliseconds(config["s3_timeout_ms"].As<int>()))
 {
     UINVARIANT(!stateDirValue.empty(), "state_dir must not be empty");

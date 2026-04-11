@@ -10,10 +10,10 @@
 #include "text.hpp"
 
 #include <chrono>
-#include <exception>
 #include <optional>
 
 #include <userver/crypto/base64.hpp>
+#include <userver/crypto/exception.hpp>
 #include <userver/formats/json.hpp>
 
 namespace us = userver;
@@ -50,7 +50,9 @@ template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const Strin
         const auto decoded = us::crypto::base64::Base64UrlDecode(token.view());
         const auto val = us::formats::json::FromString(decoded);
         return val.As<Dto>();
-    } catch (const std::exception &) {
+    } catch (const us::crypto::CryptoException &) {
+        return {};
+    } catch (const us::formats::json::Exception &) {
         return {};
     }
 }
@@ -62,12 +64,13 @@ template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const Strin
  */
 template <typename Dto> [[nodiscard]] String encodeToken(const Dto &dto)
 {
-    return String::fromBytesThrow(
-        us::crypto::base64::Base64UrlEncode(
-            us::formats::json::ToString(us::formats::json::ValueBuilder(dto).ExtractValue()),
-            us::crypto::base64::Pad::kWithout
-        )
-    );
+    return String::fromBytes(
+               us::crypto::base64::Base64UrlEncode(
+                   us::formats::json::ToString(us::formats::json::ValueBuilder(dto).ExtractValue()),
+                   us::crypto::base64::Pad::kWithout
+               )
+    )
+        .expect();
 }
 
 } // namespace v1::crud

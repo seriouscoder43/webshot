@@ -1,27 +1,40 @@
 #pragma once
-#include <stdexcept>
+
+#include "text.hpp"
+
+#include <optional>
 
 namespace v1::errors {
 
-/**
- * @brief Pagination token could not be decoded or mismatched the request.
- */
-struct InvalidPageTokenException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
+enum class CrudError {
+    kDbFailure,
+    kCorruptData,
 };
 
-/**
- * @brief Generic failure while running the crawler.
- */
-struct CrawlerFailedException : public std::runtime_error {
-    using std::runtime_error::runtime_error;
+enum class PageTokenError {
+    kInvalid,
+    kMismatched,
 };
 
-/**
- * @brief Browsertrix sizeLimit exceeded for this crawl.
- */
-struct CrawlerSizeLimitException : public CrawlerFailedException {
-    using CrawlerFailedException::CrawlerFailedException;
+enum class CapturePageError {
+    kInvalidPageToken,
+    kMismatchedPageToken,
+    kDbFailure,
+};
+
+enum class CreateJobError {
+    kDbFailure,
+};
+
+enum class CrawlError {
+    kFailed,
+    kSizeLimit,
+    kPersistMetadataFailed,
+};
+
+struct [[nodiscard]] CrawlFailure {
+    CrawlError code;
+    std::optional<String> detail;
 };
 
 } // namespace v1::errors

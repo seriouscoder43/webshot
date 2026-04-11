@@ -7,6 +7,7 @@
 #include "crawler/launch_policy.hpp"
 #include "crawler/limits.hpp"
 #include "deadline_utils.hpp"
+#include "grab_value.hpp"
 #include "integers.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
@@ -19,7 +20,6 @@
 #include <array>
 #include <chrono>
 #include <csignal>
-#include <exception>
 #include <format>
 #include <memory>
 #include <optional>
@@ -34,7 +34,9 @@
 #include <absl/strings/ascii.h>
 
 #include <userver/crypto/base64.hpp>
+#include <userver/crypto/exception.hpp>
 #include <userver/engine/deadline.hpp>
+#include <userver/engine/exception.hpp>
 #include <userver/engine/sleep.hpp>
 #include <userver/engine/subprocess/process_starter.hpp>
 #include <userver/formats/json.hpp>
@@ -47,6 +49,7 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
+#include <userver/utils/traceful_exception.hpp>
 
 namespace us = userver;
 namespace chrono = std::chrono;
@@ -56,6 +59,8 @@ using namespace text::literals;
 
 namespace v1 {
 namespace {
+
+using v1::Expected;
 
 constexpr auto kMaxBodyBytes = 50_i64 * 1024_i64 * 1024_i64;
 constexpr size_t kMaxLogBytes = 64UL * 1024UL;
@@ -83,7 +88,20 @@ constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
     return std::format("{}/browser_runs", root);
 }
 
-[[nodiscard]] std::string readSelfCgroupV2PathOrThrow()
+[[noreturn]] void abortCgroupConfig(std::string_view message) noexcept
+{
+    us::utils::AbortWithStacktrace(std::string(message));
+}
+
+[[nodiscard]] String describeCdpFailure(const String &action, const crawler::CdpFailure &failure)
+{
+    auto message = action;
+    if (failure.detail)
+        message = text::format("{}: {}", message, failure.detail.value());
+    return message;
+}
+
+[[nodiscard]] std::string readSelfCgroupV2Path()
 {
     const auto raw = us::fs::blocking::ReadFileContents("/proc/self/cgroup");
     size_t pos = 0;
@@ -95,35 +113,35 @@ constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
         if (line.rfind("0::", 0) == 0) {
             auto path = normalizeDirPath(line.substr(3));
             if (path.empty() || path.front() != '/')
-                throw std::runtime_error("invalid cgroup v2 path in /proc/self/cgroup");
+                abortCgroupConfig("invalid cgroup v2 path in /proc/self/cgroup");
             return path;
         }
         if (next == std::string::npos)
             break;
         pos = next + 1;
     }
-    throw std::runtime_error("failed to locate cgroup v2 path in /proc/self/cgroup");
+    abortCgroupConfig("failed to locate cgroup v2 path in /proc/self/cgroup");
 }
 
-[[nodiscard]] std::string parentCgroupPathOrThrow(const std::string &path)
+[[nodiscard]] std::string parentCgroupPath(const std::string &path)
 {
     if (path.empty() || path.front() != '/')
-        throw std::runtime_error("cgroup path must be absolute");
+        abortCgroupConfig("cgroup path must be absolute");
     if (path == "/")
-        throw std::runtime_error("webshotd must run inside a delegated systemd subgroup");
+        abortCgroupConfig("webshotd must run inside a delegated systemd subgroup");
 
     const auto slashPos = path.find_last_of('/');
     if (slashPos == std::string::npos)
-        throw std::runtime_error("failed to locate parent cgroup path");
+        abortCgroupConfig("failed to locate parent cgroup path");
     if (slashPos == 0)
         return "/";
     return path.substr(0, slashPos);
 }
 
-[[nodiscard]] std::string resolveDelegatedCgroupRootPathOrThrow()
+[[nodiscard]] std::string resolveDelegatedCgroupRootPath()
 {
-    const auto currentPath = readSelfCgroupV2PathOrThrow();
-    const auto parentPath = parentCgroupPathOrThrow(currentPath);
+    const auto currentPath = readSelfCgroupV2Path();
+    const auto parentPath = parentCgroupPath(currentPath);
     if (parentPath == "/")
         return "/sys/fs/cgroup";
     return std::format("/sys/fs/cgroup{}", parentPath);
@@ -131,11 +149,12 @@ constexpr auto kBrowserDevtoolsStartupTimeout = chrono::seconds(15);
 
 [[nodiscard]] String currentTimestamp()
 {
-    return String::fromBytesThrow(
-        us::utils::datetime::UtcTimestring(
-            us::utils::datetime::Now(), us::utils::datetime::kRfc3339Format
-        )
-    );
+    return String::fromBytes(
+               us::utils::datetime::UtcTimestring(
+                   us::utils::datetime::Now(), us::utils::datetime::kRfc3339Format
+               )
+    )
+        .expect();
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -159,7 +178,10 @@ normalizeHeadersOrEmpty(const std::optional<dto::CdpHeaders> &headers)
 {
     if (!value)
         return {};
-    return String::fromBytesThrow(value.value());
+    auto parsed = String::fromBytes(value.value());
+    if (!parsed)
+        return {};
+    return grabValueOf(parsed);
 }
 
 [[nodiscard]] String generatePageId()
@@ -167,21 +189,21 @@ normalizeHeadersOrEmpty(const std::optional<dto::CdpHeaders> &headers)
     return text::format("{}", us::utils::generators::GenerateBoostUuid());
 }
 
-class CaptureFailure final : public std::runtime_error {
-public:
-    CaptureFailure(std::string messageIn, std::optional<crawler::SeedPageProbe> seedProbeIn)
-        : std::runtime_error(std::move(messageIn)), seedProbe(std::move(seedProbeIn))
-    {
-    }
-
+struct [[nodiscard]] CaptureFailure final {
+    String detail;
     std::optional<crawler::SeedPageProbe> seedProbe;
 };
 
-template <typename T> [[nodiscard]] T parseEventParams(const crawler::CdpEvent &event)
+template <typename T>
+[[nodiscard]] Expected<T, String> parseEventParams(const crawler::CdpEvent &event)
 {
     if (!event.params)
-        throw std::runtime_error(std::format("{} missing params", event.method.view()));
-    return event.params->extra.As<T>();
+        return std::unexpected(text::format("{} missing params", event.method.view()));
+    try {
+        return event.params->extra.As<T>();
+    } catch (const json::Exception &) {
+        return std::unexpected(text::format("{} has invalid params", event.method.view()));
+    }
 }
 
 struct [[nodiscard]] BrowserPaths {
@@ -287,16 +309,16 @@ void writePhaseMarker(const std::string &path, std::string_view phase)
 
 [[nodiscard]] std::optional<String> readSanitizedLogTail(const std::string &path)
 {
-    if (!us::fs::blocking::FileExists(path))
-        return {};
-
     try {
+        if (!us::fs::blocking::FileExists(path))
+            return {};
+
         const auto sanitized = crawler::sanitizeProcessOutputTail(
             us::fs::blocking::ReadFileContents(path)
         );
         if (!sanitized.empty())
             return sanitized;
-    } catch (const std::exception &) {
+    } catch (const std::runtime_error &) {
     }
 
     return {};
@@ -311,7 +333,7 @@ void appendDiagnosticField(std::string &out, std::string_view label, std::string
     out += value;
 }
 
-void removeBrowserRunDirNoThrow(const std::string &path) noexcept
+void removeBrowserRunDir(const std::string &path) noexcept
 {
     if (path.empty())
         return;
@@ -319,7 +341,7 @@ void removeBrowserRunDirNoThrow(const std::string &path) noexcept
     try {
         auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
         std::move(tempDir).Remove();
-    } catch (const std::exception &e) {
+    } catch (const std::runtime_error &e) {
         LOG_WARNING() << std::format("Failed to remove browser dir {}: {}", path, e.what());
     }
 }
@@ -332,7 +354,10 @@ void removeBrowserRunDirNoThrow(const std::string &path) noexcept
     absl::StripTrailingAsciiWhitespace(&value);
     if (value.empty())
         return {};
-    return String::fromBytesThrow(value);
+    auto parsed = String::fromBytes(value);
+    if (!parsed)
+        return {};
+    return grabValueOf(parsed);
 }
 
 [[nodiscard]] us::engine::subprocess::ChildProcess spawnProcess(
@@ -477,7 +502,7 @@ public:
     BrowserInstance &operator=(const BrowserInstance &) = delete;
     BrowserInstance &operator=(BrowserInstance &&) = delete;
 
-    void launch()
+    Expected<void, String> launch()
     {
         paths = createBrowserPaths(browserRunsRoot);
         markPhase("launch_browser");
@@ -486,22 +511,23 @@ public:
         );
         proxyBridge.emplace(spawnProxyBridge(processStarter, paths));
         process.emplace(spawnSandboxedBrowser(processStarter, paths, cgroupRootPath, cgroupLimits));
-        websocketPath = waitForDevtoolsPath(devtoolsDeadline);
+        auto ready = waitForDevtoolsPath(devtoolsDeadline);
+        if (!ready)
+            return std::unexpected(std::move(ready).error());
+        websocketPath = grabValueOf(ready);
+        return {};
     }
 
-    [[nodiscard]] std::unique_ptr<crawler::CdpClient> connectCdp() const
+    [[nodiscard]] Expected<std::unique_ptr<crawler::CdpClient>, String> connectCdp() const
     {
-        try {
-            return std::make_unique<crawler::CdpClient>(
-                paths.cdpSocketPath, websocketPath, paths.cdpTracePath
-            );
-        } catch (const std::exception &e) {
-            throw std::runtime_error(
-                std::format(
-                    "devtools websocket handshake failed: {} ({})", e.what(), currentLaunchLogs()
-                )
-            );
+        auto cdp = crawler::CdpClient::connect(
+            paths.cdpSocketPath, websocketPath, paths.cdpTracePath
+        );
+        if (!cdp) {
+            auto detail = describeCdpFailure("devtools websocket handshake failed"_t, cdp.error());
+            return std::unexpected(text::format("{} ({})", detail, currentLaunchLogs()));
         }
+        return grabValueOf(cdp);
     }
 
     [[nodiscard]] std::pair<std::string, std::string> drainBrowserLogs() const
@@ -534,52 +560,47 @@ public:
 
     [[nodiscard]] std::string buildRuntimeFailureDetail(std::string_view message)
     {
-        try {
-            const auto preservedDir = preserveFailureArtifacts();
-            std::string diagnostics;
+        const auto preservedDir = preserveFailureArtifacts();
+        std::string diagnostics;
 
-            if (const auto browserLogs =
-                    crawler::summarizeProcessOutputs(paths.stdoutLogPath, paths.stderrLogPath)) {
-                appendDiagnosticField(diagnostics, "browser_logs", browserLogs->view());
-            }
-            if (const auto chromiumStderr = readSanitizedLogTail(paths.chromiumStderrLogPath))
-                appendDiagnosticField(diagnostics, "chromium_stderr", chromiumStderr->view());
-            if (const auto bwrapStatus = readSanitizedLogTail(paths.bwrapStatusFilePath))
-                appendDiagnosticField(diagnostics, "bwrap_status", bwrapStatus->view());
-            if (const auto phaseMarker = readSanitizedLogTail(paths.phaseFilePath))
-                appendDiagnosticField(diagnostics, "phase", phaseMarker->view());
-            if (const auto cdpTrace = readSanitizedLogTail(paths.cdpTracePath))
-                appendDiagnosticField(diagnostics, "cdp_trace_tail", cdpTrace->view());
-            if (const auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath))
-                appendDiagnosticField(diagnostics, "websocket_path", websocketPath->view());
-            appendDiagnosticField(
-                diagnostics, "websocket_path_file_exists",
-                us::fs::blocking::FileExists(paths.websocketPathFilePath) ? "true" : "false"
-            );
-            appendDiagnosticField(
-                diagnostics, "netlog_exists",
-                us::fs::blocking::FileExists(paths.netlogPath) ? "true" : "false"
-            );
-            appendDiagnosticField(
-                diagnostics, "browser_process_running", isProcessRunning(process) ? "true" : "false"
-            );
-            appendDiagnosticField(
-                diagnostics, "cdp_socket_exists",
-                us::fs::blocking::FileExists(paths.cdpSocketPath) ? "true" : "false"
-            );
-            appendDiagnosticField(
-                diagnostics, "proxy_bridge_running",
-                isProcessRunning(proxyBridge) ? "true" : "false"
-            );
-            if (preservedDir)
-                appendDiagnosticField(diagnostics, "preserved_browser_dir", preservedDir.value());
-
-            if (diagnostics.empty())
-                return std::string{message};
-            return std::format("{}, {}", message, diagnostics);
-        } catch (const std::exception &) {
-            return std::string{message};
+        if (const auto browserLogs =
+                crawler::summarizeProcessOutputs(paths.stdoutLogPath, paths.stderrLogPath)) {
+            appendDiagnosticField(diagnostics, "browser_logs", browserLogs->view());
         }
+        if (const auto chromiumStderr = readSanitizedLogTail(paths.chromiumStderrLogPath))
+            appendDiagnosticField(diagnostics, "chromium_stderr", chromiumStderr->view());
+        if (const auto bwrapStatus = readSanitizedLogTail(paths.bwrapStatusFilePath))
+            appendDiagnosticField(diagnostics, "bwrap_status", bwrapStatus->view());
+        if (const auto phaseMarker = readSanitizedLogTail(paths.phaseFilePath))
+            appendDiagnosticField(diagnostics, "phase", phaseMarker->view());
+        if (const auto cdpTrace = readSanitizedLogTail(paths.cdpTracePath))
+            appendDiagnosticField(diagnostics, "cdp_trace_tail", cdpTrace->view());
+        if (const auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath))
+            appendDiagnosticField(diagnostics, "websocket_path", websocketPath->view());
+        appendDiagnosticField(
+            diagnostics, "websocket_path_file_exists",
+            us::fs::blocking::FileExists(paths.websocketPathFilePath) ? "true" : "false"
+        );
+        appendDiagnosticField(
+            diagnostics, "netlog_exists",
+            us::fs::blocking::FileExists(paths.netlogPath) ? "true" : "false"
+        );
+        appendDiagnosticField(
+            diagnostics, "browser_process_running", isProcessRunning(process) ? "true" : "false"
+        );
+        appendDiagnosticField(
+            diagnostics, "cdp_socket_exists",
+            us::fs::blocking::FileExists(paths.cdpSocketPath) ? "true" : "false"
+        );
+        appendDiagnosticField(
+            diagnostics, "proxy_bridge_running", isProcessRunning(proxyBridge) ? "true" : "false"
+        );
+        if (preservedDir)
+            appendDiagnosticField(diagnostics, "preserved_browser_dir", preservedDir.value());
+
+        if (diagnostics.empty())
+            return std::string{message};
+        return std::format("{}, {}", message, diagnostics);
     }
 
     void close()
@@ -591,11 +612,11 @@ public:
         stopProcess(process, chrono::milliseconds(1500));
         stopProcess(proxyBridge, chrono::milliseconds(500));
         if (!paths.rootDir.empty() && !preserveRunDir)
-            removeBrowserRunDirNoThrow(paths.rootDir);
+            removeBrowserRunDir(paths.rootDir);
     }
 
 private:
-    [[nodiscard]] String waitForDevtoolsPath(us::engine::Deadline deadline)
+    [[nodiscard]] Expected<String, String> waitForDevtoolsPath(us::engine::Deadline deadline)
     {
         UINVARIANT(deadline.IsReachable(), "devtools deadline must be reachable");
         auto sawCdpSocket = false;
@@ -605,25 +626,25 @@ private:
             sawWebsocketPath = sawWebsocketPath ||
                                us::fs::blocking::FileExists(paths.websocketPathFilePath);
             if (process && process->WaitFor(chrono::milliseconds(0))) {
-                throw std::runtime_error(
-                    std::format(
+                return std::unexpected(
+                    text::format(
                         "chromium exited before exposing devtools ({})", currentLaunchLogs()
                     )
                 );
             }
-            const auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath);
+            auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath);
             if (sawCdpSocket && websocketPath) {
-                return websocketPath.value();
+                return grabValueOf(websocketPath);
             }
             us::engine::SleepFor(chrono::milliseconds(100));
         }
         if (process && process->WaitFor(chrono::milliseconds(0))) {
-            throw std::runtime_error(
-                std::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
+            return std::unexpected(
+                text::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
             );
         }
-        throw std::runtime_error(
-            std::format(
+        return std::unexpected(
+            text::format(
                 "{} ({})",
                 !sawWebsocketPath ? "devtools websocket path was never written"
                 : !sawCdpSocket
@@ -652,16 +673,16 @@ struct [[nodiscard]] RetainedBodyBudget {
     i64 retainedBytes;
 };
 
-[[nodiscard]] std::string retainBody(const std::string &body, RetainedBodyBudget &budget)
+[[nodiscard]] Expected<std::string, String>
+retainBody(const std::string &body, RetainedBodyBudget &budget)
 {
     const auto nextRetainedBytes = budget.retainedBytes + i64(body.size());
-    if (nextRetainedBytes > budget.maxBytes) {
-        throw std::runtime_error(
-            std::format(
+    if (nextRetainedBytes > budget.maxBytes)
+        return std::unexpected(
+            text::format(
                 "retained body bytes {} exceeded size limit {}", nextRetainedBytes, budget.maxBytes
             )
         );
-    }
     budget.retainedBytes = nextRetainedBytes;
     return body;
 }
@@ -698,29 +719,31 @@ struct [[nodiscard]] RetainedBodyBudget {
     if (locationIt == std::end(headers) || locationIt->second.empty())
         return requestUrl;
 
-    const auto location = String::fromBytesThrow(locationIt->second);
-    if (const auto absoluteLocation = Url::fromText(location))
+    const auto location = String::fromBytes(locationIt->second);
+    if (!location)
+        return requestUrl;
+    if (const auto absoluteLocation = Url::fromText(location.value()))
         return absoluteLocation->href();
 
     const auto origin = buildUrlOrigin(baseUrl);
     if (!origin)
         return requestUrl;
 
-    if (location.startsWith("//")) {
+    if (location->startsWith("//")) {
         const auto maybeBaseUrl = Url::fromText(baseUrl);
         if (!maybeBaseUrl)
             return requestUrl;
-        return text::format("{}:{}", maybeBaseUrl->isHttps() ? "https" : "http", location);
+        return text::format("{}:{}", maybeBaseUrl->isHttps() ? "https" : "http", location.value());
     }
 
-    if (location.startsWith('/'))
-        return text::format("{}{}", origin.value(), location);
+    if (location->startsWith('/'))
+        return text::format("{}{}", origin.value(), location.value());
 
-    if (location.startsWith('?')) {
+    if (location->startsWith('?')) {
         const auto maybeBaseUrl = Url::fromText(baseUrl);
         if (!maybeBaseUrl)
             return requestUrl;
-        return text::format("{}{}{}", origin.value(), maybeBaseUrl->pathname(), location);
+        return text::format("{}{}{}", origin.value(), maybeBaseUrl->pathname(), location.value());
     }
 
     return requestUrl;
@@ -816,35 +839,58 @@ public:
             return;
         }
         if (method == "Network.requestWillBeSent") {
-            handleRequestWillBeSent(parseEventParams<dto::NetworkRequestWillBeSentEvent>(event));
+            auto parsed = parseEventParams<dto::NetworkRequestWillBeSentEvent>(event);
+            if (!parsed)
+                mainRequestFailure = parsed.error();
+            else
+                handleRequestWillBeSent(grabValueOf(parsed));
             return;
         }
         if (method == "Network.responseReceived") {
-            handleResponseReceived(parseEventParams<dto::NetworkResponseReceivedEvent>(event));
+            auto parsed = parseEventParams<dto::NetworkResponseReceivedEvent>(event);
+            if (!parsed)
+                mainRequestFailure = parsed.error();
+            else
+                handleResponseReceived(grabValueOf(parsed));
             return;
         }
         if (method == "Network.loadingFinished") {
-            handleLoadingFinished(parseEventParams<dto::NetworkLoadingFinishedEvent>(event));
+            auto parsed = parseEventParams<dto::NetworkLoadingFinishedEvent>(event);
+            if (!parsed)
+                mainRequestFailure = parsed.error();
+            else
+                handleLoadingFinished(grabValueOf(parsed));
             return;
         }
         if (method == "Network.loadingFailed") {
-            handleLoadingFailed(parseEventParams<dto::NetworkLoadingFailedEvent>(event));
+            auto parsed = parseEventParams<dto::NetworkLoadingFailedEvent>(event);
+            if (!parsed)
+                mainRequestFailure = parsed.error();
+            else
+                handleLoadingFailed(grabValueOf(parsed));
         }
     }
 
-    void waitForLoad(crawler::CdpClient &cdp, us::engine::Deadline deadline)
+    [[nodiscard]] Expected<void, String>
+    waitForLoad(crawler::CdpClient &cdp, us::engine::Deadline deadline)
     {
-        cdp.waitUntil(
+        auto waited = cdp.waitUntil(
             [this]() { return loaded || mainRequestFailure.has_value(); }, deadline,
             "timed out waiting for page load"
         );
+        if (!waited)
+            return std::unexpected(
+                describeCdpFailure("timed out waiting for page load"_t, waited.error())
+            );
         if (mainRequestFailure)
-            throw std::runtime_error(std::string(mainRequestFailure->view()));
+            return std::unexpected(mainRequestFailure.value());
+        return {};
     }
 
-    void waitForMainDocument(crawler::CdpClient &cdp, us::engine::Deadline deadline)
+    [[nodiscard]] Expected<void, String>
+    waitForMainDocument(crawler::CdpClient &cdp, us::engine::Deadline deadline)
     {
-        cdp.waitUntil(
+        auto waited = cdp.waitUntil(
             [this]() {
                 const auto *request = activeMainRequest();
                 return mainRequestFailure.has_value() ||
@@ -854,19 +900,29 @@ public:
             },
             deadline, "timed out waiting for main document response"
         );
+        if (!waited)
+            return std::unexpected(
+                describeCdpFailure("timed out waiting for main document response"_t, waited.error())
+            );
         if (mainRequestFailure)
-            throw std::runtime_error(std::string(mainRequestFailure->view()));
+            return std::unexpected(mainRequestFailure.value());
+        return {};
     }
 
-    void
+    [[nodiscard]] Expected<void, String>
     waitForIdle(crawler::CdpClient &cdp, chrono::milliseconds idle, us::engine::Deadline deadline)
     {
-        cdp.waitUntil(
+        auto waited = cdp.waitUntil(
             [this, idle]() {
                 return inflight.empty() && us::utils::datetime::SteadyNow() - lastNetworkAt >= idle;
             },
             deadline, "timed out waiting for network idle"
         );
+        if (!waited)
+            return std::unexpected(
+                describeCdpFailure("timed out waiting for network idle"_t, waited.error())
+            );
+        return {};
     }
 
     [[nodiscard]] std::optional<crawler::SeedPageProbe> currentSeedProbe() const
@@ -874,21 +930,21 @@ public:
         if (const auto *request = resolvedMainRequest();
             request != nullptr && request->statusCode) {
             return crawler::SeedPageProbe{
-                raw(request->statusCode.value()),
-                request->loaded && !mainRequestFailure ? std::optional<int64_t>{2}
-                                                       : std::optional<int64_t>{0},
+                .status = raw(request->statusCode.value()),
+                .loadState = request->loaded && !mainRequestFailure ? std::optional<int64_t>{2}
+                                                                    : std::optional<int64_t>{0},
             };
         }
 
         if (mainRequestId || mainRequestFailure || loaded)
-            return crawler::SeedPageProbe{0, 0};
+            return crawler::SeedPageProbe{.status = 0, .loadState = 0};
 
         return {};
     }
 
     [[nodiscard]] const std::optional<String> &failureReason() const { return mainRequestFailure; }
 
-    [[nodiscard]] std::string readBody(
+    [[nodiscard]] Expected<std::string, String> readBody(
         crawler::CdpClient &cdp, const String &sessionIdIn, RetainedBodyBudget &budget,
         const std::string &fallbackBody
     ) const
@@ -908,15 +964,18 @@ public:
             const auto body = cdp.send<dto::NetworkGetResponseBodyResult>(
                 "Network.getResponseBody", params, sessionIdIn
             );
+            if (!body)
+                return retainBody(fallbackBody, budget);
             return retainBody(
-                body.base64Encoded ? us::crypto::base64::Base64Decode(body.body) : body.body, budget
+                body->base64Encoded ? us::crypto::base64::Base64Decode(body->body) : body->body,
+                budget
             );
-        } catch (const std::exception &) {
+        } catch (const us::crypto::CryptoException &) {
             return retainBody(fallbackBody, budget);
         }
     }
 
-    [[nodiscard]] std::vector<crawler::CapturedResource> readResources(
+    [[nodiscard]] Expected<std::vector<crawler::CapturedResource>, String> readResources(
         crawler::CdpClient &cdp, const String &sessionIdIn, RetainedBodyBudget &budget
     ) const
     {
@@ -949,6 +1008,26 @@ public:
                 const auto bodyValue = cdp.send<dto::NetworkGetResponseBodyResult>(
                     "Network.getResponseBody", params, sessionIdIn
                 );
+                if (!bodyValue) {
+                    resources.push_back({
+                        request.requestUrl,
+                        request.method,
+                        request.resourceType,
+                        response.statusCode,
+                        response.statusMessage,
+                        response.headers,
+                        {},
+                        response.timestamp,
+                    });
+                    continue;
+                }
+                auto body = retainBody(
+                    bodyValue->base64Encoded ? us::crypto::base64::Base64Decode(bodyValue->body)
+                                             : bodyValue->body,
+                    budget
+                );
+                if (!body)
+                    return std::unexpected(std::move(body).error());
                 resources.push_back({
                     request.requestUrl,
                     request.method,
@@ -956,14 +1035,10 @@ public:
                     response.statusCode,
                     response.statusMessage,
                     response.headers,
-                    retainBody(
-                        bodyValue.base64Encoded ? us::crypto::base64::Base64Decode(bodyValue.body)
-                                                : bodyValue.body,
-                        budget
-                    ),
+                    grabValueOf(body),
                     response.timestamp,
                 });
-            } catch (const std::exception &) {
+            } catch (const us::crypto::CryptoException &) {
                 resources.push_back({
                     request.requestUrl,
                     request.method,
@@ -1112,9 +1187,9 @@ private:
         if (requestWillBeSent.request.url.starts_with("data:"))
             return;
 
-        const auto requestIdText = String::fromBytesThrow(requestWillBeSent.requestId);
-        const auto rawRequestUrl = String::fromBytesThrow(requestWillBeSent.request.url);
-        const auto requestMethod = String::fromBytesThrow(requestWillBeSent.request.method);
+        const auto requestIdText = String::fromBytes(requestWillBeSent.requestId).expect();
+        const auto rawRequestUrl = String::fromBytes(requestWillBeSent.request.url).expect();
+        const auto requestMethod = String::fromBytes(requestWillBeSent.request.method).expect();
 
         inflight.insert(requestIdText);
         lastNetworkAt = us::utils::datetime::SteadyNow();
@@ -1180,7 +1255,7 @@ private:
 
     void handleResponseReceived(dto::NetworkResponseReceivedEvent responseReceived)
     {
-        const auto requestIdText = String::fromBytesThrow(responseReceived.requestId);
+        const auto requestIdText = String::fromBytes(responseReceived.requestId).expect();
         const auto requestIt = activeRequests.find(requestIdText);
         if (requestIt == std::end(activeRequests)) {
             if (mainRequestId && mainRequestId.value() == requestIdText) {
@@ -1200,9 +1275,8 @@ private:
         request.statusCode = responseReceived.response.status
                                  ? i64(responseReceived.response.status.value())
                                  : 0_i64;
-        request.statusMessage = String::fromBytesThrow(
-            responseReceived.response.statusText.value_or("")
-        );
+        request.statusMessage =
+            String::fromBytes(responseReceived.response.statusText.value_or("")).expect();
         request.headers = std::move(headers);
         request.timestamp = timestamp;
         if (responseReceived.type)
@@ -1217,7 +1291,7 @@ private:
 
     void handleLoadingFinished(dto::NetworkLoadingFinishedEvent loadingFinished)
     {
-        const auto requestIdText = String::fromBytesThrow(loadingFinished.requestId);
+        const auto requestIdText = String::fromBytes(loadingFinished.requestId).expect();
         inflight.erase(requestIdText);
         lastNetworkAt = us::utils::datetime::SteadyNow();
         if (const auto it = activeRequests.find(requestIdText); it != std::end(activeRequests)) {
@@ -1238,7 +1312,7 @@ private:
 
     void handleLoadingFailed(dto::NetworkLoadingFailedEvent loadingFailed)
     {
-        const auto requestIdText = String::fromBytesThrow(loadingFailed.requestId);
+        const auto requestIdText = String::fromBytes(loadingFailed.requestId).expect();
         inflight.erase(requestIdText);
         lastNetworkAt = us::utils::datetime::SteadyNow();
 
@@ -1262,9 +1336,10 @@ private:
         if (hasResponse(request))
             return;
 
-        mainRequestFailure = String::fromBytesThrow(
-            loadingFailed.errorText.value_or("main document request failed")
-        );
+        mainRequestFailure = String::fromBytes(
+                                 loadingFailed.errorText.value_or("main document request failed")
+        )
+                                 .expect();
     }
 
     void finalizeRedirectRequest(
@@ -1285,7 +1360,8 @@ private:
         activeRequests.erase(requestIt);
 
         request.statusCode = i64(redirectResponse->status.value());
-        request.statusMessage = String::fromBytesThrow(redirectResponse->statusText.value_or(""));
+        request.statusMessage =
+            String::fromBytes(redirectResponse->statusText.value_or("")).expect();
         request.headers = normalizeHeadersOrEmpty(redirectResponse->headers);
         request.timestamp = currentTimestamp();
         request.loaded = true;
@@ -1372,7 +1448,8 @@ struct [[nodiscard]] DomState {
     std::string html;
 };
 
-[[nodiscard]] DomState readDomState(crawler::CdpClient &cdp, const String &sessionId)
+[[nodiscard]] Expected<DomState, String>
+readDomState(crawler::CdpClient &cdp, const String &sessionId)
 {
     dto::RuntimeEvaluateParams params;
     params.expression =
@@ -1384,15 +1461,27 @@ struct [[nodiscard]] DomState {
     const auto result = cdp.send<dto::RuntimeEvaluateDomStateResult>(
         "Runtime.evaluate", params, sessionId
     );
-    const auto &value = result.result.value;
-    return {
-        .finalUrl = String::fromBytesThrow(value.finalUrl),
-        .title = value.title.transform([](const auto &t) { return String::fromBytesThrow(t); }),
+    if (!result)
+        return std::unexpected(describeCdpFailure("failed to read dom state"_t, result.error()));
+    const auto &value = result->result.value;
+    auto title = value.title.transform([](const auto &t) -> std::optional<String> {
+        auto parsed = String::fromBytes(t);
+        if (!parsed)
+            return {};
+        return grabValueOf(parsed);
+    });
+    auto finalUrl = String::fromBytes(value.finalUrl);
+    if (!finalUrl)
+        return std::unexpected("Runtime.evaluate returned invalid finalUrl"_t);
+    return DomState{
+        .finalUrl = grabValueOf(finalUrl),
+        .title = title.value_or(std::optional<String>{}),
         .html = value.html,
     };
 }
 
-void runSiteBehavior(crawler::CdpClient &cdp, const String &sessionId, chrono::milliseconds timeout)
+Expected<void, String>
+runSiteBehavior(crawler::CdpClient &cdp, const String &sessionId, chrono::milliseconds timeout)
 {
     dto::RuntimeEvaluateParams params;
     params.expression = std::format(
@@ -1408,7 +1497,10 @@ void runSiteBehavior(crawler::CdpClient &cdp, const String &sessionId, chrono::m
     );
     params.awaitPromise = true;
     params.returnByValue = true;
-    static_cast<void>(cdp.send<json::Value>("Runtime.evaluate", params, sessionId));
+    const auto result = cdp.send<json::Value>("Runtime.evaluate", params, sessionId);
+    if (!result)
+        return std::unexpected(describeCdpFailure("failed to run site behavior"_t, result.error()));
+    return {};
 }
 
 class [[nodiscard]] CaptureSession final {
@@ -1427,201 +1519,258 @@ public:
     {
     }
 
-    [[nodiscard]] crawler::CapturedExchange capture()
+    [[nodiscard]] Expected<crawler::CapturedExchange, CaptureFailure> capture()
     {
-        try {
-            launch();
-            try {
-                return captureAttachedTarget();
-            } catch (const std::exception &e) {
-                auto failureDetail = browser.buildRuntimeFailureDetail(e.what());
-                if (tracker && tracker->failureReason()) {
-                    failureDetail = std::format(
-                        "{}, tracker_failure={}", failureDetail, tracker->failureReason()->view()
-                    );
-                }
-                auto seedProbe = currentSeedProbe();
-                closeCdpForFailure();
-                throw CaptureFailure(std::move(failureDetail), std::move(seedProbe));
-            }
-        } catch (const CaptureFailure &) {
+        auto launched = launch();
+        if (!launched) {
+            auto failureDetail = String::fromBytes(
+                                     browser.buildRuntimeFailureDetail(launched.error().view())
+            )
+                                     .expect();
             closeCdpForFailure();
             browser.close();
-            throw;
-        } catch (const std::exception &) {
-            closeCdpForFailure();
-            static_cast<void>(browser.preserveFailureArtifacts());
-            browser.close();
-            throw;
+            return std::unexpected(CaptureFailure{std::move(failureDetail), {}});
         }
+
+        auto captured = captureAttachedTarget();
+        if (!captured) {
+            auto failureDetail = browser.buildRuntimeFailureDetail(captured.error().view());
+            if (tracker && tracker->failureReason()) {
+                failureDetail = std::format(
+                    "{}, tracker_failure={}", failureDetail, tracker->failureReason()->view()
+                );
+            }
+            auto seedProbe = currentSeedProbe();
+            closeCdpForFailure();
+            browser.close();
+            return std::unexpected(
+                CaptureFailure{
+                    String::fromBytes(failureDetail).expect(),
+                    std::move(seedProbe),
+                }
+            );
+        }
+        return grabValueOf(captured);
     }
 
 private:
-    void launch()
+    template <typename T, typename... Args>
+    [[nodiscard]] Expected<T, String> send(std::string_view method, Args &&...args) const
     {
-        browser.launch();
+        auto result = cdpClient().send<T>(method, std::forward<Args>(args)...);
+        if (!result)
+            return std::unexpected(
+                describeCdpFailure(text::format("{} failed", method), result.error())
+            );
+        return grabValueOf(result);
+    }
+
+    template <typename... Args>
+    [[nodiscard]] Expected<void, String> sendVoid(std::string_view method, Args &&...args) const
+    {
+        auto result = send<dto::CdpEmptyObject>(method, std::forward<Args>(args)...);
+        if (!result)
+            return std::unexpected(result.error());
+        return {};
+    }
+
+    [[nodiscard]] Expected<void, String> launch()
+    {
+        auto launched = browser.launch();
+        if (!launched)
+            return std::unexpected(launched.error());
         browser.markPhase("connect_cdp");
-        cdp = browser.connectCdp();
+        auto connected = browser.connectCdp();
+        if (!connected)
+            return std::unexpected(connected.error());
+        cdp = grabValueOf(connected);
 
         browser.markPhase("create_browser_context");
-        const auto browserContext = cdpClient().send<dto::TargetCreateBrowserContextResult>(
+        auto browserContext = send<dto::TargetCreateBrowserContextResult>(
             "Target.createBrowserContext"
         );
-        browserContextId = String::fromBytesThrow(browserContext.browserContextId);
+        if (!browserContext)
+            return std::unexpected(browserContext.error());
+        browserContextId = String::fromBytes(browserContext->browserContextId).expect();
 
         browser.markPhase("create_target");
         dto::TargetCreateTargetParams targetParams;
         targetParams.url = "about:blank";
         targetParams.browserContextId = std::string(browserContextId->view());
-        const auto target = cdpClient().send<dto::TargetCreateTargetResult>(
-            "Target.createTarget", targetParams
-        );
-        targetId = String::fromBytesThrow(target.targetId);
+        auto target = send<dto::TargetCreateTargetResult>("Target.createTarget", targetParams);
+        if (!target)
+            return std::unexpected(target.error());
+        targetId = String::fromBytes(target->targetId).expect();
 
         browser.markPhase("attach_target");
         dto::TargetAttachToTargetParams attachParams;
         attachParams.targetId = std::string(targetId->view());
         attachParams.flatten = true;
-        const auto attached = cdpClient().send<dto::TargetAttachToTargetResult>(
+        auto attached = send<dto::TargetAttachToTargetResult>(
             "Target.attachToTarget", attachParams
         );
-        sessionId = String::fromBytesThrow(attached.sessionId);
+        if (!attached)
+            return std::unexpected(attached.error());
+        sessionId = String::fromBytes(attached->sessionId).expect();
         tracker = std::make_unique<PageTracker>(sessionId.value(), targetId.value());
         listenerId = cdpClient().addListener([this](crawler::CdpEvent event) {
             if (tracker)
                 tracker->handleEvent(event);
         });
+        return {};
     }
 
-    [[nodiscard]] crawler::CapturedExchange captureAttachedTarget()
+    [[nodiscard]] Expected<crawler::CapturedExchange, String> captureAttachedTarget()
     {
         browser.markPhase("enable_page");
-        static_cast<void>(
-            cdpClient().send<dto::CdpEmptyObject>("Page.enable", attachedSessionId())
-        );
+        if (auto ok = sendVoid("Page.enable", attachedSessionId()); !ok)
+            return std::unexpected(ok.error());
         browser.markPhase("enable_runtime");
-        static_cast<void>(
-            cdpClient().send<dto::CdpEmptyObject>("Runtime.enable", attachedSessionId())
-        );
+        if (auto ok = sendVoid("Runtime.enable", attachedSessionId()); !ok)
+            return std::unexpected(ok.error());
         browser.markPhase("enable_network");
-        static_cast<void>(
-            cdpClient().send<dto::CdpEmptyObject>("Network.enable", attachedSessionId())
-        );
+        if (auto ok = sendVoid("Network.enable", attachedSessionId()); !ok)
+            return std::unexpected(ok.error());
 
         browser.markPhase("enable_lifecycle_events");
         dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
         lifecycleParams.enabled = true;
-        static_cast<void>(cdpClient().send<dto::CdpEmptyObject>(
-            "Page.setLifecycleEventsEnabled", lifecycleParams, attachedSessionId()
-        ));
+        if (auto ok =
+                sendVoid("Page.setLifecycleEventsEnabled", lifecycleParams, attachedSessionId());
+            !ok)
+            return std::unexpected(ok.error());
 
         browser.markPhase("disable_cache");
         dto::NetworkSetCacheDisabledParams cacheParams;
         cacheParams.cacheDisabled = true;
-        static_cast<void>(cdpClient().send<dto::CdpEmptyObject>(
-            "Network.setCacheDisabled", cacheParams, attachedSessionId()
-        ));
+        if (auto ok = sendVoid("Network.setCacheDisabled", cacheParams, attachedSessionId()); !ok)
+            return std::unexpected(ok.error());
 
         browser.markPhase("bypass_service_worker");
         dto::NetworkSetBypassServiceWorkerParams serviceWorkerParams;
         serviceWorkerParams.bypass = true;
-        static_cast<void>(cdpClient().send<dto::CdpEmptyObject>(
-            "Network.setBypassServiceWorker", serviceWorkerParams, attachedSessionId()
-        ));
+        if (auto ok = sendVoid(
+                "Network.setBypassServiceWorker", serviceWorkerParams, attachedSessionId()
+            );
+            !ok)
+            return std::unexpected(ok.error());
 
         browser.markPhase("set_extra_headers");
         dto::NetworkSetExtraHTTPHeadersParams headerParams;
         headerParams.headers.extra.emplace(
             "Accept-Language", std::string(crawler::kBrowserAcceptLanguage)
         );
-        static_cast<void>(cdpClient().send<dto::CdpEmptyObject>(
-            "Network.setExtraHTTPHeaders", headerParams, attachedSessionId()
-        ));
+        if (auto ok = sendVoid("Network.setExtraHTTPHeaders", headerParams, attachedSessionId());
+            !ok)
+            return std::unexpected(ok.error());
 
         browser.markPhase("get_frame_tree");
-        const auto frameTree = cdpClient().send<dto::PageGetFrameTreeResult>(
+        auto frameTree = send<dto::PageGetFrameTreeResult>(
             "Page.getFrameTree", attachedSessionId()
         );
-        pageTracker().mainFrameId = String::fromBytesThrow(frameTree.frameTree.frame.id);
+        if (!frameTree)
+            return std::unexpected(frameTree.error());
+        pageTracker().mainFrameId = String::fromBytes(frameTree->frameTree.frame.id).expect();
 
         browser.markPhase("navigate");
         dto::PageNavigateParams navigateParams;
         navigateParams.url = std::string(run.seedUrl.view());
         pageTracker().beginSeedNavigation(run.seedUrl);
-        const auto navigateResult = cdpClient().send<dto::PageNavigateResult>(
+        auto navigateResult = send<dto::PageNavigateResult>(
             "Page.navigate", navigateParams, attachedSessionId()
         );
-        if (navigateResult.errorText)
-            throw std::runtime_error(navigateResult.errorText.value());
-        pageTracker().setExpectedMainLoaderId(stringOrNull(navigateResult.loaderId));
+        if (!navigateResult)
+            return std::unexpected(navigateResult.error());
+        if (navigateResult->errorText)
+            return std::unexpected(String::fromBytes(navigateResult->errorText.value()).expect());
+        pageTracker().setExpectedMainLoaderId(stringOrNull(navigateResult->loaderId));
 
         browser.markPhase("wait_for_load");
-        pageTracker().waitForLoad(cdpClient(), deadline);
+        if (auto waited = pageTracker().waitForLoad(cdpClient(), deadline); !waited)
+            return std::unexpected(waited.error());
         if (timings.postLoadDelaySec > 0_i64) {
             browser.markPhase("post_load_delay");
-            sleepWithinDeadline(
-                deadline, chrono::milliseconds{timings.postLoadDelaySec * 1000_i64},
-                "timed out waiting for post-load delay"
+            const auto ok = sleepWithinDeadline(
+                deadline, chrono::milliseconds{timings.postLoadDelaySec * 1000_i64}
             );
+            if (!ok)
+                return std::unexpected("timed out waiting for post-load delay"_t);
             browser.markPhase("post_load_delay_done");
         }
         if (timings.behaviorTimeoutSec > 0_i64) {
             browser.markPhase("run_site_behavior");
             browser.markPhase("run_site_behavior_runtime_evaluate");
-            const auto behaviorBudget = timeLeftOrThrowMs(
-                deadline, "timed out running site behavior"
-            );
-            runSiteBehavior(
+            auto behaviorBudgetExpected = timeLeftMs(deadline);
+            if (!behaviorBudgetExpected)
+                return std::unexpected("timed out running site behavior"_t);
+            const auto behaviorBudget = grabValueOf(behaviorBudgetExpected);
+            auto ranSiteBehavior = runSiteBehavior(
                 cdpClient(), attachedSessionId(),
                 std::min(
                     chrono::milliseconds{timings.behaviorTimeoutSec * 1000_i64}, behaviorBudget
                 )
             );
+            if (!ranSiteBehavior)
+                return std::unexpected(ranSiteBehavior.error());
             browser.markPhase("run_site_behavior_done");
         }
         if (timings.netIdleWaitSec > 0_i64) {
             browser.markPhase("wait_for_idle");
             browser.markPhase("wait_for_idle_wait");
-            pageTracker().waitForIdle(
+            auto waited = pageTracker().waitForIdle(
                 cdpClient(), chrono::milliseconds{timings.netIdleWaitSec * 1000_i64}, deadline
             );
+            if (!waited)
+                return std::unexpected(waited.error());
             browser.markPhase("wait_for_idle_done");
         }
         if (timings.pageExtraDelaySec > 0_i64) {
             browser.markPhase("page_extra_delay");
-            sleepWithinDeadline(
-                deadline, chrono::milliseconds{timings.pageExtraDelaySec * 1000_i64},
-                "timed out waiting for extra page delay"
+            const auto ok = sleepWithinDeadline(
+                deadline, chrono::milliseconds{timings.pageExtraDelaySec * 1000_i64}
             );
+            if (!ok)
+                return std::unexpected("timed out waiting for extra page delay"_t);
             browser.markPhase("page_extra_delay_done");
         }
         browser.markPhase("wait_for_main_document");
         browser.markPhase("wait_for_main_document_wait");
-        pageTracker().waitForMainDocument(cdpClient(), deadline);
+        if (auto waited = pageTracker().waitForMainDocument(cdpClient(), deadline); !waited)
+            return std::unexpected(waited.error());
         browser.markPhase("wait_for_main_document_done");
 
         browser.markPhase("read_dom_state");
         browser.markPhase("read_dom_state_runtime_evaluate");
         auto domState = readDomState(cdpClient(), attachedSessionId());
+        if (!domState)
+            return std::unexpected(domState.error());
         browser.markPhase("read_dom_state_done");
         RetainedBodyBudget budget{kMaxBodyBytes, 0_i64};
         browser.markPhase("read_main_body");
-        auto body = pageTracker().readBody(cdpClient(), attachedSessionId(), budget, domState.html);
+        auto body = pageTracker().readBody(
+            cdpClient(), attachedSessionId(), budget, domState->html
+        );
+        if (!body)
+            return std::unexpected(body.error());
         browser.markPhase("read_resources");
         auto resources = pageTracker().readResources(cdpClient(), attachedSessionId(), budget);
+        if (!resources)
+            return std::unexpected(resources.error());
 
         removeTrackerListener();
-        detachTarget();
-        disposeBrowserContext();
+        if (auto detached = detachTarget(); !detached)
+            return std::unexpected(detached.error());
+        if (auto disposed = disposeBrowserContext(); !disposed)
+            return std::unexpected(disposed.error());
 
         browser.markPhase("build_exchange_start");
         LOG_INFO() << std::format(
             "captureViaProxy building exchange for {} (body_bytes={}, resources={})", run.seedUrl,
-            body.size(), resources.size()
+            body->size(), resources->size()
         );
         auto exchange = pageTracker().buildExchange(
-            std::move(domState.finalUrl), std::move(domState.title), std::move(body),
-            std::move(resources)
+            std::move(domState->finalUrl), std::move(domState->title), grabValueOf(body),
+            grabValueOf(resources)
         );
         browser.markPhase("build_exchange_done");
         LOG_INFO() << std::format(
@@ -1639,33 +1788,35 @@ private:
         return exchange;
     }
 
-    void detachTarget()
+    [[nodiscard]] Expected<void, String> detachTarget()
     {
         if (!sessionId)
-            return;
+            return {};
 
         browser.markPhase("detach_target");
         dto::TargetDetachFromTargetParams detachParams;
         detachParams.sessionId = std::string(sessionId->view());
-        static_cast<void>(
-            cdpClient().send<dto::CdpEmptyObject>("Target.detachFromTarget", detachParams)
-        );
+        auto detached = sendVoid("Target.detachFromTarget", detachParams);
+        if (!detached)
+            return std::unexpected(detached.error());
         sessionId.reset();
+        return {};
     }
 
-    void disposeBrowserContext()
+    [[nodiscard]] Expected<void, String> disposeBrowserContext()
     {
         if (!browserContextId)
-            return;
+            return {};
 
         browser.markPhase("dispose_browser_context");
         dto::TargetDisposeBrowserContextParams disposeParams;
         disposeParams.browserContextId = std::string(browserContextId->view());
-        static_cast<void>(
-            cdpClient().send<dto::CdpEmptyObject>("Target.disposeBrowserContext", disposeParams)
-        );
+        auto disposed = sendVoid("Target.disposeBrowserContext", disposeParams);
+        if (!disposed)
+            return std::unexpected(disposed.error());
         browserContextId.reset();
         targetId.reset();
+        return {};
     }
 
     void removeTrackerListener()
@@ -1682,10 +1833,13 @@ private:
         if (!cdp)
             return;
 
-        try {
-            cdp->close();
-        } catch (const std::exception &e) {
-            LOG_WARNING() << "Suppressing CDP close failure during capture cleanup: " << e.what();
+        if (auto closed = cdp->close(); !closed) {
+            LOG_WARNING() << std::format(
+                "Suppressing CDP close failure during capture cleanup: code={}{}",
+                numericCast<int>(closed.error().code),
+                closed.error().detail ? std::format(", detail={}", closed.error().detail.value())
+                                      : std::string{}
+            );
         }
         cdp.reset();
     }
@@ -1727,7 +1881,7 @@ private:
     std::optional<crawler::CdpClient::ListenerId> listenerId;
 };
 
-[[nodiscard]] crawler::CapturedExchange captureViaProxy(
+[[nodiscard]] Expected<crawler::CapturedExchange, CaptureFailure> captureViaProxy(
     us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
     const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
     crawler::CaptureTimings timings, const crawler::RunRequest &run
@@ -1736,7 +1890,7 @@ private:
     auto session = CaptureSession(
         processStarter, std::string(browserRunsRoot), std::string(cgroupRootPath),
         std::move(cgroupLimits), std::move(timings),
-        crawler::RunRequest{run.seedUrl, run.jobTimeoutMs}
+        crawler::RunRequest{.seedUrl = run.seedUrl, .jobTimeoutMs = run.jobTimeoutMs}
     );
     return session.capture();
 }
@@ -1753,28 +1907,69 @@ private:
     out.attempt.exited = true;
     try {
         LOG_INFO() << std::format("crawler executeRun starting for {}", run.seedUrl);
+
+        const auto failArtifact =
+            [&out](const crawler::ArtifactFailure &failure) -> CrawlerRunArtifacts {
+            auto failureDetailOpt = String::fromBytes(failure.detail)
+                                        .transform([](String s) {
+                                            return std::optional<String>{std::move(s)};
+                                        })
+                                        .valueOr(std::optional<String>{});
+            out.attempt.exitCode = 9;
+            out.attempt.waczExists = false;
+            out.attempt.seedProbe.reset();
+            out.attempt.failureDetail = failureDetailOpt
+                                            ? std::optional<String>{grabValueOf(failureDetailOpt)}
+                                            : std::optional<String>{};
+            out.stdoutLog.clear();
+            out.stderrLog = failure.detail + "\n";
+            out.wacz.reset();
+            out.pagesJsonl.reset();
+            return out;
+        };
+
         auto exchange = captureViaProxy(
             processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), timings, run
         );
+        if (!exchange) {
+            out.attempt.exitCode = 9;
+            out.attempt.waczExists = false;
+            out.attempt.seedProbe = exchange.error().seedProbe;
+            out.attempt.failureDetail = exchange.error().detail;
+            out.stdoutLog.clear();
+            out.stderrLog = std::string(exchange.error().detail.view()) + "\n";
+            out.wacz.reset();
+            out.pagesJsonl.reset();
+            return out;
+        }
         LOG_INFO() << std::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
-            exchange.statusCode
+            exchange->statusCode
         );
-        auto pages = crawler::buildPagesJsonl(exchange);
+        auto pages = crawler::buildPagesJsonl(*exchange);
         LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
-        out.stdoutLog = crawler::buildSuccessStdoutLog(
-            run, exchange, 0_i64, crawler::ReusedBrowser::kNo
-        );
+        {
+            auto log = crawler::buildSuccessStdoutLog(
+                run, *exchange, 0_i64, crawler::ReusedBrowser::kNo
+            );
+            if (!log)
+                UINVARIANT(false, log.error().detail);
+            out.stdoutLog = grabValueOf(log);
+        }
         out.stderrLog.clear();
-        auto warc = crawler::buildWarc(exchange);
+        auto warc = crawler::buildWarc(*exchange);
+        if (!warc)
+            return failArtifact(warc.error());
         LOG_INFO() << std::format("crawler buildWarc finished for {}", run.seedUrl);
-        auto wacz = crawler::buildWacz(run, pages, warc, out.stdoutLog, out.stderrLog);
+        auto wacz = crawler::buildWacz(run, pages, grabValueOf(warc), out.stdoutLog, out.stderrLog);
+        if (!wacz)
+            return failArtifact(wacz.error());
         LOG_INFO() << std::format(
             "crawler buildWacz finished for {} (wacz_bytes={}, pages_bytes={})", run.seedUrl,
-            wacz.size(), pages.size()
+            wacz->size(), pages.size()
         );
 
-        const auto retainedBytes = i64(wacz.size()) + i64(pages.size()) +
+        const auto retainedBytes = i64(wacz->size()) + i64(pages.size()) +
                                    i64(out.stdoutLog.size()) + i64(out.stderrLog.size());
         if (retainedBytes > kMaxBodyBytes) {
             const auto detail = text::format(
@@ -1783,7 +1978,8 @@ private:
             out.attempt.exitCode = 14;
             out.attempt.waczExists = false;
             out.attempt.seedProbe = crawler::SeedPageProbe{
-                numericCast<int64_t>(exchange.statusCode), 0
+                .status = numericCast<int64_t>(exchange->statusCode),
+                .loadState = 0,
             };
             out.attempt.failureDetail = detail;
             out.wacz.reset();
@@ -1792,10 +1988,10 @@ private:
             return out;
         }
 
-        const auto exitCode = exchange.statusCode >= 400_i64 ? 9_i64 : 0_i64;
-        const auto loadState = exitCode != 0_i64 || exchange.statusCode >= 400_i64 ? 0_i64 : 2_i64;
-        if (exchange.statusCode >= 400_i64) {
-            out.attempt.failureDetail = text::format("seed returned HTTP {}", exchange.statusCode);
+        const auto exitCode = exchange->statusCode >= 400_i64 ? 9_i64 : 0_i64;
+        const auto loadState = exitCode != 0_i64 || exchange->statusCode >= 400_i64 ? 0_i64 : 2_i64;
+        if (exchange->statusCode >= 400_i64) {
+            out.attempt.failureDetail = text::format("seed returned HTTP {}", exchange->statusCode);
         }
 
         LOG_INFO() << std::format(
@@ -1806,26 +2002,23 @@ private:
         out.attempt.exitCode = numericCast<int>(exitCode);
         out.attempt.waczExists = true;
         out.attempt.seedProbe = crawler::SeedPageProbe{
-            numericCast<int64_t>(exchange.statusCode), numericCast<int64_t>(loadState)
+            .status = numericCast<int64_t>(exchange->statusCode),
+            .loadState = numericCast<int64_t>(loadState),
         };
-        out.wacz = std::move(wacz);
+        out.wacz = grabValueOf(wacz);
         out.pagesJsonl = std::move(pages);
         return out;
-    } catch (const CaptureFailure &e) {
-        out.attempt.exitCode = 9;
-        out.attempt.waczExists = false;
-        out.attempt.seedProbe = e.seedProbe;
-        out.attempt.failureDetail = String::fromBytesThrow(e.what());
-        out.stdoutLog.clear();
-        out.stderrLog = std::string(e.what()) + "\n";
-        out.wacz.reset();
-        out.pagesJsonl.reset();
-        return out;
-    } catch (const std::exception &e) {
+    } catch (const us::utils::TracefulException &e) {
         out.attempt.exitCode = 9;
         out.attempt.waczExists = false;
         out.attempt.seedProbe.reset();
-        out.attempt.failureDetail = String::fromBytesThrow(e.what());
+        {
+            auto parsed = String::fromBytes(e.what());
+            if (parsed)
+                out.attempt.failureDetail = grabValueOf(parsed);
+            else
+                out.attempt.failureDetail.reset();
+        }
         out.stdoutLog.clear();
         out.stderrLog = std::string(e.what()) + "\n";
         out.wacz.reset();
@@ -1844,7 +2037,7 @@ CrawlerRunner::CrawlerRunner(
 )
     : httpClient(httpClientIn), processStarter(processStarterIn), runTimeoutSec(runTimeoutSecIn),
       browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir))),
-      cgroupRootPath(limitsIn ? resolveDelegatedCgroupRootPathOrThrow() : std::string()),
+      cgroupRootPath(limitsIn ? resolveDelegatedCgroupRootPath() : std::string()),
       timings(std::move(timingsIn))
 {
     cgroupLimits = std::move(limitsIn);
@@ -1854,7 +2047,7 @@ CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
     return executeRun(
         httpClient, processStarter, browserRunsRoot, cgroupRootPath, cgroupLimits, timings,
-        crawler::RunRequest{seedUrl, runTimeoutSec * 1000_i64}
+        crawler::RunRequest{.seedUrl = seedUrl, .jobTimeoutMs = runTimeoutSec * 1000_i64}
     );
 }
 

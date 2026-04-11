@@ -17,7 +17,7 @@ using namespace text::literals;
 UTEST(PrefixPagination, UpperExclusiveBoundNormal)
 {
     const std::string input = "abc";
-    const auto inputText = String::fromBytesThrow(input);
+    const auto inputText = String::fromBytes(input).expect();
     const auto upper = upperExclusiveBound(inputText);
     EXPECT_EQ(upper, std::string{"abd"});
 }
@@ -27,8 +27,8 @@ UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
     const std::string prefix = "example.com/a";
     const std::string link = "example.com/a/b";
 
-    const auto prefixText = String::fromBytesThrow(prefix);
-    const auto linkText = String::fromBytesThrow(link);
+    const auto prefixText = String::fromBytes(prefix).expect();
+    const auto linkText = String::fromBytes(link).expect();
 
     const auto token = encodePrefixCursor(prefixText, linkText);
     const auto decoded = decodePrefixCursor(token);
@@ -48,8 +48,8 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
     const std::string link = "example.com/p/resource";
     const auto tp = Clock::time_point(std::chrono::microseconds(4242424242));
     const auto id = userver::utils::generators::GenerateBoostUuid();
-    const auto prefixText = String::fromBytesThrow(prefix);
-    const auto linkText = String::fromBytesThrow(link);
+    const auto prefixText = String::fromBytes(prefix).expect();
+    const auto linkText = String::fromBytes(link).expect();
 
     const auto token = encodePrefixCursor(prefixText, linkText, tp, id);
     const auto decoded = decodePrefixCursor(token);

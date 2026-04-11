@@ -1,5 +1,6 @@
 #pragma once
 
+#include "expected.hpp"
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
 
@@ -11,6 +12,15 @@
 
 namespace v1 {
 
+enum class StsError {
+    kInvalidEndpoint,
+    kInvalidQuery,
+    kHttpFailure,
+    kXmlMissingTag,
+    kXmlMissingClosingTag,
+    kInvalidUtf8,
+};
+
 /**
  * @brief Result of a single STS AssumeRole call for S3 credentials.
  */
@@ -20,7 +30,7 @@ struct [[nodiscard]] StsCredentials {
     s3v4::SessionToken sessionToken;
     std::chrono::system_clock::time_point expiresAt;
 
-    explicit StsCredentials(const String &xml);
+    [[nodiscard]] static Expected<StsCredentials, StsError> fromXml(const String &xml) noexcept;
 };
 
 /**
@@ -29,7 +39,7 @@ struct [[nodiscard]] StsCredentials {
  *
  * The endpoint must use https. A prebuilt policy JSON is passed verbatim.
  */
-[[nodiscard]] StsCredentials fetchStsCredentials(
+[[nodiscard]] Expected<StsCredentials, StsError> fetchStsCredentials(
     userver::clients::http::Client &httpClient, const String &stsEndpoint,
     const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
     const String &region, const String &roleArn, const String &roleSessionName,
@@ -38,12 +48,12 @@ struct [[nodiscard]] StsCredentials {
 
 namespace detail {
 
-using StsExecutor = std::function<std::string(
+using StsExecutor = std::function<Expected<std::string, StsError>(
     const String &url, const String &body, const userver::clients::http::Headers &headers,
     std::chrono::milliseconds timeout
 )>;
 
-[[nodiscard]] StsCredentials fetchStsWithExecutor(
+[[nodiscard]] Expected<StsCredentials, StsError> fetchStsWithExecutor(
     const StsExecutor &exec, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
     const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
     const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,

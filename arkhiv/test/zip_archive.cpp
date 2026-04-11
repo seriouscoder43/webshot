@@ -1,5 +1,5 @@
+#include <cstdlib>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -39,7 +39,11 @@ la_ssize_t appendArchiveBytes(archive *, void *ctx, const void *buffer, size_t n
 
 int closeStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-[[noreturn]] void fail(std::string_view message) { throw std::runtime_error(std::string(message)); }
+[[noreturn]] void fail(std::string_view message)
+{
+    ADD_FAILURE() << message;
+    std::abort();
+}
 
 [[nodiscard]] ArchiveWriterPtr makeWriter()
 {

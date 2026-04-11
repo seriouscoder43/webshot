@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
-#include <stdexcept>
 #include <utility>
 
 #include <absl/strings/match.h>
@@ -30,6 +29,7 @@
 
 namespace s3 = userver::s3api;
 namespace http = userver::clients::http;
+namespace us = userver;
 using namespace text::literals;
 
 namespace v1::s3v4 {
@@ -38,7 +38,7 @@ namespace detail {
 
 EndpointParts parseEndpoint(const String &ep)
 {
-    const auto link = Link::fromText(ep, ep.sizeBytes());
+    const auto link = Link::fromText(ep, ep.sizeBytes(), Link::FromTextOptions::kNone).expect();
     const auto &url = link.url;
 
     UINVARIANT(url.isHttp() || url.isHttps(), "S3 endpoint must be http or https");
@@ -69,7 +69,7 @@ std::string S3V4Client::PutObject(
 ) const
 {
     static_cast<void>(tags);
-    const auto pathText = String::fromBytesThrow(std::string(path));
+    const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
     http::Headers headers;
     headers[userver::http::headers::kContentType] = std::string(contentType);
@@ -94,7 +94,7 @@ std::string S3V4Client::PutObject(
 
 void S3V4Client::DeleteObject(std::string_view path) const
 {
-    const auto pathText = String::fromBytesThrow(std::string(path));
+    const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
     http::Headers headers;
     const auto payloadHash = sha256Hex("");
@@ -113,7 +113,7 @@ void S3V4Client::DeleteObject(std::string_view path) const
 std::optional<s3::Client::HeadersDataResponse>
 S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &request) const
 {
-    const auto pathText = String::fromBytesThrow(std::string(path));
+    const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
     http::Headers headers;
     const auto payloadHash = sha256Hex("");
@@ -147,19 +147,21 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
     return out;
 }
 
-// Unused by this service; provide stubs that throw to make it explicit
+// Unused by this service; provide hard-fail stubs to satisfy the interface.
 std::optional<std::string> S3V4Client::GetObject(
     std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &
 ) const
 {
-    throw std::runtime_error("GetObject not implemented in SigV4 client for this service");
+    us::utils::AbortWithStacktrace("GetObject not implemented in SigV4 client for this service");
+    return {};
 }
 
 std::string S3V4Client::TryGetObject(
     std::string_view, std::optional<std::string>, HeadersDataResponse *, const HeaderDataRequest &
 ) const
 {
-    throw std::runtime_error("TryGetObject not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("TryGetObject not implemented in SigV4 client");
+    return {};
 }
 
 std::optional<std::string> S3V4Client::GetPartialObject(
@@ -167,7 +169,8 @@ std::optional<std::string> S3V4Client::GetPartialObject(
     const HeaderDataRequest &
 ) const
 {
-    throw std::runtime_error("GetPartialObject not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("GetPartialObject not implemented in SigV4 client");
+    return {};
 }
 
 std::string S3V4Client::TryGetPartialObject(
@@ -175,35 +178,41 @@ std::string S3V4Client::TryGetPartialObject(
     const HeaderDataRequest &
 ) const
 {
-    throw std::runtime_error("TryGetPartialObject not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("TryGetPartialObject not implemented in SigV4 client");
+    return {};
 }
 
 std::string S3V4Client::CopyObject(
     std::string_view, std::string_view, std::string_view, const std::optional<Meta> &
 )
 {
-    throw std::runtime_error("CopyObject not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("CopyObject not implemented in SigV4 client");
+    return {};
 }
 
 std::string S3V4Client::CopyObject(std::string_view, std::string_view, const std::optional<Meta> &)
 {
-    throw std::runtime_error("CopyObject not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("CopyObject not implemented in SigV4 client");
+    return {};
 }
 
 std::optional<std::string>
 S3V4Client::ListBucketContents(std::string_view, int, std::string, std::string) const
 {
-    throw std::runtime_error("ListBucketContents not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("ListBucketContents not implemented in SigV4 client");
+    return {};
 }
 
 std::vector<s3::ObjectMeta> S3V4Client::ListBucketContentsParsed(std::string_view) const
 {
-    throw std::runtime_error("ListBucketContentsParsed not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("ListBucketContentsParsed not implemented in SigV4 client");
+    return {};
 }
 
 std::vector<std::string> S3V4Client::ListBucketDirectories(std::string_view) const
 {
-    throw std::runtime_error("ListBucketDirectories not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("ListBucketDirectories not implemented in SigV4 client");
+    return {};
 }
 
 void S3V4Client::UpdateConfig(s3::ConnectionCfg &&) {}
@@ -215,40 +224,45 @@ userver::s3api::multipart_upload::InitiateMultipartUploadResult S3V4Client::Crea
     const userver::s3api::multipart_upload::CreateMultipartUploadRequest &
 ) const
 {
-    throw std::runtime_error("CreateMultipartUpload not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("CreateMultipartUpload not implemented in SigV4 client");
+    return {};
 }
 
 userver::s3api::multipart_upload::UploadPartResult
 S3V4Client::UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &) const
 {
-    throw std::runtime_error("UploadPart not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("UploadPart not implemented in SigV4 client");
+    return {};
 }
 
 userver::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::CompleteMultipartUpload(
     const userver::s3api::multipart_upload::CompleteMultipartUploadRequest &
 ) const
 {
-    throw std::runtime_error("CompleteMultipartUpload not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("CompleteMultipartUpload not implemented in SigV4 client");
+    return {};
 }
 
 void S3V4Client::AbortMultipartUpload(
     const userver::s3api::multipart_upload::AbortMultipartUploadRequest &
 ) const
 {
-    throw std::runtime_error("AbortMultipartUpload not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("AbortMultipartUpload not implemented in SigV4 client");
 }
 
 userver::s3api::multipart_upload::ListPartsResult
 S3V4Client::ListParts(const userver::s3api::multipart_upload::ListPartsRequest &) const
 {
-    throw std::runtime_error("ListParts not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("ListParts not implemented in SigV4 client");
+    return {};
 }
 
 userver::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMultipartUploads(
     const userver::s3api::multipart_upload::ListMultipartUploadsRequest &
 ) const
 {
-    throw std::runtime_error("ListMultipartUploads not implemented in SigV4 client");
+    us::utils::AbortWithStacktrace("ListMultipartUploads not implemented in SigV4 client");
+    return {};
 }
 
 // Presign support using chrono
@@ -257,7 +271,7 @@ S3V4Client::GenerateDownloadUrl(std::string_view path, time_t expiresEpoch, bool
 {
     const auto expiresAt = std::chrono::system_clock::from_time_t(expiresEpoch);
     const auto method = "GET"_t;
-    const auto pathText = String::fromBytesThrow(path);
+    const auto pathText = String::fromBytes(path).expect();
     const auto protocolText = useSsl ? "https"_t : "http"_t;
     const auto urlText = presignPathStyle(method, pathText, expiresAt, protocolText);
     return std::string{urlText.view()};
@@ -268,11 +282,10 @@ std::string S3V4Client::GenerateDownloadUrlVirtualHostAddressing(
     std::string_view protocol
 ) const
 {
-    if (bucketName.empty())
-        throw std::runtime_error("presign requires non-empty bucket");
+    UINVARIANT(!bucketName.empty(), "presign requires non-empty bucket");
     auto method = "GET"_t;
-    auto pathText = String::fromBytesThrow(path);
-    auto protocolText = String::fromBytesThrow(protocol);
+    auto pathText = String::fromBytes(path).expect();
+    auto protocolText = String::fromBytes(protocol).expect();
     return std::string{presignVirtualHost(method, pathText, expiresAt, protocolText, {}).view()};
 }
 
@@ -281,15 +294,14 @@ std::string S3V4Client::GenerateUploadUrlVirtualHostAddressing(
     const std::chrono::system_clock::time_point &expiresAt, std::string_view protocol
 ) const
 {
-    if (bucketName.empty())
-        throw std::runtime_error("presign requires non-empty bucket");
+    UINVARIANT(!bucketName.empty(), "presign requires non-empty bucket");
     http::Headers hdrs;
     hdrs[userver::http::headers::kContentType] = std::string(contentType);
     // we use UNSIGNED-PAYLOAD for presign
     static_cast<void>(data);
     auto method = "PUT"_t;
-    auto pathText = String::fromBytesThrow(path);
-    auto protocolText = String::fromBytesThrow(protocol);
+    auto pathText = String::fromBytes(path).expect();
+    auto protocolText = String::fromBytes(protocol).expect();
     auto urlText = presignVirtualHost(method, pathText, expiresAt, protocolText, std::move(hdrs));
     return std::string{urlText.view()};
 }
@@ -332,7 +344,7 @@ void S3V4Client::signRequest(
     headersText.reserve(prepared.size());
     for (const auto &kv : prepared) {
         headersText.emplace_back(
-            String::fromBytesThrow(kv.first), String::fromBytesThrow(kv.second)
+            String::fromBytes(kv.first).expect(), String::fromBytes(kv.second).expect()
         );
     }
 
@@ -365,7 +377,7 @@ String S3V4Client::buildRawPath(String path, IncludeBucket includeBucket) const
     if (raw.empty() || raw.front() != '/')
         raw.insert(raw.begin(), '/');
 
-    return String::fromBytesThrow(raw);
+    return String::fromBytes(raw).expect();
 }
 
 detail::BuiltUrl
@@ -384,7 +396,7 @@ S3V4Client::makePathStyleUrl(String path, std::optional<String> protocolOverride
     url.clear_hash();
 
     out.host = endpoint.host;
-    out.href = String::fromBytesThrow(url.get_href());
+    out.href = String::fromBytes(url.get_href()).expect();
     return out;
 }
 
@@ -407,8 +419,8 @@ detail::BuiltUrl S3V4Client::makeVirtualHostUrl(String path, String protocol) co
     UINVARIANT(url.set_pathname(out.rawPath.view()), "failed to set path for S3 presign");
     url.set_search("");
     url.clear_hash();
-    out.host = String::fromBytesThrow(url.get_host());
-    out.href = String::fromBytesThrow(url.get_href());
+    out.host = String::fromBytes(url.get_host()).expect();
+    out.href = String::fromBytes(url.get_href()).expect();
     return out;
 }
 
@@ -429,7 +441,7 @@ String S3V4Client::presignVirtualHost(
     headersText.reserve(prepared.size());
     for (const auto &kv : prepared) {
         headersText.emplace_back(
-            String::fromBytesThrow(kv.first), String::fromBytesThrow(kv.second)
+            String::fromBytes(kv.first).expect(), String::fromBytes(kv.second).expect()
         );
     }
 
@@ -450,7 +462,7 @@ String S3V4Client::presignPathStyle(
     headersText.reserve(prepared.size());
     for (const auto &kv : prepared) {
         headersText.emplace_back(
-            String::fromBytesThrow(kv.first), String::fromBytesThrow(kv.second)
+            String::fromBytes(kv.first).expect(), String::fromBytes(kv.second).expect()
         );
     }
 
@@ -497,7 +509,7 @@ String S3V4Client::buildPresignedUrl(
     auto url = std::string(built.href.view());
     url.push_back('?');
     url.append(canonicalizeQuery(query));
-    return String::fromBytesThrow(url);
+    return String::fromBytes(url).expect();
 }
 
 } // namespace v1::s3v4

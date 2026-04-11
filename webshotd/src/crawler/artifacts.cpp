@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <array>
 #include <format>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -36,12 +35,14 @@ namespace {
 constexpr std::string_view kUserAgent = "webshotd/0.1.0";
 constexpr std::string_view kWarcPath = "archive/data.warc.gz";
 
-[[nodiscard]] std::string gzipMemberOrThrow(std::string_view body)
+[[nodiscard]] Expected<std::string, ArtifactFailure> gzipMember(std::string_view body) noexcept
 {
     arkhiv::GzipError error;
     auto maybeBytes = arkhiv::gzipCompressMember(body, error);
     if (!maybeBytes)
-        throw std::runtime_error(error.detail);
+        return std::unexpected(
+            ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail}
+        );
     return std::move(maybeBytes).value();
 }
 
@@ -66,11 +67,12 @@ template <typename T> [[nodiscard]] std::string toJsonString(const T &value)
 
 [[nodiscard]] String toCdxTimestamp(const String &iso)
 {
-    return String::fromBytesThrow(
-        datetime::UtcTimestring(
-            datetime::FromRfc3339StringSaturating(std::string(iso.view())), "%Y%m%d%H%M%S"
-        )
-    );
+    return String::fromBytes(
+               datetime::UtcTimestring(
+                   datetime::FromRfc3339StringSaturating(std::string(iso.view())), "%Y%m%d%H%M%S"
+               )
+    )
+        .expect();
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -101,29 +103,46 @@ struct [[nodiscard]] SerializableResponse {
 [[nodiscard]] SerializableResponse
 makeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 {
-    return {
-        redirect.redirectUrl,   "GET"_t,          {}, "Document"_t,       redirect.statusCode,
-        redirect.statusMessage, redirect.headers, {}, redirect.timestamp,
+    return SerializableResponse{
+        .responseUrl = redirect.redirectUrl,
+        .method = "GET"_t,
+        .pageId = {},
+        .resourceType = "Document"_t,
+        .statusCode = redirect.statusCode,
+        .statusMessage = redirect.statusMessage,
+        .headers = redirect.headers,
+        .body = {},
+        .timestamp = redirect.timestamp,
     };
 }
 
 [[nodiscard]] SerializableResponse makeMainDocumentResponse(const CapturedExchange &exchange)
 {
-    return {
-        exchange.finalUrl,   "GET"_t,
-        exchange.pageId,     "Document"_t,
-        exchange.statusCode, exchange.statusMessage,
-        exchange.headers,    exchange.body,
-        exchange.timestamp,
+    return SerializableResponse{
+        .responseUrl = exchange.finalUrl,
+        .method = "GET"_t,
+        .pageId = exchange.pageId,
+        .resourceType = "Document"_t,
+        .statusCode = exchange.statusCode,
+        .statusMessage = exchange.statusMessage,
+        .headers = exchange.headers,
+        .body = exchange.body,
+        .timestamp = exchange.timestamp,
     };
 }
 
 [[nodiscard]] SerializableResponse makeResourceResponse(const CapturedResource &resource)
 {
-    return {
-        resource.resourceUrl,  resource.method,     {},
-        resource.resourceType, resource.statusCode, resource.statusMessage,
-        resource.headers,      resource.body,       resource.timestamp,
+    return SerializableResponse{
+        .responseUrl = resource.resourceUrl,
+        .method = resource.method,
+        .pageId = {},
+        .resourceType = resource.resourceType,
+        .statusCode = resource.statusCode,
+        .statusMessage = resource.statusMessage,
+        .headers = resource.headers,
+        .body = resource.body,
+        .timestamp = resource.timestamp,
     };
 }
 
@@ -187,11 +206,12 @@ serializeRecordPair(const SerializableResponse &response)
     }
     const auto statusMessage =
         response.statusMessage.empty()
-            ? String::fromBytesThrow(
+            ? String::fromBytes(
                   std::string(
                       http::StatusCodeString(numericCast<http::StatusCode>(response.statusCode))
                   )
               )
+                  .expect()
             : response.statusMessage;
 
     std::string httpResponseHead = std::format(
@@ -367,7 +387,7 @@ serializeRecordPair(const SerializableResponse &response)
     auto path = std::string(maybeUrl->pathWithSearch().view());
     if (shouldIncludePort(maybeUrl.value()))
         surtHost += ":" + port;
-    return String::fromBytesThrow(surtHost + ")" + path);
+    return String::fromBytes(surtHost + ")" + path).expect();
 }
 
 [[nodiscard]] dto::WaczIndexEntry makeWaczIndexEntry(const WarcCdxRecord &record)
@@ -474,7 +494,7 @@ std::string buildPagesJsonl(const CapturedExchange &exchange)
     return toJsonString(entry) + "\n";
 }
 
-std::string buildSuccessStdoutLog(
+Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
     ReusedBrowser reusedBrowser
 )
@@ -495,7 +515,7 @@ std::string buildSuccessStdoutLog(
     );
 }
 
-WarcBuildOutput buildWarc(const CapturedExchange &exchange)
+Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exchange)
 {
     const auto responses = collectSerializableResponses(exchange);
 
@@ -503,19 +523,25 @@ WarcBuildOutput buildWarc(const CapturedExchange &exchange)
     auto offset = 0_i64;
     for (const auto &response : responses) {
         auto [responseBytes, requestBytes] = serializeRecordPair(response);
-        const auto responseGz = gzipMemberOrThrow(responseBytes);
-        const auto requestGz = gzipMemberOrThrow(requestBytes);
-        out.cdxRecords.push_back({
-            response.responseUrl,
-            toCdxTimestamp(response.timestamp),
-            response.statusCode,
-            response.headers,
-            offset,
-            i64(responseGz.size()),
-        });
-        out.bytes.append(responseGz);
-        out.bytes.append(requestGz);
-        offset += i64(responseGz.size() + requestGz.size());
+        auto responseGz = gzipMember(responseBytes);
+        if (!responseGz)
+            return std::unexpected(responseGz.error());
+        auto requestGz = gzipMember(requestBytes);
+        if (!requestGz)
+            return std::unexpected(requestGz.error());
+        out.cdxRecords.push_back(
+            WarcCdxRecord{
+                .recordUrl = response.responseUrl,
+                .timestamp = toCdxTimestamp(response.timestamp),
+                .statusCode = response.statusCode,
+                .headers = response.headers,
+                .offset = offset,
+                .length = i64(responseGz->size()),
+            }
+        );
+        out.bytes.append(responseGz.value());
+        out.bytes.append(requestGz.value());
+        offset += i64(responseGz->size() + requestGz->size());
     }
 
     const auto pageInfoUrl = text::format(
@@ -525,20 +551,24 @@ WarcBuildOutput buildWarc(const CapturedExchange &exchange)
         {"content-type", "application/json"},
     };
     const auto pageInfoBytes = serializePageInfoRecord(exchange);
-    const auto pageInfoGz = gzipMemberOrThrow(pageInfoBytes);
-    out.cdxRecords.push_back({
-        pageInfoUrl,
-        toCdxTimestamp(pageTimestamp(exchange)),
-        200_i64,
-        pageInfoHeaders,
-        offset,
-        i64(pageInfoGz.size()),
-    });
-    out.bytes.append(pageInfoGz);
+    auto pageInfoGz = gzipMember(pageInfoBytes);
+    if (!pageInfoGz)
+        return std::unexpected(pageInfoGz.error());
+    out.cdxRecords.push_back(
+        WarcCdxRecord{
+            .recordUrl = pageInfoUrl,
+            .timestamp = toCdxTimestamp(pageTimestamp(exchange)),
+            .statusCode = 200_i64,
+            .headers = std::move(pageInfoHeaders),
+            .offset = offset,
+            .length = i64(pageInfoGz->size()),
+        }
+    );
+    out.bytes.append(pageInfoGz.value());
     return out;
 }
 
-std::string buildWacz(
+Expected<std::string, ArtifactFailure> buildWacz(
     const RunRequest &run, const std::string &pagesJsonl, const WarcBuildOutput &warc,
     const std::string &stdoutLog, const std::string &stderrLog
 )
@@ -552,21 +582,34 @@ std::string buildWacz(
 
     arkhiv::ZipArchiveBuilder zip;
     arkhiv::ZipArchiveError error;
-    const auto addFileOrThrow = [&error, &zip](std::string_view path, std::string_view body) {
+    const auto addFile = [&error, &zip](
+                             std::string_view path, std::string_view body
+                         ) -> Expected<void, ArtifactFailure> {
         if (!zip.addStoredFile(path, error, body))
-            throw std::runtime_error(error.detail);
+            return std::unexpected(
+                ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
+            );
+        return {};
     };
 
-    addFileOrThrow("datapackage.json", datapackageJson);
-    addFileOrThrow(kWarcPath, warc.bytes);
-    addFileOrThrow("pages/pages.jsonl", waczPages);
-    addFileOrThrow("logs/stdout.log", stdoutLog);
-    addFileOrThrow("logs/stderr.log", stderrLog);
-    addFileOrThrow("indexes/index.cdxj", cdxj);
+    if (auto ok = addFile("datapackage.json", datapackageJson); !ok)
+        return std::unexpected(ok.error());
+    if (auto ok = addFile(kWarcPath, warc.bytes); !ok)
+        return std::unexpected(ok.error());
+    if (auto ok = addFile("pages/pages.jsonl", waczPages); !ok)
+        return std::unexpected(ok.error());
+    if (auto ok = addFile("logs/stdout.log", stdoutLog); !ok)
+        return std::unexpected(ok.error());
+    if (auto ok = addFile("logs/stderr.log", stderrLog); !ok)
+        return std::unexpected(ok.error());
+    if (auto ok = addFile("indexes/index.cdxj", cdxj); !ok)
+        return std::unexpected(ok.error());
 
     const auto zipBytes = zip.finish(error);
     if (!zipBytes)
-        throw std::runtime_error(error.detail);
+        return std::unexpected(
+            ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
+        );
     return zipBytes.value();
 }
 

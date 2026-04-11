@@ -58,7 +58,7 @@ struct [[nodiscard]] S3Credentials {
  *
  * Only the subset of methods required by this service is implemented; newly
  * added interface methods that are not used by this service are provided as
- * stubs that throw at runtime.
+ * stubs that abort if called.
  */
 class [[nodiscard]] S3V4Client final : public userver::s3api::Client {
 public:

@@ -29,13 +29,13 @@ struct S3CredentialsSecdist {
         const auto creds = secdistDoc["s3_credentials"];
         if (!creds.IsMissing()) {
             if (auto v = creds["access_key_id"]; !v.IsMissing())
-                accessKeyId = s3v4::AccessKeyId(String::fromBytesThrow(v.As<std::string>()));
+                accessKeyId = s3v4::AccessKeyId(String::fromBytes(v.As<std::string>()).expect());
             if (auto v = creds["secret_access_key"]; !v.IsMissing())
                 secretAccessKey = s3v4::SecretAccessKey(
-                    String::fromBytesThrow(v.As<std::string>())
+                    String::fromBytes(v.As<std::string>()).expect()
                 );
             if (auto v = creds["session_token"]; !v.IsMissing())
-                sessionToken = s3v4::SessionToken(String::fromBytesThrow(v.As<std::string>()));
+                sessionToken = s3v4::SessionToken(String::fromBytes(v.As<std::string>()).expect());
         }
     }
 };

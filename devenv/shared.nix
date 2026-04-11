@@ -23,8 +23,6 @@ in {
     };
   };
 
-  difftastic.enable = true;
-
   git-hooks.hooks = {
     treefmt = {
       enable = true;

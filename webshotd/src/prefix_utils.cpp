@@ -60,7 +60,7 @@ void appendEncodedSegment(std::string &out, std::string_view bytes)
         auto path = qPos == std::string::npos ? pathAndQuery : pathAndQuery.substr(0, qPos);
         key.append(std::begin(path), std::end(path));
     }
-    return String::fromBytesThrow(key);
+    return String::fromBytes(key).expect();
 }
 
 [[nodiscard]] std::string makePrefixTree(const String &prefixKey)
