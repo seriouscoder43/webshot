@@ -3,22 +3,45 @@
 #include <boost/safe_numerics/exception_policies.hpp>
 #include <boost/safe_numerics/safe_integer.hpp>
 
+#include <userver/utils/assert.hpp>
 #include <userver/utils/numeric_cast.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <string_view>
 #include <type_traits>
 
 namespace integers_detail {
 
 struct Abort {
     [[noreturn]] void
-    operator()(const boost::safe_numerics::safe_numerics_error &, const char *) const noexcept
+    operator()(const boost::safe_numerics::safe_numerics_error &e, const char *msg) const noexcept
     {
-        std::abort();
+        // Fatal error: show what failed and include a stacktrace for file:line context.
+        //
+        // Keep this noexcept and allocation-free: it may run in failure paths where throwing
+        // or allocating would be risky.
+        const char *msgSafe = msg ? msg : "(no details)";
+        const char *errorSafe = boost::safe_numerics::literal_string(e);
+
+        std::array<char, 512> buf{};
+        const int written = std::snprintf(
+            buf.data(), buf.size(), "safe integer failure: %s: %s",
+            errorSafe ? errorSafe : "(unknown)", msgSafe
+        );
+
+        if (written <= 0) {
+            userver::utils::AbortWithStacktrace("safe integer operation failed");
+        }
+
+        const size_t len = static_cast<size_t>(written) < buf.size() ? static_cast<size_t>(written)
+                                                                     : (buf.size() - 1);
+        userver::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
     }
 };
 
