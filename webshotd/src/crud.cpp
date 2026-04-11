@@ -106,6 +106,7 @@ struct [[nodiscard]] PgError final {
     UINVARIANT(cpuCores <= maxCpuCores, "cpu core limit is too large");
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
 }
+
 } // namespace
 
 us::yaml_config::Schema Crud::GetStaticConfigSchema()
@@ -859,6 +860,8 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 
 Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKey)
 {
+    using enum errors::CrudError;
+
     const auto tree = prefix::makePrefixTree(prefixKey);
     while (true) {
         auto ids = readonly(
@@ -875,27 +878,36 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
             LOG_ERROR() << std::format(
                 "denylist purge failed for {}: {}", prefixKey, ids.error().what
             );
-            return std::unexpected(errors::CrudError::kDbFailure);
+            return std::unexpected(kDbFailure);
         }
         if (ids->empty())
             break;
+
+        std::vector<Uuid> single;
+        single.reserve(1);
         for (auto &&id : ids.value()) {
             const auto key = std::format("{}/{}", svcCfg.s3Bucket(), id);
             try {
                 auto snapshot = s3State.Read();
                 snapshot->client->DeleteObject(key);
             } catch (const us::utils::TracefulException &e) {
-                LOG_ERROR() << std::format("S3 delete failed for key {}: {}", key, e.what());
+                LOG_ERROR() << std::format(
+                    "S3 delete failed for key {} (prefix={}): {}", key, prefixKey, e.what()
+                );
+                return std::unexpected(kDbFailure);
             }
-        }
-        auto deleted = readwrite(
-            [&](auto &res) { static_cast<void>(res); }, sql::kDeleteCapturesByIds, ids.value()
-        );
-        if (!deleted) {
-            LOG_ERROR() << std::format(
-                "denylist purge failed for {}: {}", prefixKey, deleted.error().what
+
+            single.clear();
+            single.emplace_back(id);
+            auto deleted = readwrite(
+                [&](auto &res) { static_cast<void>(res); }, sql::kDeleteCapturesByIds, single
             );
-            return std::unexpected(errors::CrudError::kDbFailure);
+            if (!deleted) {
+                LOG_ERROR() << std::format(
+                    "denylist purge failed for {}: {}", prefixKey, deleted.error().what
+                );
+                return std::unexpected(kDbFailure);
+            }
         }
     }
     return {};
@@ -913,6 +925,8 @@ Expected<dto::UuidWithTimeLink, errors::CrawlFailure> Crud::createCapture(Link l
 
 Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link link)
 {
+    using enum errors::CreateJobError;
+
     auto *implPtr = impl.get();
     const auto normalizedLink = link.normalized();
 
@@ -923,7 +937,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 "DB select latest crawl job failed for {}: {}", normalizedLink,
                 latestJob.error().what
             );
-            return std::unexpected(errors::CreateJobError::kDbFailure);
+            return std::unexpected(kDbFailure);
         }
         auto latestJobOpt = grabValueOf(latestJob);
         if (latestJobOpt) {
@@ -942,7 +956,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
         LOG_ERROR() << std::format(
             "Failed to create crawl job for {}: {}", normalizedLink, createdAt.error().what
         );
-        return std::unexpected(errors::CreateJobError::kDbFailure);
+        return std::unexpected(kDbFailure);
     }
     const auto createdAtTp = grabValueOf(createdAt);
     implPtr->crawlBackground.AsyncDetach("crawl_job", [implPtr, id, link = std::move(link)]() {
@@ -1022,6 +1036,8 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
 
 Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
 {
+    using enum errors::CrudError;
+
     auto location = impl->readonly(
         [&](auto &res) { return res.template AsOptionalSingleRow<std::string>(); },
         sql::kSelectCapture, uuid
@@ -1030,7 +1046,7 @@ Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
         LOG_ERROR() << std::format(
             "DB select capture failed for {}: {}", uuid, location.error().what
         );
-        return std::unexpected(errors::CrudError::kDbFailure);
+        return std::unexpected(kDbFailure);
     }
     auto locationOpt = grabValueOf(location);
     if (!locationOpt) {
@@ -1039,21 +1055,23 @@ Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
     }
     auto locationText = String::fromBytes(grabValueOf(locationOpt));
     if (!locationText)
-        return std::unexpected(errors::CrudError::kCorruptData);
+        return std::unexpected(kCorruptData);
     auto link = Link::fromText(
         locationText.value(), impl->svcCfg.queryPartLengthMax(), Link::FromTextOptions::kNone
     );
     if (!link)
-        return std::unexpected(errors::CrudError::kCorruptData);
+        return std::unexpected(kCorruptData);
     return {grabValueOf(link)};
 }
 
 Expected<std::optional<dto::CaptureJob>, errors::CrudError> Crud::findCaptureJob(Uuid uuid)
 {
+    using enum errors::CrudError;
+
     auto job = impl->loadJob(uuid);
     if (!job) {
         LOG_ERROR() << std::format("DB select job failed for {}: {}", uuid, job.error().what);
-        return std::unexpected(errors::CrudError::kDbFailure);
+        return std::unexpected(kDbFailure);
     }
     return job.value();
 }
