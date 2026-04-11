@@ -77,4 +77,4 @@ private:
     class Impl;
     std::unique_ptr<Impl> impl;
 };
-}; // namespace v1
+} // namespace v1

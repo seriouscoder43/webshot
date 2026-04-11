@@ -575,8 +575,8 @@ public:
             appendDiagnosticField(diagnostics, "phase", phaseMarker->view());
         if (const auto cdpTrace = readSanitizedLogTail(paths.cdpTracePath))
             appendDiagnosticField(diagnostics, "cdp_trace_tail", cdpTrace->view());
-        if (const auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath))
-            appendDiagnosticField(diagnostics, "websocket_path", websocketPath->view());
+        if (const auto websocketPathFromFile = readWebsocketPathFile(paths.websocketPathFilePath))
+            appendDiagnosticField(diagnostics, "websocket_path", websocketPathFromFile->view());
         appendDiagnosticField(
             diagnostics, "websocket_path_file_exists",
             us::fs::blocking::FileExists(paths.websocketPathFilePath) ? "true" : "false"
@@ -632,9 +632,9 @@ private:
                     )
                 );
             }
-            auto websocketPath = readWebsocketPathFile(paths.websocketPathFilePath);
-            if (sawCdpSocket && websocketPath) {
-                return grabValueOf(websocketPath);
+            auto websocketPathFromFile = readWebsocketPathFile(paths.websocketPathFilePath);
+            if (sawCdpSocket && websocketPathFromFile) {
+                return grabValueOf(websocketPathFromFile);
             }
             us::engine::SleepFor(chrono::milliseconds(100));
         }

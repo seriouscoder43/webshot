@@ -13,6 +13,7 @@ function(add_cpp_test target)
     ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
                       ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
   apply_defaults(${target})
+  target_compile_options(${target} PRIVATE -Wno-switch-default)
 
   if(USE_SANITIZERS)
     target_compile_options(${target} PRIVATE "-fsanitize=address,undefined")

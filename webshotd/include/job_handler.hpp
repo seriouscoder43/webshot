@@ -35,4 +35,4 @@ private:
     Crud &crud;
     const i64 requestTimeoutMs;
 };
-}; // namespace v1
+} // namespace v1

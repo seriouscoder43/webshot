@@ -133,7 +133,24 @@ function(apply_defaults target)
             -Wsign-conversion
             -Wfloat-equal
             -Wdisabled-optimization
-            -Wctad-maybe-unsupported)
+            -Wctad-maybe-unsupported
+            -Wcast-align
+            -Wcast-qual
+            -Wcomma
+            -Wdouble-promotion
+            -Wextra-semi
+            -Wimplicit-fallthrough
+            -Wmissing-noreturn
+            -Wnon-virtual-dtor
+            -Wnull-dereference
+            -Wold-style-cast
+            -Woverloaded-virtual
+            -Wshadow
+            -Wswitch-default
+            -Wswitch-enum
+            -Wtautological-compare
+            -Wunreachable-code-aggressive
+            -Wzero-as-null-pointer-constant)
   target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-ggdb3>
                                            $<$<CONFIG:Release>:-O2>)
   if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")

@@ -14,6 +14,7 @@ target_link_libraries(arkhiv PUBLIC LibArchive::LibArchive)
 set_property(TARGET arkhiv PROPERTY CXX_STANDARD 26)
 set_property(TARGET arkhiv PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET arkhiv PROPERTY CXX_EXTENSIONS OFF)
+apply_defaults(arkhiv)
 
 if(BUILD_TESTING)
   find_package(GTest CONFIG REQUIRED)
@@ -28,6 +29,7 @@ if(BUILD_TESTING)
   set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_STANDARD 26)
   set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_STANDARD_REQUIRED ON)
   set_property(TARGET arkhiv_zip_archive_test PROPERTY CXX_EXTENSIONS OFF)
+  apply_defaults(arkhiv_zip_archive_test)
   set_property(
     TARGET arkhiv_zip_archive_test
     PROPERTY BUILD_RPATH

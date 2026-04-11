@@ -153,7 +153,6 @@ std::optional<std::string> S3V4Client::GetObject(
 ) const
 {
     us::utils::AbortWithStacktrace("GetObject not implemented in SigV4 client for this service");
-    return {};
 }
 
 std::string S3V4Client::TryGetObject(
@@ -161,7 +160,6 @@ std::string S3V4Client::TryGetObject(
 ) const
 {
     us::utils::AbortWithStacktrace("TryGetObject not implemented in SigV4 client");
-    return {};
 }
 
 std::optional<std::string> S3V4Client::GetPartialObject(
@@ -170,7 +168,6 @@ std::optional<std::string> S3V4Client::GetPartialObject(
 ) const
 {
     us::utils::AbortWithStacktrace("GetPartialObject not implemented in SigV4 client");
-    return {};
 }
 
 std::string S3V4Client::TryGetPartialObject(
@@ -179,7 +176,6 @@ std::string S3V4Client::TryGetPartialObject(
 ) const
 {
     us::utils::AbortWithStacktrace("TryGetPartialObject not implemented in SigV4 client");
-    return {};
 }
 
 std::string S3V4Client::CopyObject(
@@ -187,32 +183,27 @@ std::string S3V4Client::CopyObject(
 )
 {
     us::utils::AbortWithStacktrace("CopyObject not implemented in SigV4 client");
-    return {};
 }
 
 std::string S3V4Client::CopyObject(std::string_view, std::string_view, const std::optional<Meta> &)
 {
     us::utils::AbortWithStacktrace("CopyObject not implemented in SigV4 client");
-    return {};
 }
 
 std::optional<std::string>
 S3V4Client::ListBucketContents(std::string_view, int, std::string, std::string) const
 {
     us::utils::AbortWithStacktrace("ListBucketContents not implemented in SigV4 client");
-    return {};
 }
 
 std::vector<s3::ObjectMeta> S3V4Client::ListBucketContentsParsed(std::string_view) const
 {
     us::utils::AbortWithStacktrace("ListBucketContentsParsed not implemented in SigV4 client");
-    return {};
 }
 
 std::vector<std::string> S3V4Client::ListBucketDirectories(std::string_view) const
 {
     us::utils::AbortWithStacktrace("ListBucketDirectories not implemented in SigV4 client");
-    return {};
 }
 
 void S3V4Client::UpdateConfig(s3::ConnectionCfg &&) {}
@@ -225,14 +216,12 @@ userver::s3api::multipart_upload::InitiateMultipartUploadResult S3V4Client::Crea
 ) const
 {
     us::utils::AbortWithStacktrace("CreateMultipartUpload not implemented in SigV4 client");
-    return {};
 }
 
 userver::s3api::multipart_upload::UploadPartResult
 S3V4Client::UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &) const
 {
     us::utils::AbortWithStacktrace("UploadPart not implemented in SigV4 client");
-    return {};
 }
 
 userver::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::CompleteMultipartUpload(
@@ -240,7 +229,6 @@ userver::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::Comp
 ) const
 {
     us::utils::AbortWithStacktrace("CompleteMultipartUpload not implemented in SigV4 client");
-    return {};
 }
 
 void S3V4Client::AbortMultipartUpload(
@@ -254,7 +242,6 @@ userver::s3api::multipart_upload::ListPartsResult
 S3V4Client::ListParts(const userver::s3api::multipart_upload::ListPartsRequest &) const
 {
     us::utils::AbortWithStacktrace("ListParts not implemented in SigV4 client");
-    return {};
 }
 
 userver::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMultipartUploads(
@@ -262,7 +249,6 @@ userver::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMul
 ) const
 {
     us::utils::AbortWithStacktrace("ListMultipartUploads not implemented in SigV4 client");
-    return {};
 }
 
 // Presign support using chrono

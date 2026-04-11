@@ -43,4 +43,4 @@ private:
     Denylist &denylist;
     const i64 requestTimeoutMs;
 };
-}; // namespace v1
+} // namespace v1
