@@ -166,6 +166,8 @@ def main() -> int:
     parser.add_argument("--started-at", required=True)
     parser.add_argument("--finished-at", required=True)
     parser.add_argument("--wall-time-ms", required=True, type=int)
+    parser.add_argument("--configure-time-ms", type=int)
+    parser.add_argument("--build-time-ms", type=int)
     parser.add_argument("--top-limit", type=int, default=10)
     args = parser.parse_args()
 
@@ -184,6 +186,8 @@ def main() -> int:
         "started_at": args.started_at,
         "finished_at": args.finished_at,
         "wall_time_ms": args.wall_time_ms,
+        "configure_time_ms": args.configure_time_ms,
+        "build_time_ms": args.build_time_ms,
         "compile_step_count": len(compile_edges),
         "other_step_count": len(other_edges),
         "compile_steps": _serialize_edges(compile_edges),

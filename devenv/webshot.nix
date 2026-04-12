@@ -29,8 +29,59 @@
   mkWebshotBuildCommandForMode = mode: let
     cfg = modeConfigs.${mode};
   in ''
-    ${common.mkConfigureTaskCommands cfg.buildDir cfg.clangdConfig cfg.buildVariant}
-    cmake --build ${common.lib.escapeShellArg cfg.buildDir}
+    build_dir=${common.lib.escapeShellArg cfg.buildDir}
+    before_log=$(mktemp /tmp/webshot_build_times_before.XXXXXX)
+    started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    started_ms=$(date +%s%3N)
+    if [[ -f "$build_dir/.ninja_log" ]]; then
+      cp "$build_dir/.ninja_log" "$before_log"
+    else
+      : > "$before_log"
+    fi
+
+    configure_started_ms=$(date +%s%3N)
+    configure_exit_code=0
+    { ${common.mkConfigureTaskCommands cfg.buildDir cfg.clangdConfig cfg.buildVariant} } || configure_exit_code=$?
+    configure_finished_ms=$(date +%s%3N)
+    configure_time_ms=$((configure_finished_ms - configure_started_ms))
+
+    build_started_ms=$(date +%s%3N)
+    build_exit_code=0
+    if [[ "$configure_exit_code" -eq 0 ]]; then
+      cmake --build "$build_dir" || build_exit_code=$?
+    fi
+    build_finished_ms=$(date +%s%3N)
+    build_time_ms=$((build_finished_ms - build_started_ms))
+
+    build_exit_code_final=$build_exit_code
+    if [[ "$configure_exit_code" -ne 0 ]]; then
+      build_exit_code_final=$configure_exit_code
+    fi
+
+    build_status=success
+    if [[ "$build_exit_code_final" -ne 0 ]]; then
+      build_status=failure
+    fi
+
+    finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    finished_ms=$(date +%s%3N)
+    wall_time_ms=$((finished_ms - started_ms))
+    python3 webshotd/collect_build_times.py \
+      --build-dir "$build_dir" \
+      --before-log "$before_log" \
+      --after-log "$build_dir/.ninja_log" \
+      --output "$build_dir/latest_build_times.json" \
+      --status "$build_status" \
+      --started-at "$started_at" \
+      --finished-at "$finished_at" \
+      --wall-time-ms "$wall_time_ms" \
+      --configure-time-ms "$configure_time_ms" \
+      --build-time-ms "$build_time_ms"
+    rm -f "$before_log"
+
+    if [[ "$build_exit_code_final" -ne 0 ]]; then
+      exit "$build_exit_code_final"
+    fi
   '';
 
   mkBuildCommandsForMode = mode: mkWebshotBuildCommandForMode mode;
@@ -39,32 +90,7 @@
     cwd = config.devenv.root;
     exec = ''
       set -euo pipefail
-      build_dir=${common.lib.escapeShellArg modeConfigs.${mode}.buildDir}
-      before_log=$(mktemp /tmp/webshot_build_times_before.XXXXXX)
-      started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      started_ms=$(date +%s%3N)
-      if [[ -f "$build_dir/.ninja_log" ]]; then
-        cp "$build_dir/.ninja_log" "$before_log"
-      else
-        : > "$before_log"
-      fi
-      ${common.mkConfigureTaskCommands modeConfigs.${mode}.buildDir modeConfigs.${mode}.clangdConfig modeConfigs.${mode}.buildVariant}
-      build_status=success
-      cmake --build "$build_dir" || build_status=failure
-      finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      finished_ms=$(date +%s%3N)
-      wall_time_ms=$((finished_ms - started_ms))
-      python3 webshotd/collect_build_times.py \
-        --build-dir "$build_dir" \
-        --before-log "$before_log" \
-        --after-log "$build_dir/.ninja_log" \
-        --output build/webshotd/san/latest_build_times.json \
-        --status "$build_status" \
-        --started-at "$started_at" \
-        --finished-at "$finished_at" \
-        --wall-time-ms "$wall_time_ms"
-      rm -f "$before_log"
-      [[ "$build_status" == success ]]
+      ${mkWebshotBuildCommandForMode mode}
     '';
   };
 
