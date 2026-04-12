@@ -13,6 +13,7 @@
 #include "handler.hpp"
 #include "integers.hpp"
 #include "job_handler.hpp"
+#include "metrics.hpp"
 #include "userver_namespaces.hpp"
 
 #include <cstdlib>
@@ -27,6 +28,7 @@
 #include <userver/components/minimal_server_component_list.hpp>
 #include <userver/components/process_starter.hpp>
 #include <userver/congestion_control/component.hpp>
+#include <userver/engine/task_processors_load_monitor.hpp>
 #include <userver/server/handlers/http_handler_static.hpp>
 #include <userver/server/handlers/server_monitor.hpp>
 #include <userver/storages/postgres/component.hpp>
@@ -76,8 +78,10 @@ int main(int argc, char *argv[])
                              .Append<us::components::Postgres>("capture_meta_db")
                              .Append<us::components::Postgres>("shared_state_db")
                              .Append<us::congestion_control::Component>()
+                             .Append<us::engine::TaskProcessorsLoadMonitor>()
                              .Append<v1::Denylist>()
                              .Append<v1::Config>()
+                             .Append<v1::Metrics>()
                              .Append<v1::Crud>()
                              .Append<v1::ByPrefixHandler>()
                              .Append<v1::Handler>()

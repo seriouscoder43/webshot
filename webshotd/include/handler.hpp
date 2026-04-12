@@ -12,6 +12,7 @@ namespace v1 {
 class Config;
 class Denylist;
 class Crud;
+class Metrics;
 
 /**
  * @brief HTTP handler for creating and listing captures for an exact URL.
@@ -39,6 +40,7 @@ private:
     Crud &crud;
     const Config &config;
     Denylist &denylist;
+    Metrics &metrics;
     const i64 requestTimeoutMs;
 };
 } // namespace v1

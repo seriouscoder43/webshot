@@ -8,6 +8,7 @@
 #include "denylist.hpp"
 #include "integers.hpp"
 #include "link.hpp"
+#include "metrics.hpp"
 #include "prefix_utils.hpp"
 
 #include <chrono>
@@ -32,7 +33,7 @@ DenylistCheckHandler::DenylistCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), config(context.FindComponent<Config>()),
-      denylist(context.FindComponent<Denylist>()),
+      denylist(context.FindComponent<Denylist>()), metrics(context.FindComponent<Metrics>()),
       requestTimeoutMs(i64(config["request-timeout-ms"].As<int64_t>()))
 {
 }
@@ -86,6 +87,7 @@ std::string DenylistCheckHandler::HandleRequestThrow(
     auto prefixKey = prefix::makePrefixKey(link.value());
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
     if (!allowed) {
+        metrics.accountError(Metrics::Error::kDenylistCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }

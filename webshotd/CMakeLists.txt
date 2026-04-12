@@ -91,6 +91,7 @@ set(${PROJECT_NAME}_headers
     include/pagination.hpp
     include/prefix_pagination.hpp
     include/prefix_utils.hpp
+    include/metrics.hpp
     include/text.hpp)
 add_library(
   ${PROJECT_NAME}_objs OBJECT
@@ -102,6 +103,7 @@ add_library(
   src/denylist_check_handler.cpp
   src/docs_handler.cpp
   src/crud.cpp
+  src/metrics.cpp
   src/url.cpp
   src/crawler/runner.cpp
   src/crawler/artifacts.cpp
@@ -227,6 +229,9 @@ target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
                       PUBLIC userver::core userver::postgresql userver::s3api
                              )
+
+# Metrics uses jemalloc mallctl; jemalloc is guaranteed in our environment.
+target_link_libraries(${PROJECT_NAME} PRIVATE ${jemalloc_LIBRARIES_jemalloc})
 
 if(CMAKE_CXX_INCLUDE_WHAT_YOU_USE)
   set(_webshot_iwyu_cmd ${CMAKE_CXX_INCLUDE_WHAT_YOU_USE})

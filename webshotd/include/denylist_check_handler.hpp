@@ -12,6 +12,7 @@ namespace v1 {
 
 class Config;
 class Denylist;
+class Metrics;
 
 class [[nodiscard]] DenylistCheckHandler : public server::handlers::HttpHandlerBase {
 public:
@@ -32,6 +33,7 @@ public:
 private:
     const Config &config;
     Denylist &denylist;
+    Metrics &metrics;
     const i64 requestTimeoutMs;
 };
 

@@ -62,6 +62,8 @@ components_manager:
     congestion-control:
       fake-mode: false
       load-enabled: true
+    task-processors-load-monitor: {}
+    metrics: {}
     logging:
       fs-task-processor: fs-task-processor
       loggers:
@@ -73,6 +75,7 @@ components_manager:
       path: /service/monitor
       method: GET
       task_processor: main-task-processor
+      format: prometheus-untyped
     denylist_check:
       path: /v1/denylist/check
       method: POST

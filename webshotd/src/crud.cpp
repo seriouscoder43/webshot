@@ -13,6 +13,7 @@
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "link.hpp"
+#include "metrics.hpp"
 #include "pagination.hpp"
 #include "prefix_pagination.hpp"
 #include "prefix_utils.hpp"
@@ -265,6 +266,7 @@ public:
     const i64 purgeJobTimeoutSec;
     const i64 purgeDeleteBatchSize;
     const Config &svcCfg;
+    Metrics &metrics;
     pg::ClusterPtr cluster;
     pg::ClusterPtr sharedCluster;
     us::clients::http::Client &httpClient;
@@ -296,17 +298,17 @@ public:
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError>
     findLatestJobForLink(const String &link);
     [[nodiscard]] Expected<void, PgError> markJobRunning(Uuid id);
-    [[nodiscard]] Expected<void, PgError> markJobSucceeded(
+    [[nodiscard]] Expected<chrono::milliseconds, PgError> markJobSucceeded(
         Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
     );
-    [[nodiscard]] Expected<void, PgError>
+    [[nodiscard]] Expected<chrono::milliseconds, PgError>
     markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError> loadJob(Uuid id);
     [[nodiscard]] Expected<void, errors::CrawlFailure> runCrawlerForContext(CrawlContext &ctx);
     [[nodiscard]] CrawlerRunArtifacts runCrawlerAttempt(const String &seedUrl);
     [[nodiscard]] std::optional<StoredCapture> persistMetadataForContext(CrawlContext &ctx);
     [[nodiscard]] Expected<void, errors::CrudError> purgePrefix(const String &prefixKey);
-    [[nodiscard]] S3ClientState fetchS3ClientStateFromSts() const;
+    [[nodiscard]] S3ClientState fetchS3ClientStateFromSts();
     void startS3RefreshTask();
     void refreshS3CredentialsTask();
     void startCrawlJobCleanupTask();
@@ -346,7 +348,7 @@ public:
           s3CredentialsRefreshRetrySec(cfg["s3_credentials_refresh_retry_sec"].As<int64_t>()),
           purgeJobTimeoutSec(cfg["purge_job_timeout_sec"].As<int64_t>()),
           purgeDeleteBatchSize(cfg["purge_delete_batch_size"].As<int64_t>()),
-          svcCfg(ctx.FindComponent<Config>()),
+          svcCfg(ctx.FindComponent<Config>()), metrics(ctx.FindComponent<Metrics>()),
           cluster(ctx.FindComponent<us::components::Postgres>("capture_meta_db").GetCluster()),
           sharedCluster(
               ctx.FindComponent<us::components::Postgres>("shared_state_db").GetCluster()
@@ -423,7 +425,7 @@ public:
         startCrawlJobCleanupTask();
     }
 
-    template <pg::ClusterHostType Host, typename F, typename... Ts>
+    template <pg::ClusterHostType Host, Metrics::Error ErrorMetric, typename F, typename... Ts>
     [[nodiscard]] auto execDb(pg::ClusterPtr &clusterIn, F &&f, Ts &&...args)
     {
         using Res = decltype(clusterIn->Execute(Host, std::forward<Ts>(args)...));
@@ -440,34 +442,35 @@ public:
                 return Out{std::forward<F>(f)(res)};
             }
         } catch (const pg::Error &e) {
+            metrics.accountError(ErrorMetric);
             return Out{std::unexpected(PgError{.what = std::string(e.what())})};
         }
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto readonly(F &&f, Ts &&...args)
     {
-        return execDb<pg::ClusterHostType::kSlaveOrMaster>(
+        return execDb<pg::ClusterHostType::kSlaveOrMaster, Metrics::Error::kDbCaptureMetaRead>(
             cluster, std::forward<F>(f), std::forward<Ts>(args)...
         );
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto readwrite(F &&f, Ts &&...args)
     {
-        return execDb<pg::ClusterHostType::kMaster>(
+        return execDb<pg::ClusterHostType::kMaster, Metrics::Error::kDbCaptureMetaWrite>(
             cluster, std::forward<F>(f), std::forward<Ts>(args)...
         );
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto sharedReadonly(F &&f, Ts &&...args)
     {
-        return execDb<pg::ClusterHostType::kSlaveOrMaster>(
+        return execDb<pg::ClusterHostType::kSlaveOrMaster, Metrics::Error::kDbSharedStateRead>(
             sharedCluster, std::forward<F>(f), std::forward<Ts>(args)...
         );
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto sharedReadwrite(F &&f, Ts &&...args)
     {
-        return execDb<pg::ClusterHostType::kMaster>(
+        return execDb<pg::ClusterHostType::kMaster, Metrics::Error::kDbSharedStateWrite>(
             sharedCluster, std::forward<F>(f), std::forward<Ts>(args)...
         );
     }
@@ -527,8 +530,10 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
     );
     {
         const auto ran = runCrawlerForContext(ctx);
-        if (!ran)
+        if (!ran) {
+            metrics.accountError(Metrics::Error::kCrawlerRun);
             return std::unexpected(ran.error());
+        }
     }
     LOG_INFO() << std::format(
         "runCrawlJob finished crawler for job {} ({})", id, ctx.link.normalized()
@@ -555,33 +560,46 @@ Expected<us::utils::datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid i
     );
     if (!row)
         return std::unexpected(std::move(row).error());
-    return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row->createdAt));
+    return us::utils::datetime::TimePointTz(row->createdAt.GetUnderlying());
 }
 
 Expected<void, PgError> Crud::Impl::markJobRunning(Uuid id)
 {
-    return sharedReadwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kUpdateCrawlJobRunning, id
-    );
+    return sharedReadwrite([](auto &) {}, sql::kUpdateCrawlJobRunning, id);
 }
 
-Expected<void, PgError> Crud::Impl::markJobSucceeded(
+Expected<chrono::milliseconds, PgError> Crud::Impl::markJobSucceeded(
     Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
 )
 {
-    return sharedReadwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kUpdateCrawlJobSucceeded, id,
-        pg::TimePointTz(createdAt.GetTimePoint()), resultCaptureId
+    struct Row {
+        Uuid id;
+        int64_t durationMs;
+    };
+    auto row = sharedReadwrite(
+        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
+        sql::kUpdateCrawlJobSucceeded, id, pg::TimePointTz(createdAt.GetTimePoint()),
+        resultCaptureId
     );
+    if (!row)
+        return std::unexpected(std::move(row).error());
+    return chrono::milliseconds{row->durationMs};
 }
 
-Expected<void, PgError>
+Expected<chrono::milliseconds, PgError>
 Crud::Impl::markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage)
 {
-    return sharedReadwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kUpdateCrawlJobFailed, id, errorCategory,
-        errorMessage
+    struct Row {
+        Uuid id;
+        int64_t durationMs;
+    };
+    auto row = sharedReadwrite(
+        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
+        sql::kUpdateCrawlJobFailed, id, errorCategory, errorMessage
     );
+    if (!row)
+        return std::unexpected(std::move(row).error());
+    return chrono::milliseconds{row->durationMs};
 }
 
 Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
@@ -619,20 +637,14 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
         job.status = dto::CaptureJob::Status::kSucceeded;
     else
         job.status = dto::CaptureJob::Status::kFailed;
-    job.created_at = us::utils::datetime::TimePointTz(
-        static_cast<system_clock::time_point>(row.createdAt)
-    );
+    job.created_at = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying());
     if (row.startedAt)
-        job.started_at = us::utils::datetime::TimePointTz(
-            static_cast<system_clock::time_point>(row.startedAt.value())
-        );
+        job.started_at = us::utils::datetime::TimePointTz(row.startedAt.value().GetUnderlying());
     if (row.finishedAt)
-        job.finished_at = us::utils::datetime::TimePointTz(
-            static_cast<system_clock::time_point>(row.finishedAt.value())
-        );
+        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt.value().GetUnderlying());
     if (row.resultCreatedAt)
         job.result_created_at = us::utils::datetime::TimePointTz(
-            static_cast<system_clock::time_point>(row.resultCreatedAt.value())
+            row.resultCreatedAt.value().GetUnderlying()
         );
     if (job.status == dto::CaptureJob::Status::kFailed) {
         // Never expose internal diagnostics (crawler details, exception text, etc) to API clients.
@@ -658,7 +670,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
     return {std::move(job)};
 }
 
-Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts() const
+Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
 {
     const auto sessionUuid = text::format("{}", us::utils::generators::GenerateBoostUuid());
     const auto sessionName = text::format("{}", sessionUuid);
@@ -676,8 +688,10 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts() const
         svcCfg.s3Region(), kRoleArnDescription, sessionName, policyJson,
         chrono::seconds{s3CredentialsDurationSec}, svcCfg.s3Timeout()
     );
-    if (!sts)
+    if (!sts) {
+        metrics.accountError(Metrics::Error::kStsRefresh);
         us::utils::AbortWithStacktrace("failed to fetch STS credentials");
+    }
 
     S3ClientState state;
     state.creds = s3v4::S3Credentials(sts->accessKeyId, sts->secretAccessKey, sts->sessionToken);
@@ -743,6 +757,7 @@ void Crud::Impl::refreshS3CredentialsTask()
             s3RefreshTask.SetSettings(settings);
             break;
         } catch (const us::utils::TracefulException &e) {
+            metrics.accountError(Metrics::Error::kStsRefresh);
             LOG_ERROR() << std::format("Failed to refresh S3 credentials from STS: {}", e.what());
             engine::SleepFor(chrono::seconds{s3CredentialsRefreshRetrySec});
         }
@@ -765,8 +780,7 @@ void Crud::Impl::cleanupOldJobs()
     const auto now = us::utils::datetime::Now();
     const auto cutoff = now - chrono::seconds{crawlJobRetentionSec};
     const auto deleted = sharedReadwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteCrawlJobsExpired,
-        pg::TimePointTz(cutoff)
+        [](auto &) {}, sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)
     );
     if (!deleted) {
         LOG_ERROR() << std::format("Failed to delete old crawl jobs: {}", deleted.error().what);
@@ -943,6 +957,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
     if (!allowed || !allowed.value()) {
         if (!allowed) {
+            metrics.accountError(Metrics::Error::kDenylistCheck);
             LOG_ERROR() << std::format("Failed to check denylist state during crawl: {}", host);
         } else {
             LOG_INFO() << std::format("Host became denylisted during crawl: {}", host);
@@ -974,9 +989,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         auto row = grabValueOf(grabValueOf(existing));
         return StoredCapture{
             .id = row.id,
-            .createdAt = us::utils::datetime::TimePointTz(
-                static_cast<system_clock::time_point>(row.createdAt)
-            ),
+            .createdAt = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying()),
         };
     }
 
@@ -986,6 +999,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
             ctx.s3Key.view(), ctx.waczBytes.value(), {}, "application/zip", {}, {}
         );
     } catch (const us::utils::TracefulException &e) {
+        metrics.accountError(Metrics::Error::kS3PutObject);
         LOG_ERROR() << std::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
         return {};
     }
@@ -1004,6 +1018,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
             auto snapshot = s3State.Read();
             snapshot->client->DeleteObject(ctx.s3Key.view());
         } catch (const us::utils::TracefulException &) {
+            metrics.accountError(Metrics::Error::kS3DeleteObject);
             LOG_ERROR() << std::format("error deleting {}", ctx.s3Key);
         }
         LOG_ERROR() << std::format("DB insert failed for {}: {}", ctx.id, row.error().what);
@@ -1011,8 +1026,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     }
     return StoredCapture{
         .id = ctx.id,
-        .createdAt =
-            us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row->createdAt)),
+        .createdAt = us::utils::datetime::TimePointTz(row->createdAt.GetUnderlying()),
     };
 }
 
@@ -1049,6 +1063,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
                 auto snapshot = s3State.Read();
                 snapshot->client->DeleteObject(key);
             } catch (const us::utils::TracefulException &e) {
+                metrics.accountError(Metrics::Error::kS3DeleteObject);
                 LOG_ERROR() << std::format(
                     "S3 delete failed for key {} (prefix={}): {}", key, prefixKey, e.what()
                 );
@@ -1057,9 +1072,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
 
             single.clear();
             single.emplace_back(id);
-            auto deleted = readwrite(
-                [&](auto &res) { static_cast<void>(res); }, sql::kDeleteCapturesByIds, single
-            );
+            auto deleted = readwrite([](auto &) {}, sql::kDeleteCapturesByIds, single);
             if (!deleted) {
                 LOG_ERROR() << std::format(
                     "denylist purge failed for {}: {}", prefixKey, deleted.error().what
@@ -1117,6 +1130,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
         return std::unexpected(kDbFailure);
     }
     const auto createdAtTp = grabValueOf(createdAt);
+    implPtr->metrics.accountCaptureJobCreated();
     implPtr->crawlBackground.AsyncDetach("crawl_job", [implPtr, id, link = std::move(link)]() {
         auto markInternalError = [&](std::string_view what) {
             LOG_ERROR() << std::format("Unexpected crawl job failure for {}: {}", id, what);
@@ -1127,6 +1141,8 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 LOG_ERROR() << std::format(
                     "DB update crawl job failed for {}: {}", id, marked.error().what
                 );
+            } else {
+                implPtr->metrics.accountCaptureCompleted(false, marked.value());
             }
         };
 
@@ -1142,7 +1158,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
             auto result = implPtr->runCrawlJob(id, link);
             if (!result) {
                 using enum errors::CrawlError;
-                Expected<void, PgError> marked;
+                Expected<chrono::milliseconds, PgError> marked;
                 if (result.error().code == kSizeLimit) {
                     marked = implPtr->markJobFailed(
                         id, "size_limit"_t, "capture exceeded archive size limit"_t
@@ -1162,6 +1178,8 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                     LOG_ERROR() << std::format(
                         "DB update crawl job failed for {}: {}", id, marked.error().what
                     );
+                } else {
+                    implPtr->metrics.accountCaptureCompleted(false, marked.value());
                 }
                 return;
             }
@@ -1171,6 +1189,8 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 LOG_ERROR() << std::format(
                     "DB update crawl job failed for {}: {}", id, succeeded.error().what
                 );
+            } else {
+                implPtr->metrics.accountCaptureCompleted(true, succeeded.value());
             }
         } catch (const us::utils::TracefulException &e) {
             markInternalError(e.what());
@@ -1258,9 +1278,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         items.reserve(dbRows.size());
         for (const auto &row : dbRows) {
             items.emplace_back(
-                row.uuid, us::utils::datetime::TimePointTz(
-                              static_cast<system_clock::time_point>(row.timepoint)
-                          )
+                row.uuid, us::utils::datetime::TimePointTz(row.timepoint.GetUnderlying())
             );
         }
         if (ssize(items) == impl->pageMax && !items.empty()) {
@@ -1293,9 +1311,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         items.reserve(dbRows.size());
         for (const auto &row : dbRows) {
             items.emplace_back(
-                row.uuid, us::utils::datetime::TimePointTz(
-                              static_cast<system_clock::time_point>(row.timepoint)
-                          )
+                row.uuid, us::utils::datetime::TimePointTz(row.timepoint.GetUnderlying())
             );
         }
         if (ssize(items) == impl->pageMax && !items.empty()) {
@@ -1410,8 +1426,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         }
         for (auto &&r : rows.value()) {
             items.emplace_back(
-                r.uuid,
-                us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(r.tp)),
+                r.uuid, us::utils::datetime::TimePointTz(r.tp.GetUnderlying()),
                 std::string(link.view())
             );
         }
@@ -1429,7 +1444,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
     std::optional<std::string> next;
     if (!items.empty()) {
         if (endedMidLink && lastRow) {
-            const auto tp = static_cast<system_clock::time_point>(lastRow->tp);
+            const auto tp = lastRow->tp.GetUnderlying();
             next = std::string(
                 crud::encodePrefixCursor(normalizedPrefix, lastLink, tp, lastRow->uuid).view()
             );
@@ -1445,8 +1460,10 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
 Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noexcept
 {
     auto inserted = impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t);
-    if (!inserted)
+    if (!inserted) {
+        impl->metrics.accountError(Metrics::Error::kDenylistCheck);
         return std::unexpected(inserted.error());
+    }
 
     LOG_INFO() << std::format("enqueued for prefix {}", prefixKey);
 

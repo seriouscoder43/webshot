@@ -10,6 +10,7 @@
 #include "http_utils.hpp"
 #include "integers.hpp"
 #include "link.hpp"
+#include "metrics.hpp"
 #include "prefix_utils.hpp"
 #include "schema/webshot.hpp"
 #include "server_errors.hpp"
@@ -44,6 +45,7 @@ Handler::Handler(
 )
     : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
       config(context.FindComponent<Config>()), denylist(context.FindComponent<Denylist>()),
+      metrics(context.FindComponent<Metrics>()),
       requestTimeoutMs(i64(config["request-timeout-ms"].As<int64_t>()))
 {
 }
@@ -95,8 +97,10 @@ std::string Handler::HandleRequestThrow(
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
         auto prefixKey = prefix::makePrefixKey(parsed.value());
         const auto allowed = denylist.isAllowedPrefix(prefixKey);
-        if (!allowed)
+        if (!allowed) {
+            metrics.accountError(Metrics::Error::kDenylistCheck);
             return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        }
         if (!allowed.value())
             return httpu::respondError(response, kForbidden, "host in denylist"_t);
         auto job = crud.createCaptureJob(std::move(parsed).value());
