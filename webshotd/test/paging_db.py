@@ -9,6 +9,7 @@ _SQL_QUERIES_DIR = pathlib.Path(__file__).resolve().parents[1] / "sql" / "query"
 INSERT_CAPTURE_SQL = _adapt_positional_to_psycopg(
     (_SQL_QUERIES_DIR / "insert_capture.sql").read_text()
 )
+DUMMY_SHA256 = b"\x00" * 32
 
 
 async def test_list_captures_orders_by_created_at(
@@ -34,6 +35,7 @@ async def test_list_captures_orders_by_created_at(
                 prefix_key,
                 prefix_tree,
                 f"http://{TEST_HOST}/{newer_id}",
+                DUMMY_SHA256,
             ),
         )
         cur.execute(
@@ -44,6 +46,7 @@ async def test_list_captures_orders_by_created_at(
                 prefix_key,
                 prefix_tree,
                 f"http://{TEST_HOST}/{older_id}",
+                DUMMY_SHA256,
             ),
         )
     finally:
@@ -80,6 +83,7 @@ async def test_list_captures_prefix_sees_inserted_links(
                 prefix_key_a,
                 prefix_tree_a,
                 f"http://{TEST_HOST}/prefix/a",
+                DUMMY_SHA256,
             ),
         )
         prefix_key_b = prefix_key_from_link(f"{TEST_HOST}/prefix/b")
@@ -92,6 +96,7 @@ async def test_list_captures_prefix_sees_inserted_links(
                 prefix_key_b,
                 prefix_tree_b,
                 f"http://{TEST_HOST}/prefix/b",
+                DUMMY_SHA256,
             ),
         )
     finally:
@@ -132,6 +137,7 @@ async def test_list_captures_paged_two_pages(
                     prefix_key,
                     prefix_tree,
                     f"http://{TEST_HOST}/{capture_id}",
+                    DUMMY_SHA256,
                 ),
             )
     finally:

@@ -98,8 +98,9 @@ paths:
       summary: Enqueue a capture job and return its status
       description: |
         Enqueues a background capture job for the provided URL and returns an initial
-        job descriptor. The returned UUID is the same identifier that will be used
-        for the stored capture once the job succeeds. Clients should poll
+        job descriptor. The returned UUID identifies the capture job. Once the job
+        succeeds, the stored capture UUID is available in `result.uuid` and may
+        refer to an existing capture if the content is deduplicated. Clients should poll
         `/v1/capture/jobs/{uuid}` to observe completion.
       requestBody:
         required: true
@@ -220,7 +221,7 @@ paths:
         - in: path
           name: uuid
           required: true
-          description: UUIDv4 of the capture job (and eventual capture).
+          description: UUIDv4 of the capture job.
           schema:
             type: string
             format: uuid

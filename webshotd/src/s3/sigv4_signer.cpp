@@ -10,6 +10,8 @@
 
 #include <cctz/time_zone.h>
 
+#include "integers.hpp"
+
 #include <userver/crypto/hash.hpp>
 
 #include <absl/strings/ascii.h>
@@ -48,7 +50,7 @@ std::string joinSignedHeaders(const std::vector<std::pair<std::string, std::stri
 std::string percentEncodeBytes(std::string_view s, EncodeSlash encodeSlash)
 {
     std::string out;
-    out.reserve(s.size() * 3);
+    out.reserve(numericCast<size_t>(ssize(s) * 3_i64));
     for (char c : s) {
         if (isUnreserved(c) || (encodeSlash == EncodeSlash::kNo && c == '/')) {
             out.push_back(c);
@@ -187,14 +189,12 @@ std::vector<std::pair<std::string, std::string>>
 prepareSignedHeaders(std::string host, const userver::clients::http::Headers &extra)
 {
     std::vector<std::pair<std::string, std::string>> v;
-    v.reserve(extra.size() + 1);
+    v.reserve(numericCast<size_t>(ssize(extra) + 1_i64));
     v.emplace_back("host", std::move(host));
-    for (const auto &kv : extra) {
-        v.emplace_back(absl::AsciiStrToLower(std::string_view{kv.first}), kv.second);
+    for (const auto &[name, value] : extra) {
+        v.emplace_back(absl::AsciiStrToLower(std::string_view{name}), value);
     }
-    std::sort(std::begin(v), std::end(v), [](const auto &a, const auto &b) {
-        return a.first < b.first;
-    });
+    std::ranges::sort(v, [](const auto &a, const auto &b) { return a.first < b.first; });
     return v;
 }
 
@@ -222,11 +222,9 @@ std::unordered_map<std::string, std::string> signHeaders(
     out["x-amz-content-sha256"] = payloadHex;
     if (p.sessionToken)
         out["x-amz-security-token"] = std::string(p.sessionToken->GetUnderlying().view());
-    for (auto &&kv : out)
-        headers.emplace_back(kv.first, kv.second);
-    std::sort(std::begin(headers), std::end(headers), [](const auto &a, const auto &b) {
-        return a.first < b.first;
-    });
+    for (const auto &[name, value] : out)
+        headers.emplace_back(name, value);
+    std::ranges::sort(headers, [](const auto &a, const auto &b) { return a.first < b.first; });
 
     const auto cr = buildCanonicalRequest(
         method.view(), canonicalUri.view(), queryUtf8, headers, payloadHex

@@ -45,7 +45,7 @@ using v1::Expected;
 
 namespace {
 
-constexpr size_t kMaxHandshakeResponseBytes = 16UL * 1024UL;
+constexpr auto kMaxHandshakeResponseBytes = 16_i64 * 1024_i64;
 constexpr std::string_view kWebsocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 [[nodiscard]] us::engine::Deadline
@@ -113,7 +113,7 @@ readHandshakeResponse(us::engine::io::Socket &socket, us::engine::Deadline deadl
     response.reserve(1024);
 
     while (response.find("\r\n\r\n") == std::string::npos) {
-        if (response.size() >= kMaxHandshakeResponseBytes)
+        if (ssize(response) >= kMaxHandshakeResponseBytes)
             return std::unexpected(CdpFailure{.code = kHandshakeResponseTooLarge, .detail = {}});
 
         char ch = '\0';
@@ -188,7 +188,7 @@ validateHandshakeResponse(const HandshakeResponse &response, std::string_view se
 
     const auto upgradeIt = response.headers.find("upgrade");
     if (upgradeIt == std::end(response.headers) ||
-        !absl::EqualsIgnoreCase(std::string_view(upgradeIt->second), "websocket")) {
+        !absl::EqualsIgnoreCase(std::string_view{upgradeIt->second}, "websocket")) {
         return std::unexpected(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
     }
 

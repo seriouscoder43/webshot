@@ -57,6 +57,7 @@
 #include <userver/logging/log.hpp>
 #include <userver/rcu/rcu.hpp>
 #include <userver/storages/postgres/cluster.hpp>
+#include <userver/storages/postgres/io/bytea.hpp>
 #include <userver/storages/postgres/io/chrono.hpp>
 #include <userver/storages/postgres/io/row_types.hpp>
 #include <userver/storages/postgres/io/uuid.hpp>
@@ -230,6 +231,7 @@ properties:
 }
 
 struct [[nodiscard]] CrawlContext;
+struct [[nodiscard]] StoredCapture;
 
 /** @brief Private pimpl that holds dependencies and query helpers. */
 class [[nodiscard]] Crud::Impl {
@@ -294,16 +296,15 @@ public:
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError>
     findLatestJobForLink(const String &link);
     [[nodiscard]] Expected<void, PgError> markJobRunning(Uuid id);
-    [[nodiscard]] Expected<void, PgError>
-    markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt);
+    [[nodiscard]] Expected<void, PgError> markJobSucceeded(
+        Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
+    );
     [[nodiscard]] Expected<void, PgError>
     markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError> loadJob(Uuid id);
     [[nodiscard]] Expected<void, errors::CrawlFailure> runCrawlerForContext(CrawlContext &ctx);
-    [[nodiscard]] crawler::AttemptSummary
-    runCrawlerAttempt(CrawlContext &ctx, const String &seedUrl);
-    [[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
-    persistMetadataForContext(const CrawlContext &ctx);
+    [[nodiscard]] CrawlerRunArtifacts runCrawlerAttempt(const String &seedUrl);
+    [[nodiscard]] std::optional<StoredCapture> persistMetadataForContext(CrawlContext &ctx);
     [[nodiscard]] Expected<void, errors::CrudError> purgePrefix(const String &prefixKey);
     [[nodiscard]] S3ClientState fetchS3ClientStateFromSts() const;
     void startS3RefreshTask();
@@ -489,6 +490,8 @@ struct [[nodiscard]] CrawlContext {
     String keyOnly;
     String s3Key;
     String location;
+    std::optional<std::string> waczBytes;
+    std::optional<std::string> contentSha256;
     std::optional<String> failureMessage;
 
     CrawlContext(Uuid id, Link link, const Config &cfg)
@@ -497,6 +500,11 @@ struct [[nodiscard]] CrawlContext {
           location(text::format("{}/{}", cfg.publicBaseUrl(), keyOnly))
     {
     }
+};
+
+struct [[nodiscard]] StoredCapture {
+    Uuid id;
+    us::utils::datetime::TimePointTz createdAt;
 };
 
 [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure>
@@ -527,12 +535,12 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
     );
 
     LOG_INFO() << std::format("Persisting metadata for job {} ({})", id, ctx.link.normalized());
-    auto createdAt = persistMetadataForContext(ctx);
-    if (!createdAt)
+    auto stored = persistMetadataForContext(ctx);
+    if (!stored)
         return std::unexpected(errors::CrawlFailure{.code = kPersistMetadataFailed, .detail = {}});
     LOG_INFO() << std::format("Persisted metadata for job {} ({})", id, ctx.link.normalized());
     return dto::UuidWithTimeLink{
-        ctx.id, createdAt.value(), std::string(ctx.link.normalized().view())
+        stored->id, stored->createdAt, std::string(ctx.link.normalized().view())
     };
 }
 
@@ -557,12 +565,13 @@ Expected<void, PgError> Crud::Impl::markJobRunning(Uuid id)
     );
 }
 
-Expected<void, PgError>
-Crud::Impl::markJobSucceeded(Uuid id, const us::utils::datetime::TimePointTz &createdAt)
+Expected<void, PgError> Crud::Impl::markJobSucceeded(
+    Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
+)
 {
     return sharedReadwrite(
         [&](auto &res) { static_cast<void>(res); }, sql::kUpdateCrawlJobSucceeded, id,
-        pg::TimePointTz(createdAt.GetTimePoint())
+        pg::TimePointTz(createdAt.GetTimePoint()), resultCaptureId
     );
 }
 
@@ -587,6 +596,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
         std::optional<pg::TimePointTz> startedAt;
         std::optional<pg::TimePointTz> finishedAt;
         std::optional<pg::TimePointTz> resultCreatedAt;
+        std::optional<Uuid> resultCaptureId;
     };
     auto rowOpt = sharedReadonly(
         [&](auto &res) { return res.template AsOptionalSingleRow<Row>(pg::kRowTag); },
@@ -639,8 +649,12 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
         dto::ErrorEnvelope::Error err{std::move(message)};
         job.error = dto::ErrorEnvelope{err};
     }
-    if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at)
-        job.result = dto::UuidWithTimeLink(job.uuid, job.result_created_at.value(), job.link);
+    if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at) {
+        UINVARIANT(row.resultCaptureId, "succeeded job must have result_capture_id");
+        job.result = dto::UuidWithTimeLink(
+            row.resultCaptureId.value(), job.result_created_at.value(), job.link
+        );
+    }
     return {std::move(job)};
 }
 
@@ -759,7 +773,7 @@ void Crud::Impl::cleanupOldJobs()
     }
 }
 
-crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(CrawlContext &ctx, const String &seedUrl)
+CrawlerRunArtifacts Crud::Impl::runCrawlerAttempt(const String &seedUrl)
 {
     LOG_INFO() << std::format(
         "Submitting crawl for {} to embedded crawler with timeout={}s", seedUrl,
@@ -777,110 +791,150 @@ crawler::AttemptSummary Crud::Impl::runCrawlerAttempt(CrawlContext &ctx, const S
             "Crawler attempt failed for {}{}", seedUrl,
             attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
         );
-        return run.attempt;
+        return run;
     }
-
-    LOG_INFO() << std::format("Uploading WACZ for {} to {}", seedUrl, ctx.s3Key);
-    UINVARIANT(run.wacz, "embedded crawler reported missing WACZ payload");
-    auto snapshot = s3State.Read();
-    snapshot->client->PutObject(ctx.s3Key.view(), run.wacz.value(), {}, "application/zip", {}, {});
-    LOG_INFO() << std::format("Uploaded WACZ for {} to {}", seedUrl, ctx.s3Key);
-
-    return run.attempt;
+    return run;
 }
 
 Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
 {
     using enum errors::CrawlError;
+    using userver::utils::UnderlyingValue;
 
     const auto httpsSeedUrl = ctx.link.httpsUrl();
     const auto httpSeedUrl = ctx.link.httpUrl();
 
-    auto result = crawler::runHttpsFirstWithHttpFallback(
-        httpsSeedUrl, httpSeedUrl,
-        [&ctx, this](const String &seedUrlIn) { return runCrawlerAttempt(ctx, seedUrlIn); }
-    );
-
-    if (result.outcome == crawler::RunOutcome::kSucceeded) {
-        if (result.httpAttempt) {
-            LOG_INFO() << "HTTP fallback succeeded after HTTPS failed with no response";
-        }
-        return {};
-    }
-
-    if (result.httpsAttempt.seedProbe && result.httpAttempt) {
-        LOG_INFO() << std::format(
-            "HTTPS seed probe before HTTP fallback: status={}, loadState={}",
-            result.httpsAttempt.seedProbe->status.value_or(0),
-            result.httpsAttempt.seedProbe->loadState.value_or(-1)
+    const auto tryStoreSuccess = [&ctx](const CrawlerRunArtifacts &run) -> bool {
+        if (!crawler::isAttemptSuccess(run.attempt))
+            return false;
+        UINVARIANT(run.wacz, "crawler reported wacz_exists=true but did not provide WACZ bytes");
+        UINVARIANT(
+            run.contentSha256, "crawler did not provide content hash for a successful capture"
         );
-    }
+        UINVARIANT(ssize(run.contentSha256.value()) == 32_i64, "content hash must be 32 bytes");
+        ctx.waczBytes = run.wacz.value();
+        ctx.contentSha256 = run.contentSha256.value();
+        return true;
+    };
 
-    if (result.outcome == crawler::RunOutcome::kFailedSizeLimit) {
-        const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
+    const auto httpsRun = runCrawlerAttempt(httpsSeedUrl);
+    if (tryStoreSuccess(httpsRun))
+        return {};
+    if (!httpsRun.attempt.exited) {
+        const auto attemptContext = crawler::formatAttemptContext(httpsRun.attempt);
         ctx.failureMessage =
             String::fromBytes(
                 std::format(
-                    "Failed to crawl {} ({})", result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
-                    crawler::formatAttemptStatus(result.httpAttempt ? "http" : "https", attempt)
+                    "Failed to crawl {}, child process did not exit cleanly{}", httpsSeedUrl,
+                    attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
                 )
             )
                 .expect();
-        LOG_INFO() << std::string(ctx.failureMessage->view());
+        LOG_INFO() << ctx.failureMessage->view();
+        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+    }
+    if (httpsRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSizeLimit)) {
+        ctx.failureMessage = String::fromBytes(
+                                 std::format(
+                                     "Failed to crawl {} ({})", httpsSeedUrl,
+                                     crawler::formatAttemptStatus("https", httpsRun.attempt)
+                                 )
+        )
+                                 .expect();
+        LOG_INFO() << ctx.failureMessage->view();
         return std::unexpected(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
     }
-
-    if (result.outcome == crawler::RunOutcome::kFailedChildNoExit) {
-        const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
-        const auto attemptContext = crawler::formatAttemptContext(attempt);
+    if (httpsRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSuccess) &&
+        !httpsRun.attempt.waczExists) {
+        const auto attemptContext = crawler::formatAttemptContext(httpsRun.attempt);
         ctx.failureMessage = String::fromBytes(
                                  std::format(
-                                     "Failed to crawl {}, child process did not exit cleanly{}",
-                                     result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
+                                     "Failed to crawl {}, no WACZ{}", httpsSeedUrl,
                                      attemptContext.empty() ? std::string()
                                                             : std::format(" ({})", attemptContext)
                                  )
         )
                                  .expect();
-        LOG_INFO() << std::string(ctx.failureMessage->view());
+        LOG_INFO() << ctx.failureMessage->view();
         return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
-
-    if (result.outcome == crawler::RunOutcome::kFailedNoWacz) {
-        const auto attempt = result.httpAttempt ? result.httpAttempt.value() : result.httpsAttempt;
-        const auto attemptContext = crawler::formatAttemptContext(attempt);
+    if (!crawler::shouldAttemptHttpFallback(httpsRun.attempt)) {
         ctx.failureMessage = String::fromBytes(
                                  std::format(
-                                     "Failed to crawl {}, no WACZ{}",
-                                     result.httpAttempt ? httpSeedUrl : httpsSeedUrl,
-                                     attemptContext.empty() ? std::string()
-                                                            : std::format(" ({})", attemptContext)
+                                     "Failed to crawl {} ({})", ctx.link.normalized(),
+                                     crawler::formatAttemptStatus("https", httpsRun.attempt)
                                  )
         )
                                  .expect();
-        LOG_INFO() << std::string(ctx.failureMessage->view());
+        LOG_INFO() << ctx.failureMessage->view();
         return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
 
-    ctx.failureMessage =
-        String::fromBytes(
-            std::format(
-                "Failed to crawl {} ({})", ctx.link.normalized(),
-                result.httpAttempt
-                    ? std::format(
-                          "{}, {}", crawler::formatAttemptStatus("https", result.httpsAttempt),
-                          crawler::formatAttemptStatus("http", result.httpAttempt.value())
-                      )
-                    : std::string(crawler::formatAttemptStatus("https", result.httpsAttempt).view())
+    if (httpsRun.attempt.seedProbe) {
+        LOG_INFO() << std::format(
+            "HTTPS seed probe before HTTP fallback: status={}, loadState={}",
+            httpsRun.attempt.seedProbe->status.value_or(0),
+            httpsRun.attempt.seedProbe->loadState.value_or(-1)
+        );
+    }
+
+    const auto httpRun = runCrawlerAttempt(httpSeedUrl);
+    if (tryStoreSuccess(httpRun)) {
+        LOG_INFO() << "HTTP fallback succeeded after HTTPS failed with no response";
+        return {};
+    }
+    if (!httpRun.attempt.exited) {
+        const auto attemptContext = crawler::formatAttemptContext(httpRun.attempt);
+        ctx.failureMessage =
+            String::fromBytes(
+                std::format(
+                    "Failed to crawl {}, child process did not exit cleanly{}", httpSeedUrl,
+                    attemptContext.empty() ? std::string() : std::format(" ({})", attemptContext)
+                )
             )
+                .expect();
+        LOG_INFO() << ctx.failureMessage->view();
+        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+    }
+    if (httpRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSizeLimit)) {
+        ctx.failureMessage = String::fromBytes(
+                                 std::format(
+                                     "Failed to crawl {} ({})", httpSeedUrl,
+                                     crawler::formatAttemptStatus("http", httpRun.attempt)
+                                 )
         )
-            .expect();
-    LOG_INFO() << std::string(ctx.failureMessage->view());
+                                 .expect();
+        LOG_INFO() << ctx.failureMessage->view();
+        return std::unexpected(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
+    }
+    if (httpRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSuccess) &&
+        !httpRun.attempt.waczExists) {
+        const auto attemptContext = crawler::formatAttemptContext(httpRun.attempt);
+        ctx.failureMessage = String::fromBytes(
+                                 std::format(
+                                     "Failed to crawl {}, no WACZ{}", httpSeedUrl,
+                                     attemptContext.empty() ? std::string()
+                                                            : std::format(" ({})", attemptContext)
+                                 )
+        )
+                                 .expect();
+        LOG_INFO() << ctx.failureMessage->view();
+        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+    }
+
+    ctx.failureMessage = String::fromBytes(
+                             std::format(
+                                 "Failed to crawl {} ({}, {})", ctx.link.normalized(),
+                                 crawler::formatAttemptStatus("https", httpsRun.attempt),
+                                 crawler::formatAttemptStatus("http", httpRun.attempt)
+                             )
+    )
+                             .expect();
+    LOG_INFO() << ctx.failureMessage->view();
     return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
 }
 
-[[nodiscard]] std::optional<us::utils::datetime::TimePointTz>
-Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
+std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext &ctx)
 {
     const auto prefixKey = prefix::makePrefixKey(ctx.link);
     const auto prefixTree = prefix::makePrefixTree(prefixKey);
@@ -888,17 +942,51 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
 
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
     if (!allowed || !allowed.value()) {
-        try {
-            auto snapshot = s3State.Read();
-            snapshot->client->DeleteObject(ctx.s3Key.view());
-        } catch (const us::utils::TracefulException &) {
-            LOG_ERROR() << std::format("error deleting {}", ctx.s3Key);
-        }
         if (!allowed) {
             LOG_ERROR() << std::format("Failed to check denylist state during crawl: {}", host);
         } else {
             LOG_INFO() << std::format("Host became denylisted during crawl: {}", host);
         }
+        return {};
+    }
+
+    UINVARIANT(ctx.waczBytes, "persistMetadataForContext called without WACZ bytes");
+    UINVARIANT(ctx.contentSha256, "persistMetadataForContext called without content hash");
+    UINVARIANT(ssize(ctx.contentSha256.value()) == 32_i64, "content hash must be 32 bytes");
+
+    struct ExistingRow {
+        Uuid id;
+        pg::TimePointTz createdAt;
+    };
+    auto existing = readonly(
+        [&](auto &res) { return res.template AsOptionalSingleRow<ExistingRow>(pg::kRowTag); },
+        sql::kSelectCaptureByLinkHash, ctx.link.normalized(),
+        pg::Bytea(std::string_view{ctx.contentSha256.value()})
+    );
+    if (!existing) {
+        LOG_ERROR() << std::format(
+            "DB select capture-by-hash failed for {}: {}", ctx.link.normalized(),
+            existing.error().what
+        );
+        return {};
+    }
+    if (existing.value()) {
+        auto row = grabValueOf(grabValueOf(existing));
+        return StoredCapture{
+            .id = row.id,
+            .createdAt = us::utils::datetime::TimePointTz(
+                static_cast<system_clock::time_point>(row.createdAt)
+            ),
+        };
+    }
+
+    try {
+        auto snapshot = s3State.Read();
+        snapshot->client->PutObject(
+            ctx.s3Key.view(), ctx.waczBytes.value(), {}, "application/zip", {}, {}
+        );
+    } catch (const us::utils::TracefulException &e) {
+        LOG_ERROR() << std::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
         return {};
     }
 
@@ -908,7 +996,8 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
     };
     auto row = readwrite(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); }, sql::kInsertCapture,
-        ctx.id, ctx.link.normalized(), prefixKey, prefixTree, ctx.location
+        ctx.id, ctx.link.normalized(), prefixKey, prefixTree, ctx.location,
+        pg::Bytea(std::string_view{ctx.contentSha256.value()})
     );
     if (!row) {
         try {
@@ -920,7 +1009,11 @@ Crud::Impl::persistMetadataForContext(const CrawlContext &ctx)
         LOG_ERROR() << std::format("DB insert failed for {}: {}", ctx.id, row.error().what);
         return {};
     }
-    return us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row->createdAt));
+    return StoredCapture{
+        .id = ctx.id,
+        .createdAt =
+            us::utils::datetime::TimePointTz(static_cast<system_clock::time_point>(row->createdAt)),
+    };
 }
 
 Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKey)
@@ -1073,7 +1166,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 return;
             }
 
-            const auto succeeded = implPtr->markJobSucceeded(id, result->created_at);
+            const auto succeeded = implPtr->markJobSucceeded(id, result->uuid, result->created_at);
             if (!succeeded) {
                 LOG_ERROR() << std::format(
                     "DB update crawl job failed for {}: {}", id, succeeded.error().what
@@ -1170,7 +1263,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
                           )
             );
         }
-        if (safeSize(items) == impl->pageMax && !items.empty()) {
+        if (ssize(items) == impl->pageMax && !items.empty()) {
             const auto &last = items.back();
             auto tp = last.created_at.GetTimePoint();
             crud::Cursor cursor(tp, last.uuid);
@@ -1205,7 +1298,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
                           )
             );
         }
-        if (safeSize(items) == impl->pageMax && !items.empty()) {
+        if (ssize(items) == impl->pageMax && !items.empty()) {
             const auto &last = items.back();
             auto tp = last.created_at.GetTimePoint();
             crud::Cursor cursor(tp, last.uuid);
@@ -1288,7 +1381,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         pg::TimePointTz tp;
     };
     std::vector<dto::UuidWithTimeLink> items;
-    items.reserve(numericCast<size_t>(safeSize(links) * impl->perLinkMax));
+    items.reserve(numericCast<size_t>(ssize(links) * impl->perLinkMax));
     bool endedMidLink = false;
     String lastLink;
     std::optional<Row> lastRow;
@@ -1307,7 +1400,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         );
     };
 
-    const auto linkCount = safeSize(links);
+    const auto linkCount = ssize(links);
     for (i64 idx = 0; idx < linkCount; idx++) {
         const auto &link = links[numericCast<size_t>(idx)];
         auto rows = selectRowsForLink(link, idx);
@@ -1325,7 +1418,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         if (!rows->empty()) {
             lastRow = rows->back();
             lastLink = link;
-            if (safeSize(rows.value()) == impl->perLinkMax && idx + 1_i64 == linkCount) {
+            if (ssize(rows.value()) == impl->perLinkMax && idx + 1_i64 == linkCount) {
                 endedMidLink = true;
             }
         } else {

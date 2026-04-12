@@ -7,7 +7,6 @@
 #include <userver/utils/numeric_cast.hpp>
 
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -44,10 +43,7 @@ struct Abort {
 struct TrapUninitialized {
     template <typename... Args> constexpr void operator()(Args &&...) const
     {
-        static_assert(
-            sizeof...(Args) == 0,
-            "safe integers must be explicitly initialized (default initialization is forbidden)"
-        );
+        static_assert(sizeof...(Args) == 0, "safe integers must be explicitly initialized");
     }
 };
 
@@ -107,11 +103,15 @@ raw(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value
     return numericCast(value);
 }
 
-template <typename C> [[nodiscard]] constexpr i64 safeSize(const C &c) noexcept
-{
-    const auto sizeValue = usize(c.size());
-    return i64(sizeValue);
-}
+struct SSizeFn {
+    template <typename C> [[nodiscard]] constexpr i64 operator()(const C &c) const noexcept
+    {
+        const auto sizeValue = usize(c.size());
+        return i64(sizeValue);
+    }
+};
+
+inline constexpr SSizeFn ssize{};
 
 } // namespace integers
 
@@ -129,7 +129,7 @@ namespace integers::literals {
 
 using integers::numericCast;
 using integers::raw;
-using integers::safeSize;
+using integers::ssize;
 using namespace integers::literals;
 
 namespace std {

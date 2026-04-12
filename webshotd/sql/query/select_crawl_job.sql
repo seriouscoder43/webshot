@@ -8,6 +8,7 @@ select
     created_at,
     started_at,
     finished_at,
-    result_created_at
+    result_created_at,
+    result_capture_id
 from crawl_job
 where id = $1;

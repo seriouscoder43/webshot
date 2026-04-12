@@ -33,7 +33,12 @@ create table crawl_job (
     created_at timestamptz not null default now(),
     started_at timestamptz,
     finished_at timestamptz,
-    result_created_at timestamptz
+    result_created_at timestamptz,
+    result_capture_id uuid,
+    constraint crawl_job_succeeded_result
+    check (
+        status <> 'succeeded' or (result_created_at is not null and result_capture_id is not null)
+    )
 );
 
 create index if not exists crawl_job_status_created_idx

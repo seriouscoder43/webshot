@@ -63,7 +63,7 @@ namespace {
 using v1::Expected;
 
 constexpr auto kMaxBodyBytes = 50_i64 * 1024_i64 * 1024_i64;
-constexpr size_t kMaxLogBytes = 64UL * 1024UL;
+constexpr auto kMaxLogBytes = 64_i64 * 1024_i64;
 
 [[nodiscard]] const std::string &browserSandboxScript()
 {
@@ -262,9 +262,10 @@ struct [[nodiscard]] BrowserPaths {
 
 void truncateLogBuffer(std::string &value)
 {
-    if (value.size() <= kMaxLogBytes)
+    if (ssize(value) <= kMaxLogBytes)
         return;
-    value.erase(0, value.size() - kMaxLogBytes);
+    const auto dropBytes = ssize(value) - kMaxLogBytes;
+    value.erase(0, numericCast<size_t>(dropBytes));
 }
 
 [[nodiscard]] std::string readLogTail(const std::string &path)
@@ -1055,10 +1056,9 @@ public:
             }
         }
 
-        std::sort(
-            std::begin(resources), std::end(resources),
-            [](const auto &left, const auto &right) { return left.timestamp < right.timestamp; }
-        );
+        std::ranges::sort(resources, [](const auto &left, const auto &right) {
+            return left.timestamp < right.timestamp;
+        });
         return resources;
     }
 
@@ -1932,6 +1932,7 @@ private:
             out.stderrLog = failure.detail + "\n";
             out.wacz.reset();
             out.pagesJsonl.reset();
+            out.contentSha256.reset();
             return out;
         };
 
@@ -1948,6 +1949,7 @@ private:
             out.stderrLog = std::string(exchange.error().detail.view()) + "\n";
             out.wacz.reset();
             out.pagesJsonl.reset();
+            out.contentSha256.reset();
             return out;
         }
         LOG_INFO() << std::format(
@@ -1956,6 +1958,7 @@ private:
         );
         auto pages = crawler::buildPagesJsonl(*exchange);
         LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
+        out.contentSha256 = crawler::computeContentSha256(*exchange);
         {
             auto log = crawler::buildSuccessStdoutLog(
                 run, *exchange, 0_i64, crawler::ReusedBrowser::kNo
@@ -1992,6 +1995,7 @@ private:
             out.attempt.failureDetail = detail;
             out.wacz.reset();
             out.pagesJsonl.reset();
+            out.contentSha256.reset();
             out.stderrLog += std::string(detail.view()) + "\n";
             return out;
         }
@@ -2031,6 +2035,7 @@ private:
         out.stderrLog = std::string(e.what()) + "\n";
         out.wacz.reset();
         out.pagesJsonl.reset();
+        out.contentSha256.reset();
         return out;
     }
 }

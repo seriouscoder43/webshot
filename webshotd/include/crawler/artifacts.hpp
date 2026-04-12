@@ -97,4 +97,13 @@ buildWarc(const CapturedExchange &exchange);
     const std::string &stdoutLog, const std::string &stderrLog
 );
 
+/**
+ * @brief Compute a stable content fingerprint for deduplication.
+ *
+ * This hash is derived from the captured exchange (URLs, methods, status codes,
+ * selected headers, and body digests) and intentionally excludes timestamps and
+ * other non-deterministic fields.
+ */
+[[nodiscard]] std::string computeContentSha256(const CapturedExchange &exchange);
+
 } // namespace v1::crawler

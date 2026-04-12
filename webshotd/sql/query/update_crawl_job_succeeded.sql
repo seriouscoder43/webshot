@@ -5,6 +5,7 @@ set
     finished_at = now(),
     error_category = null,
     error_message = null,
-    result_created_at = $2
+    result_created_at = $2,
+    result_capture_id = $3
 where id = $1
 returning id;

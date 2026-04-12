@@ -57,7 +57,7 @@ namespace v1::crud {
     UINVARIANT(!s.empty(), "cannot be empty");
     auto view = s.view();
     std::string bytes(view);
-    for (i64 i = safeSize(bytes) - 1_i64; i >= 0_i64; i--) {
+    for (i64 i = ssize(bytes) - 1_i64; i >= 0_i64; i--) {
         const auto j = numericCast<size_t>(i);
         unsigned char c = static_cast<unsigned char>(bytes[j]);
         if (c < 0xFF) {

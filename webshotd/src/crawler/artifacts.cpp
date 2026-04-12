@@ -16,6 +16,7 @@
 
 #include "uuid_format.hpp"
 
+#include <userver/crypto/hash.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/http/status_code.hpp>
 #include <userver/utils/boost_uuid4.hpp>
@@ -34,6 +35,16 @@ namespace {
 
 constexpr std::string_view kUserAgent = "webshotd/0.1.0";
 constexpr std::string_view kWarcPath = "archive/data.warc.gz";
+
+[[nodiscard]] std::string sha256Bytes(std::string_view data)
+{
+    return userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kBinary);
+}
+
+[[nodiscard]] std::string sha256Bytes(std::initializer_list<std::string_view> data)
+{
+    return userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kBinary);
+}
 
 [[nodiscard]] Expected<std::string, ArtifactFailure> gzipMember(std::string_view body) noexcept
 {
@@ -165,7 +176,11 @@ contentTypeForHeaders(const std::unordered_map<std::string, std::string> &header
 collectSerializableResponses(const CapturedExchange &exchange)
 {
     std::vector<SerializableResponse> responses;
-    responses.reserve(exchange.mainDocumentRedirects.size() + exchange.resources.size() + 1);
+    responses.reserve(
+        numericCast<size_t>(
+            ssize(exchange.mainDocumentRedirects) + ssize(exchange.resources) + 1_i64
+        )
+    );
 
     for (const auto &redirect : exchange.mainDocumentRedirects) {
         auto response = makeRedirectResponse(redirect);
@@ -179,7 +194,7 @@ collectSerializableResponses(const CapturedExchange &exchange)
         responses.push_back(std::move(response));
     }
 
-    std::sort(std::begin(responses), std::end(responses), [](const auto &left, const auto &right) {
+    std::ranges::sort(responses, [](const auto &left, const auto &right) {
         return left.timestamp < right.timestamp;
     });
     return responses;
@@ -238,7 +253,7 @@ serializeRecordPair(const SerializableResponse &response)
         response.resourceType
             ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
             : std::string{},
-        httpResponseHead.size() + response.body.size(), httpResponseHead
+        ssize(httpResponseHead) + ssize(response.body), httpResponseHead
     );
 
     std::string requestPayload = std::format(
@@ -264,7 +279,7 @@ serializeRecordPair(const SerializableResponse &response)
         response.resourceType
             ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
             : std::string{},
-        requestPayload.size(), requestPayload
+        ssize(requestPayload), requestPayload
     );
 
     responseHeader += response.body;
@@ -510,7 +525,7 @@ Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
         "reused_browser={}\n"
         "browsertrix rewrite done\n\n",
         run.seedUrl, exchange.finalUrl, exchange.statusCode,
-        exchange.redirectChain.empty() ? 0 : exchange.redirectChain.size() - 1, "chromium",
+        exchange.redirectChain.empty() ? 0_i64 : ssize(exchange.redirectChain) - 1_i64, "chromium",
         browserPid, reusedBrowser == ReusedBrowser::kYes ? "true" : "false"
     );
 }
@@ -541,7 +556,7 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
         );
         out.bytes.append(responseGz.value());
         out.bytes.append(requestGz.value());
-        offset += i64(responseGz->size() + requestGz->size());
+        offset += i64{responseGz->size()} + i64{requestGz->size()};
     }
 
     const auto pageInfoUrl = text::format(
@@ -611,6 +626,94 @@ Expected<std::string, ArtifactFailure> buildWacz(
             ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
         );
     return zipBytes.value();
+}
+
+} // namespace v1::crawler
+
+namespace v1::crawler {
+
+std::string computeContentSha256(const CapturedExchange &exchange)
+{
+    static constexpr std::string_view kItemDomain = "webshot.capture_hash.item";
+    static constexpr std::string_view kCaptureDomain = "webshot.capture_hash";
+
+    std::vector<std::string> itemDigests;
+    itemDigests.reserve(
+        numericCast<size_t>(
+            ssize(exchange.mainDocumentRedirects) + ssize(exchange.resources) + 2_i64
+        )
+    );
+
+    {
+        std::string_view contentType;
+        if (const auto it = exchange.headers.find("content-type"); it != std::end(exchange.headers))
+            contentType = it->second;
+        const auto urlDigest = sha256Bytes(exchange.finalUrl.view());
+        const auto status = std::format("{}", exchange.statusCode);
+        const auto statusDigest = sha256Bytes(status);
+        const auto contentTypeDigest = sha256Bytes(contentType);
+        const auto bodyDigest = sha256Bytes(exchange.body);
+        itemDigests.emplace_back(sha256Bytes({
+            kItemDomain,
+            "main",
+            urlDigest,
+            statusDigest,
+            contentTypeDigest,
+            bodyDigest,
+        }));
+    }
+
+    for (const auto &redirect : exchange.mainDocumentRedirects) {
+        std::string_view location;
+        if (const auto it = redirect.headers.find("location"); it != std::end(redirect.headers))
+            location = it->second;
+        const auto urlDigest = sha256Bytes(redirect.redirectUrl.view());
+        const auto status = std::format("{}", redirect.statusCode);
+        const auto statusDigest = sha256Bytes(status);
+        const auto locationDigest = sha256Bytes(location);
+        itemDigests.emplace_back(sha256Bytes({
+            kItemDomain,
+            "redirect",
+            urlDigest,
+            statusDigest,
+            locationDigest,
+        }));
+    }
+
+    for (const auto &resource : exchange.resources) {
+        const auto method = resource.method.empty() ? "GET" : resource.method.view();
+        const auto resourceType = resource.resourceType ? resource.resourceType->view() : "";
+        std::string_view contentType;
+        if (const auto it = resource.headers.find("content-type"); it != std::end(resource.headers))
+            contentType = it->second;
+        const auto urlDigest = sha256Bytes(resource.resourceUrl.view());
+        const auto methodDigest = sha256Bytes(method);
+        const auto status = std::format("{}", resource.statusCode);
+        const auto statusDigest = sha256Bytes(status);
+        const auto resourceTypeDigest = sha256Bytes(resourceType);
+        const auto contentTypeDigest = sha256Bytes(contentType);
+        const auto bodyDigest = sha256Bytes(resource.body);
+        itemDigests.emplace_back(sha256Bytes({
+            kItemDomain,
+            "resource",
+            urlDigest,
+            methodDigest,
+            statusDigest,
+            resourceTypeDigest,
+            contentTypeDigest,
+            bodyDigest,
+        }));
+    }
+
+    std::ranges::sort(itemDigests);
+
+    std::string combined;
+    combined.reserve(numericCast<size_t>(ssize(kCaptureDomain) + ssize(itemDigests) * 32_i64));
+    combined.append(kCaptureDomain);
+    for (const auto &d : itemDigests) {
+        combined.append(d);
+    }
+    return sha256Bytes(combined);
 }
 
 } // namespace v1::crawler

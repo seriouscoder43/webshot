@@ -8,6 +8,7 @@
 #include "s3/s3_v4_client.hpp"
 #include "s3/sigv4_signer.hpp"
 
+#include "integers.hpp"
 #include "link.hpp"
 #include "text.hpp"
 
@@ -15,8 +16,6 @@
 #include <format>
 #include <iterator>
 #include <utility>
-
-#include <absl/strings/match.h>
 
 #include <userver/crypto/hash.hpp>
 
@@ -26,6 +25,7 @@
 #include <userver/logging/log.hpp>
 #include <userver/utils/assert.hpp>
 #include <userver/utils/datetime.hpp>
+#include <userver/utils/text_light.hpp>
 
 namespace s3 = userver::s3api;
 namespace http = userver::clients::http;
@@ -39,11 +39,9 @@ namespace detail {
 EndpointParts parseEndpoint(const String &ep)
 {
     // Link::fromText may insert "http://" when scheme is absent; allow that overhead.
-    constexpr size_t kDefaultSchemeBytes = 7UL; // "http://"
-    const auto link = Link::fromText(
-                          ep, ep.sizeBytes() + kDefaultSchemeBytes, Link::FromTextOptions::kNone
-    )
-                          .expect();
+    constexpr auto kDefaultSchemeBytes = 7_i64; // "http://"
+    const auto urlBytesMax = numericCast<size_t>(i64{ep.sizeBytes()} + kDefaultSchemeBytes);
+    const auto link = Link::fromText(ep, urlBytesMax, Link::FromTextOptions::kNone).expect();
     const auto &url = link.url;
 
     UINVARIANT(url.isHttp() || url.isHttps(), "S3 endpoint must be http or https");
@@ -134,10 +132,9 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
     if (request.need_meta) {
         static constexpr std::string_view kMetaPrefix = "x-amz-meta-";
         out.meta.emplace();
-        for (const auto &kv : resp->headers()) {
-            const auto &name = kv.first;
-            if (absl::StartsWithIgnoreCase(std::string_view{name}, kMetaPrefix)) {
-                out.meta->emplace(name.substr(kMetaPrefix.size()), kv.second);
+        for (const auto &[name, value] : resp->headers()) {
+            if (us::utils::text::ICaseStartsWith(std::string_view{name}, kMetaPrefix)) {
+                out.meta->emplace(name.substr(kMetaPrefix.size()), value);
             }
         }
     }
@@ -351,7 +348,7 @@ String S3V4Client::buildRawPath(String path, IncludeBucket includeBucket) const
     const auto pathBytes = std::string(path.view());
 
     std::string raw;
-    raw.reserve(basePath.size() + bucket.size() + pathBytes.size() + 2);
+    raw.reserve(numericCast<size_t>(ssize(basePath) + ssize(bucket) + ssize(pathBytes) + 2_i64));
     raw.append(basePath);
     if (raw.empty())
         raw.push_back('/');
