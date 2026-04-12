@@ -6,7 +6,7 @@
 #include "link.hpp"
 
 namespace {
-constexpr size_t kQueryPartLengthMax = 1024UL;
+constexpr size_t kUrlBytesMax = 4096UL;
 
 using v1::Link;
 
@@ -17,9 +17,7 @@ using v1::Link;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(
-        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
-    );
+    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
     if (!link) {
         ADD_FAILURE() << "Link::fromText failed";
         return {};
@@ -36,9 +34,7 @@ using v1::Link;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(
-        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
-    );
+    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
     if (!link) {
         ADD_FAILURE() << "Link::fromText failed";
         return {};
@@ -54,9 +50,7 @@ UTEST(LinkFromText, AcceptsHttpsWithHostname)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromText(
-        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone
-    );
+    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
     ASSERT_TRUE(link);
     EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
     EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com"});
@@ -67,33 +61,35 @@ UTEST(LinkFromText, RejectsUnsupportedScheme)
 {
     auto text = String::fromBytes(std::string{"ftp://example.com/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsMissingHostname)
 {
     auto text = String::fromBytes(std::string{"http:///"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
-UTEST(LinkFromText, AcceptsQueryAtLimit)
+UTEST(LinkFromText, AcceptsUrlAtLimit)
 {
-    std::string urlString = "https://example.com/?";
-    urlString.append(kQueryPartLengthMax - 1, 'a');
+    std::string urlString{"https://example.com/?"};
+    ASSERT_LT(urlString.size(), kUrlBytesMax);
+    urlString.append(kUrlBytesMax - urlString.size(), 'a');
     EXPECT_NO_THROW({
         auto value = normalizeKey(urlString);
         EXPECT_FALSE(value.empty());
     });
 }
 
-UTEST(LinkFromText, RejectsQueryOverLimit)
+UTEST(LinkFromText, RejectsUrlOverLimit)
 {
-    std::string urlString = "https://example.com/?";
-    urlString.append(kQueryPartLengthMax + 1, 'a');
+    std::string urlString{"https://example.com/?"};
+    ASSERT_LT(urlString.size(), kUrlBytesMax);
+    urlString.append(kUrlBytesMax - urlString.size() + 1, 'a');
     auto text = String::fromBytes(urlString);
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, NormalizesScheme)
@@ -134,28 +130,28 @@ UTEST(LinkFromText, RejectsNetworkPathReference)
 {
     auto text = String::fromBytes(std::string{"//example.com/path"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsOverlargePort)
 {
     auto text = String::fromBytes(std::string{"http://example.com:99999/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv6Host)
 {
     auto text = String::fromBytes(std::string{"http://[::1]/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv4Host)
 {
     auto text = String::fromBytes(std::string{"http://192.0.2.1/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kQueryPartLengthMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, KeepsEscapedSlashInPath)
@@ -205,9 +201,7 @@ UTEST(LinkMembers, HostAndHttpUrlNormalized)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromText(
-        text.value(), kQueryPartLengthMax, Link::FromTextOptions::kStripPort
-    );
+    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kStripPort);
     ASSERT_TRUE(link);
     EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
     EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com/Path"});

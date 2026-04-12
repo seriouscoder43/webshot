@@ -91,7 +91,7 @@ std::string Handler::HandleRequestThrow(
         if (!linkText)
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
         auto parsed = Link::fromText(
-            linkText.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+            linkText.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
         );
         if (!parsed)
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
@@ -114,7 +114,7 @@ std::string Handler::HandleRequestThrow(
     if (!str)
         return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
     const auto link = Link::fromText(
-        str.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+        str.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!link)
         return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);

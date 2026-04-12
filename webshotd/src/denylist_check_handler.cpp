@@ -78,7 +78,7 @@ std::string DenylistCheckHandler::HandleRequestThrow(
     }
 
     const auto link = Link::fromText(
-        body.value(), config.queryPartLengthMax(), Link::FromTextOptions::kStripPort
+        body.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!link) {
         response.SetStatus(kBadRequest);

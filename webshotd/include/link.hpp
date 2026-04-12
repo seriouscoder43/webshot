@@ -18,7 +18,7 @@ struct [[nodiscard]] LinkError final {
         kMissingHostname,
         kIpAddressNotAllowed,
         kInvalidHost,
-        kQueryTooLong,
+        kUrlTooLong,
     };
     Code code;
 };
@@ -32,7 +32,7 @@ struct [[nodiscard]] LinkError final {
  * - Scheme is http or https (defaulted to http when absent).
  * - Username/password are cleared; fragment/hash is stripped.
  * - Host is lower-cased, validated, and trailing dot removed; IP literals are rejected.
- * - Path/query are normalized; query length is limited by the caller.
+ * - Path/query are normalized; total URL byte length is limited by the caller.
  * - A scheme-less, trailing-slash-trimmed form is stored for lookups.
  */
 struct [[nodiscard]] Link {
@@ -68,15 +68,15 @@ struct [[nodiscard]] Link {
      * Accepts text that was already validated and normalized by String;
      * performs trimming, default scheme insertion (http), validation of scheme
      * and host, punycode handling, clears credentials and fragment, and
-     * enforces a limit on the query part length.
+     * enforces a limit on the total URL length in bytes.
      *
      * @param text Prevalidated, normalized UTF-8 text.
-     * @param queryPartLengthMax Maximum allowed length of the query component.
+     * @param urlBytesMax Maximum allowed URL length in bytes.
      * @param options Extra normalization options (for example strip port or query).
      * @return Normalized Link.
      */
     [[nodiscard]] static Expected<Link, LinkError>
-    fromText(const String &text, size_t queryPartLengthMax, FromTextOptions options);
+    fromText(const String &text, size_t urlBytesMax, FromTextOptions options);
 
     /** @return Normalized, lower-cased host, punycode if applicable. */
     [[nodiscard]] String host() const;

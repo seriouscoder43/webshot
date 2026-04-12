@@ -81,8 +81,13 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     std::chrono::milliseconds timeout
 )
 {
-    const auto stsLink =
-        Link::fromText(stsEndpoint, stsEndpoint.sizeBytes(), Link::FromTextOptions::kNone).expect();
+    // Link::fromText may insert "http://" when scheme is absent; allow that overhead.
+    constexpr size_t kDefaultSchemeBytes = 7UL; // "http://"
+    const auto stsLink = Link::fromText(
+                             stsEndpoint, stsEndpoint.sizeBytes() + kDefaultSchemeBytes,
+                             Link::FromTextOptions::kNone
+    )
+                             .expect();
     UINVARIANT(stsLink.url.isHttps(), "STS endpoint must use https scheme");
 
     const auto host = stsLink.url.host();

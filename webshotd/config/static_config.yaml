@@ -42,7 +42,7 @@ components_manager:
           .yml: application/yaml
           __default__: text/plain
     config:
-      query_part_length_max: 32768
+      url_bytes_max: 32768
       state_dir: $state_dir
       s3_bucket: $s3_bucket
       s3_endpoint: $s3_endpoint

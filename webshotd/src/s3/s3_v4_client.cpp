@@ -38,7 +38,12 @@ namespace detail {
 
 EndpointParts parseEndpoint(const String &ep)
 {
-    const auto link = Link::fromText(ep, ep.sizeBytes(), Link::FromTextOptions::kNone).expect();
+    // Link::fromText may insert "http://" when scheme is absent; allow that overhead.
+    constexpr size_t kDefaultSchemeBytes = 7UL; // "http://"
+    const auto link = Link::fromText(
+                          ep, ep.sizeBytes() + kDefaultSchemeBytes, Link::FromTextOptions::kNone
+    )
+                          .expect();
     const auto &url = link.url;
 
     UINVARIANT(url.isHttp() || url.isHttps(), "S3 endpoint must be http or https");

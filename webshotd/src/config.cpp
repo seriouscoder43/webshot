@@ -15,7 +15,7 @@ Config::Config(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : us::components::ComponentBase(config, context),
-      queryPartLengthMaxValue(config["query_part_length_max"].As<size_t>()),
+      urlBytesMaxValue(config["url_bytes_max"].As<size_t>()),
       stateDirValue(config["state_dir"].As<std::string>()),
       s3BucketName(String::fromBytes(config["s3_bucket"].As<std::string>()).expect()),
       s3EndpointUrl(String::fromBytes(config["s3_endpoint"].As<std::string>()).expect()),
@@ -33,11 +33,11 @@ type: object
 description: Service static configuration
 additionalProperties: false
 properties:
-  query_part_length_max:
+  url_bytes_max:
     type: integer
     minimum: 1
-    description: Maximum allowed length of the query part in the URL
-    defaultDescription: "1024"
+    description: Maximum allowed URL length in bytes
+    defaultDescription: "32768"
   state_dir:
     type: string
     description: Runner-owned state directory for this webshotd instance

@@ -29,8 +29,8 @@ public:
 
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
-    /** @return Maximum allowed length of URL query part. */
-    [[nodiscard]] size_t queryPartLengthMax() const noexcept { return queryPartLengthMaxValue; }
+    /** @return Maximum allowed URL length in bytes. */
+    [[nodiscard]] size_t urlBytesMax() const noexcept { return urlBytesMaxValue; }
 
     /** @return Runner-owned state directory for webshotd instance. */
     [[nodiscard]] std::string_view stateDir() const noexcept { return stateDirValue; }
@@ -45,7 +45,7 @@ public:
     ///@}
 
 private:
-    size_t queryPartLengthMaxValue;
+    size_t urlBytesMaxValue;
     std::string stateDirValue;
     String s3BucketName;
     String s3EndpointUrl;

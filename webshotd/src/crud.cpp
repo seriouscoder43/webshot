@@ -1122,7 +1122,7 @@ Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
     if (!locationText)
         return std::unexpected(kCorruptData);
     auto link = Link::fromText(
-        locationText.value(), impl->svcCfg.queryPartLengthMax(), Link::FromTextOptions::kNone
+        locationText.value(), impl->svcCfg.urlBytesMax(), Link::FromTextOptions::kNone
     );
     if (!link)
         return std::unexpected(kCorruptData);

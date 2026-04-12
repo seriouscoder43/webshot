@@ -46,7 +46,7 @@ namespace v1 {
 namespace {
 
 Expected<Link, LinkError>
-fromTextImpl(const String &text, size_t queryPartLengthMax, Link::FromTextOptions options)
+fromTextImpl(const String &text, size_t urlBytesMax, Link::FromTextOptions options)
 {
     using enum Link::FromTextOptions;
     const bool stripPort = Link::hasOption(options, kStripPort);
@@ -65,6 +65,8 @@ fromTextImpl(const String &text, size_t queryPartLengthMax, Link::FromTextOption
         if (!(scheme == "http" || scheme == "https"))
             return std::unexpected(LinkError{.code = LinkError::Code::kUnsupportedScheme});
     }
+    if (in.size() > urlBytesMax)
+        return std::unexpected(LinkError{.code = LinkError::Code::kUrlTooLong});
     auto url = ada::parse<ada::url_aggregator>(in);
     if (!url)
         return std::unexpected(LinkError{.code = LinkError::Code::kFailedToParse});
@@ -78,8 +80,6 @@ fromTextImpl(const String &text, size_t queryPartLengthMax, Link::FromTextOption
 
     if (!url->has_valid_domain())
         return std::unexpected(LinkError{.code = LinkError::Code::kInvalidHost});
-    if (url->get_search().size() > queryPartLengthMax)
-        return std::unexpected(LinkError{.code = LinkError::Code::kQueryTooLong});
 
     url->set_username("");
     url->set_password("");
@@ -98,9 +98,9 @@ fromTextImpl(const String &text, size_t queryPartLengthMax, Link::FromTextOption
 } // namespace
 
 Expected<Link, LinkError>
-Link::fromText(const String &text, size_t queryPartLengthMax, FromTextOptions options)
+Link::fromText(const String &text, size_t urlBytesMax, FromTextOptions options)
 {
-    return fromTextImpl(text, queryPartLengthMax, options);
+    return fromTextImpl(text, urlBytesMax, options);
 }
 
 String Link::host() const { return url.hostname(); }

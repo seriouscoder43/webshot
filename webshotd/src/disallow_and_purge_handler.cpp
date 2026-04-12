@@ -71,7 +71,7 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     if (!host)
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     const auto link = Link::fromText(
-        host.value(), config.queryPartLengthMax(),
+        host.value(), config.urlBytesMax(),
         Link::FromTextOptions::kStripPort | Link::FromTextOptions::kStripQuery
     );
     if (!link) {
