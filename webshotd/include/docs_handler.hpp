@@ -1,14 +1,12 @@
 #pragma once
 
 #include "integers.hpp"
+#include "userver_namespaces.hpp"
 
 #include <string_view>
 
 #include <userver/server/handlers/http_handler_base.hpp>
 #include <userver/yaml_config/schema.hpp>
-
-namespace us = userver;
-namespace server = us::server;
 
 namespace v1 {
 

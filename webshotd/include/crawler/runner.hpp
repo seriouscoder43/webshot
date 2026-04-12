@@ -4,6 +4,7 @@
 #include "crawler/fallback.hpp"
 #include "crawler/limits.hpp"
 #include "integers.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <optional>
@@ -11,8 +12,6 @@
 
 #include <userver/clients/http/client.hpp>
 #include <userver/engine/subprocess/process_starter.hpp>
-
-namespace us = userver;
 
 namespace v1 {
 namespace crawler {

@@ -13,6 +13,7 @@
 #include "handler.hpp"
 #include "integers.hpp"
 #include "job_handler.hpp"
+#include "userver_namespaces.hpp"
 
 #include <cstdlib>
 #include <cxxabi.h>
@@ -33,8 +34,6 @@
 #include <userver/storages/secdist/provider_component.hpp>
 #include <userver/testsuite/testsuite_support.hpp>
 #include <userver/utils/daemon_run.hpp>
-
-namespace us = userver;
 
 namespace {
 

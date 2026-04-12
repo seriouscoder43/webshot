@@ -11,6 +11,7 @@
 #include "integers.hpp"
 #include "link.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <format>
@@ -28,8 +29,6 @@
 #include <userver/utils/text_light.hpp>
 
 namespace s3 = userver::s3api;
-namespace http = userver::clients::http;
-namespace us = userver;
 using namespace text::literals;
 
 namespace v1::s3v4 {
@@ -57,7 +56,7 @@ EndpointParts parseEndpoint(const String &ep)
 } // namespace detail
 
 S3V4Client::S3V4Client(
-    http::Client &httpClient, S3V4Config config, S3Credentials creds, String bucketName
+    httpc::Client &httpClient, S3V4Config config, S3Credentials creds, String bucketName
 )
     : httpClient(httpClient), config(std::move(config)), creds(std::move(creds)),
       bucketName(std::move(bucketName)), endpoint(detail::parseEndpoint(this->config.endpoint))
@@ -74,7 +73,7 @@ std::string S3V4Client::PutObject(
     static_cast<void>(tags);
     const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
-    http::Headers headers;
+    httpc::Headers headers;
     headers[userver::http::headers::kContentType] = std::string(contentType);
     if (contentDisposition)
         headers[userver::http::headers::kContentDisposition] = contentDisposition.value();
@@ -99,7 +98,7 @@ void S3V4Client::DeleteObject(std::string_view path) const
 {
     const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
-    http::Headers headers;
+    httpc::Headers headers;
     const auto payloadHash = sha256Hex("");
     signRequest("DELETE"_t, built.rawPath, built.host, headers, payloadHash);
 
@@ -118,7 +117,7 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
 {
     const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
-    http::Headers headers;
+    httpc::Headers headers;
     const auto payloadHash = sha256Hex("");
     signRequest("HEAD"_t, built.rawPath, built.host, headers, payloadHash);
     const auto url = std::string(built.href.view());
@@ -283,7 +282,7 @@ std::string S3V4Client::GenerateUploadUrlVirtualHostAddressing(
 ) const
 {
     UINVARIANT(!bucketName.empty(), "presign requires non-empty bucket");
-    http::Headers hdrs;
+    httpc::Headers hdrs;
     hdrs[userver::http::headers::kContentType] = std::string(contentType);
     // we use UNSIGNED-PAYLOAD for presign
     static_cast<void>(data);
@@ -320,7 +319,7 @@ SigV4Params S3V4Client::makeSigV4Params(const std::chrono::system_clock::time_po
 }
 
 void S3V4Client::signRequest(
-    String method, String canonicalUri, String host, http::Headers &headers,
+    String method, String canonicalUri, String host, httpc::Headers &headers,
     const String &payloadHash
 ) const
 {
@@ -414,7 +413,7 @@ detail::BuiltUrl S3V4Client::makeVirtualHostUrl(String path, String protocol) co
 
 String S3V4Client::presignVirtualHost(
     String method, String path, const std::chrono::system_clock::time_point &expiresAt,
-    String protocol, std::optional<http::Headers> extraHeaders
+    String protocol, std::optional<httpc::Headers> extraHeaders
 ) const
 {
     const auto now = userver::utils::datetime::Now();
@@ -422,7 +421,7 @@ String S3V4Client::presignVirtualHost(
 
     const SigV4Params params = makeSigV4Params(now);
 
-    http::Headers extra = extraHeaders.value_or(http::Headers{});
+    httpc::Headers extra = extraHeaders.value_or(httpc::Headers{});
     auto prepared = prepareSignedHeaders(std::string(built.host.view()), extra);
 
     std::vector<std::pair<String, String>> headersText;
@@ -444,7 +443,7 @@ String S3V4Client::presignPathStyle(
     auto now = userver::utils::datetime::Now();
     auto built = makePathStyleUrl(std::move(path), std::move(protocol));
     SigV4Params params = makeSigV4Params(now);
-    auto prepared = prepareSignedHeaders(std::string(built.host.view()), http::Headers{});
+    auto prepared = prepareSignedHeaders(std::string(built.host.view()), httpc::Headers{});
 
     std::vector<std::pair<String, String>> headersText;
     headersText.reserve(prepared.size());

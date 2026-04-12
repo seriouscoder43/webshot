@@ -5,6 +5,7 @@
 #include "schema/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <optional>
 #include <string_view>
@@ -14,8 +15,6 @@
 
 #include <userver/components/component_base.hpp>
 #include <userver/yaml_config/schema.hpp>
-
-namespace us = userver;
 using Uuid = boost::uuids::uuid;
 
 namespace v1 {

@@ -6,6 +6,7 @@
 #include "s3/sigv4_signer.hpp"
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <format>
 #include <optional>
@@ -20,8 +21,6 @@
 #include <userver/logging/log.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/datetime/from_string_saturating.hpp>
-
-namespace http = userver::clients::http;
 using namespace text::literals;
 
 namespace v1 {
@@ -133,7 +132,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     const auto signedHeaders = s3v4::signHeaders(
         params, "POST"_t, path, query, headersToSign, payloadHash
     );
-    http::Headers headers;
+    httpc::Headers headers;
     headers[userver::http::headers::kHost] = std::string(host.view());
     headers[userver::http::headers::kContentType] = std::string(kUrlEncoded.view());
     for (const auto &kv : signedHeaders)
@@ -149,15 +148,16 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
 }
 
 Expected<StsCredentials, StsError> fetchStsCredentials(
-    http::Client &httpClient, const String &stsEndpoint, const s3v4::AccessKeyId &staticAccessKeyId,
-    const s3v4::SecretAccessKey &staticSecretAccessKey, const String &region, const String &roleArn,
-    const String &roleSessionName, const String &policyJson, std::chrono::seconds duration,
-    std::chrono::milliseconds timeout
+    httpc::Client &httpClient, const String &stsEndpoint,
+    const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
+    const String &region, const String &roleArn, const String &roleSessionName,
+    const String &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
 )
 {
     detail::StsExecutor exec = [&httpClient](
                                    const String &url, const String &body,
-                                   const http::Headers &headers, std::chrono::milliseconds timeoutMs
+                                   const httpc::Headers &headers,
+                                   std::chrono::milliseconds timeoutMs
                                ) -> Expected<std::string, StsError> {
         auto urlBytes = std::string(url.view());
         auto bodyBytes = std::string(body.view());

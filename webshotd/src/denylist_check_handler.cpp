@@ -26,8 +26,6 @@
 #include <userver/server/http/http_status.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
-namespace engine = userver::engine;
-
 namespace v1 {
 
 DenylistCheckHandler::DenylistCheckHandler(
@@ -64,7 +62,7 @@ std::string DenylistCheckHandler::HandleRequestThrow(
 
     const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
     auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-    engine::current_task::SetDeadline(finalDeadline);
+    eng::current_task::SetDeadline(finalDeadline);
 
     if (request.GetMethod() != kPost) {
         response.SetStatus(kMethodNotAllowed);

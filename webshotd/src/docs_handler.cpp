@@ -12,7 +12,6 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
-namespace engine = userver::engine;
 
 DocsHandler::DocsHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -42,7 +41,7 @@ std::string DocsHandler::HandleRequestThrow(
 {
     const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
     auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-    engine::current_task::SetDeadline(finalDeadline);
+    eng::current_task::SetDeadline(finalDeadline);
 
     auto &response = request.GetHttpResponse();
     response.SetStatus(server::http::HttpStatus::kOk);

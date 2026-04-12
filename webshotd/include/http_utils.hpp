@@ -5,6 +5,7 @@
  */
 #include "error_utils.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <userver/formats/json.hpp>
 #include <userver/formats/json/value.hpp>
@@ -14,8 +15,6 @@
 #include <userver/server/http/http_status.hpp>
 
 namespace v1::httpu {
-namespace json = userver::formats::json;
-namespace http = userver::server::http;
 
 /**
  * @brief Serialize an object to JSON and set status and content type.
@@ -28,7 +27,7 @@ namespace http = userver::server::http;
  */
 template <typename T>
 [[nodiscard]] inline std::string
-respondJson(http::HttpResponse &resp, http::HttpStatus status, const T &body)
+respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, const T &body)
 {
     resp.SetStatus(status);
     resp.SetContentType(userver::http::content_type::kApplicationJson);
@@ -39,7 +38,7 @@ respondJson(http::HttpResponse &resp, http::HttpStatus status, const T &body)
  * @brief Variant that takes a prebuilt JSON value.
  */
 [[nodiscard]] inline std::string
-respondJson(http::HttpResponse &resp, http::HttpStatus status, json::Value body)
+respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, json::Value body)
 {
     resp.SetStatus(status);
     resp.SetContentType(userver::http::content_type::kApplicationJson);
@@ -50,13 +49,14 @@ respondJson(http::HttpResponse &resp, http::HttpStatus status, json::Value body)
  * @brief Write a JSON error envelope with a human-readable message.
  */
 [[nodiscard]] inline std::string
-respondError(http::HttpResponse &resp, http::HttpStatus status, String message)
+respondError(server::http::HttpResponse &resp, server::http::HttpStatus status, String message)
 {
     return respondJson(resp, status, v1::errors::makeError(message));
 }
 
 [[nodiscard]] inline std::string respondParamError(
-    http::HttpResponse &resp, http::HttpStatus status, String paramName, String message
+    server::http::HttpResponse &resp, server::http::HttpStatus status, String paramName,
+    String message
 )
 {
     return respondJson(resp, status, v1::errors::makeParamError(paramName, message));

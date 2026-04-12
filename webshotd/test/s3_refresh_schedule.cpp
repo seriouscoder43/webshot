@@ -4,11 +4,11 @@
 #include <userver/utils/datetime.hpp>
 
 #include "s3_refresh_utils.hpp"
+#include "userver_namespaces.hpp"
 
 using std::chrono::seconds;
 using std::chrono::system_clock;
 using v1::s3refresh::computeRefreshDelay;
-namespace datetime = userver::utils::datetime;
 
 UTEST(S3RefreshSchedule, FutureExpirationRespectsMargin)
 {

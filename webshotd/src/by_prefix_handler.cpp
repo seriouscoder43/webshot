@@ -28,11 +28,8 @@
 #include <userver/server/http/http_status.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
-namespace us = userver;
-
 using namespace v1;
 using namespace text::literals;
-namespace engine = userver::engine;
 
 ByPrefixHandler::ByPrefixHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -65,7 +62,7 @@ std::string ByPrefixHandler::HandleRequestThrow(
     auto &response = request.GetHttpResponse();
     const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
     auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-    engine::current_task::SetDeadline(finalDeadline);
+    eng::current_task::SetDeadline(finalDeadline);
 
     const std::string arg = request.GetArg("prefix");
     if (arg.empty())

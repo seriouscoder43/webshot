@@ -7,6 +7,7 @@
 
 #include "prefix_utils.hpp"
 #include "text_postgres_formatter.hpp"
+#include "userver_namespaces.hpp"
 
 #include <format>
 #include <string>
@@ -19,8 +20,6 @@
 #include <userver/storages/postgres/exceptions.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
-
-namespace us = userver;
 namespace pg = us::storages::postgres;
 namespace sql = webshot::sql;
 

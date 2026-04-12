@@ -38,8 +38,6 @@
 
 using namespace v1;
 using namespace text::literals;
-namespace json = userver::formats::json;
-namespace engine = userver::engine;
 
 Handler::Handler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -74,7 +72,7 @@ std::string Handler::HandleRequestThrow(
     auto &response = request.GetHttpResponse();
     const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
     auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-    engine::current_task::SetDeadline(finalDeadline);
+    eng::current_task::SetDeadline(finalDeadline);
 
     if (request.GetMethod() == kPost) {
         const auto body = String::fromBytes(request.RequestBody());

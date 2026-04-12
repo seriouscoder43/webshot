@@ -8,6 +8,7 @@
  * encode/decode DTOs into Base64-url JSON tokens used as page cursors.
  */
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <optional>
@@ -15,8 +16,6 @@
 #include <userver/crypto/base64.hpp>
 #include <userver/crypto/exception.hpp>
 #include <userver/formats/json.hpp>
-
-namespace us = userver;
 
 namespace v1::crud {
 

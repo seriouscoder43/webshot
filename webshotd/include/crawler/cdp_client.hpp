@@ -4,6 +4,7 @@
 #include "integers.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <functional>
@@ -21,8 +22,6 @@
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/fs/blocking/file_descriptor.hpp>
 #include <userver/websocket/connection.hpp>
-
-namespace us = userver;
 
 namespace v1::crawler {
 

@@ -1,12 +1,11 @@
 #include "crawler/failure.hpp"
+#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 
 #include <userver/engine/exception.hpp>
 #include <userver/fs/blocking/read.hpp>
-
-namespace us = userver;
 
 namespace v1::crawler {
 using namespace text::literals;

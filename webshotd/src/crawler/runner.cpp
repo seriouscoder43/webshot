@@ -50,10 +50,7 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
 #include <userver/utils/traceful_exception.hpp>
-
-namespace us = userver;
 namespace chrono = std::chrono;
-namespace json = us::formats::json;
 
 using namespace text::literals;
 

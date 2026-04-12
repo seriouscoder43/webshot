@@ -1,6 +1,7 @@
 #pragma once
 
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -9,8 +10,6 @@
 
 #include <userver/components/component_base.hpp>
 #include <userver/yaml_config/schema.hpp>
-
-namespace us = userver;
 
 namespace v1 {
 /**

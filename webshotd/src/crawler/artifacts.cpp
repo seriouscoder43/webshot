@@ -1,6 +1,7 @@
 #include "crawler/artifacts.hpp"
 #include "ip_utils.hpp"
 #include "url.hpp"
+#include "userver_namespaces.hpp"
 
 #include <arkhiv/gzip.hpp>
 #include <arkhiv/zip_archive.hpp>
@@ -22,11 +23,7 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/datetime/from_string_saturating.hpp>
-
-namespace us = userver;
-namespace json = us::formats::json;
-namespace datetime = us::utils::datetime;
-namespace http = us::http;
+namespace http = userver::http;
 
 namespace v1::crawler {
 using namespace text::literals;

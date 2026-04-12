@@ -33,7 +33,6 @@
 
 using namespace v1;
 using namespace text::literals;
-namespace engine = userver::engine;
 
 namespace {
 
@@ -80,7 +79,7 @@ std::string ById::HandleRequestThrow(
     auto &response = request.GetHttpResponse();
     const auto handlerTimeout = std::chrono::milliseconds{requestTimeoutMs};
     auto finalDeadline = computeHandlerDeadline(request, handlerTimeout);
-    engine::current_task::SetDeadline(finalDeadline);
+    eng::current_task::SetDeadline(finalDeadline);
 
     const std::string arg = request.GetPathArg("uuid");
     if (arg.empty())

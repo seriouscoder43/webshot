@@ -34,9 +34,6 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/traceful_exception.hpp>
 #include <userver/websocket/connection.hpp>
-
-namespace us = userver;
-namespace json = us::formats::json;
 namespace chrono = std::chrono;
 
 namespace v1::crawler {

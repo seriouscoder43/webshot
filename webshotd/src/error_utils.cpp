@@ -5,11 +5,10 @@
  */
 #include "schema/webshot.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/utils/assert.hpp>
-
-namespace json = userver::formats::json;
 
 namespace v1::errors {
 
