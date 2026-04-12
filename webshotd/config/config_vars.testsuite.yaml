@@ -5,13 +5,13 @@ public_base_url: "http://localhost:8333/webshot"
 s3_use_sts: false
 pg_capture_meta_db_dsn:
 pg_shared_state_db_dsn:
-crawler_run_timeout_sec: 15
+crawler_run_timeout_sec: 30
 crawler_job_overhead_timeout_sec: 45
 crawler_post_load_delay_sec: 1
 crawler_net_idle_wait_sec: 0
 crawler_page_extra_delay_sec: 1
 crawler_behavior_timeout_sec: 1
-crawler_devtools_startup_timeout_sec: 15
+crawler_devtools_startup_timeout_sec: 30
 crawler_cdp_handshake_timeout_sec: 10
 crawler_cdp_command_timeout_sec: 10
 crawler_devtools_poll_interval_ms: 100

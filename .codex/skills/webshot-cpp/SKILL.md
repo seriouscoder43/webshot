@@ -16,7 +16,7 @@ Use these rules whenever making C++ changes in this repository.
 - Functions and variables MUST use lowerCamelCase.
 - Constants MUST use the `kName` form.
 - Default parameters in function declarations or definitions are forbidden.
-- Namespace rules MUST be strictly followed: reuse the existing `namespace us = userver;` pattern where applicable, and use `::name` for global symbols.
+- Namespace rules MUST be strictly followed: use `::name` for global symbols.
 - Use `{}` instead of `std::nullopt` in return statements and obvious initialization sites whenever it compiles.
 - Use `size_t`, `int64_t` (not `std::size_t` or `std::int64_t`).
 - Never use `Type name = Type(...)`; use `Type name{...}` instead to avoid writing the type twice.
@@ -31,6 +31,7 @@ Use these rules whenever making C++ changes in this repository.
 - Never call `std::chrono::system_clock::now()`; use `userver::utils::datetime::Now()` instead.
 - Mutable lambdas are forbidden; capture-by-mutable is not allowed in this codebase.
 - Catch-all exception handlers are forbidden; do not use `catch (...)`.
+- Exceptions are forbidden in new C++ code (no `throw`); use `UINVARIANT` (and other fail-fast primitives already used in the codebase) instead.
 - Never use `return ReturnType(...)`; when constructing a value to return, prefer `return {...};` wherever it compiles.
 - Never use `std::*stream*`; use `fmt` or userver I/O functionality.
 - Never use `static_cast<IntType>`; use `numericCast` instead.

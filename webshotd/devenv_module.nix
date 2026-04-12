@@ -22,6 +22,7 @@ in {
       common.userverPkgs.userver-debug-addr-ub
       common.uniAlgoPkgs.default
       common.yttsPkgs.default
+      common.pgmigratePkgs.default
     ]
     ++ common.userverDeps
     ++ [common.webshotTestSan common.webshotTestCov]

@@ -152,6 +152,18 @@
       ctest --progress --output-on-failure -V
     '';
   };
+
+  mkPgmigrateTask = mode: cmd: let
+    cfg = modeConfigs.${mode};
+  in {
+    cwd = config.devenv.root;
+    exec = ''
+      set -euo pipefail
+      python3 devenv/pgmigrate_task.py \
+        --config-vars-source ${common.lib.escapeShellArg cfg.configVarsSource} \
+        --cmd ${common.lib.escapeShellArg cmd}
+    '';
+  };
 in {
   tasks."proj:devBuild" = mkBuildTaskForMode "dev";
 
@@ -184,6 +196,8 @@ in {
     };
 
   tasks."proj:devTest" = mkTestTask "dev";
+  tasks."proj:devDbMigrate" = mkPgmigrateTask "dev" "migrate";
+  tasks."proj:devDbBaseline" = mkPgmigrateTask "dev" "baseline";
 
   tasks."proj:prodlikeBuild" = mkBuildTaskForMode "prodlike";
 
@@ -202,6 +216,9 @@ in {
     // {
       showOutput = true;
     };
+
+  tasks."proj:prodlikeDbMigrate" = mkPgmigrateTask "prodlike" "migrate";
+  tasks."proj:prodlikeDbBaseline" = mkPgmigrateTask "prodlike" "baseline";
 
   tasks."proj:ty" = {
     cwd = config.devenv.root;

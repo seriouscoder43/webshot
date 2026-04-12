@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shlex
 import shutil
@@ -506,13 +507,124 @@ exit 0
 """
 
 
+def _hash_file_inputs(files: list[Path]) -> str:
+    hasher = hashlib.sha256()
+    for path in sorted(files, key=lambda candidate: str(candidate)):
+        hasher.update(str(path).encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(path.read_bytes())
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def _hash_pgmigrate_base_dir(base_dir: Path) -> str:
+    migrations_yaml = base_dir / "migrations.yml"
+    migrations_dir = base_dir / "migrations"
+    if not migrations_yaml.is_file():
+        die(f"Missing pgmigrate config: {migrations_yaml}", exit_code=2)
+    if not migrations_dir.is_dir():
+        die(f"Missing pgmigrate migrations dir: {migrations_dir}", exit_code=2)
+
+    files = [migrations_yaml]
+    for path in migrations_dir.rglob("*"):
+        if path.is_file():
+            files.append(path)
+    return _hash_file_inputs(files)
+
+
+def _psql_scalar(*, db: str, query: str) -> str:
+    need_cmd("psql")
+    return run(
+        [
+            "psql",
+            "-h",
+            "127.0.0.1",
+            "-p",
+            "5432",
+            "-U",
+            "postgres",
+            "-d",
+            db,
+            "-tAc",
+            query,
+        ],
+        capture=True,
+        timeout_sec=30.0,
+    ).stdout.strip()
+
+
+def _pgmigrate_migrate(*, dsn: str, base_dir: Path) -> None:
+    need_cmd("pgmigrate")
+    run(
+        [
+            "pgmigrate",
+            "-c",
+            dsn,
+            "-d",
+            str(base_dir),
+            "-t",
+            "latest",
+            "-vv",
+            "migrate",
+        ],
+        timeout_sec=120.0,
+    )
+
+
+def _die_if_legacy_db_needs_baseline(*, dsn: str, base_dir: Path, db_name: str) -> None:
+    # pgmigrate can't infer a baseline for pre-existing schemas safely.
+    schema_version_exists = _psql_scalar(
+        db=db_name,
+        query="select to_regclass('public.schema_version') is not null",
+    )
+    if schema_version_exists != "t":
+        has_tables = _psql_scalar(
+            db=db_name,
+            query=(
+                "select exists ("
+                "  select 1"
+                "  from information_schema.tables"
+                "  where table_schema = 'public'"
+                "    and table_type = 'BASE TABLE'"
+                "    and table_name <> 'schema_version'"
+                ")"
+            ),
+        )
+        if has_tables == "t":
+            die(
+                "\n".join(
+                    [
+                        f"Detected legacy database without pgmigrate schema_version: {db_name}",
+                        "This repo no longer bootstraps schema from snapshot SQL files.",
+                        "Baseline manually (only if the schema matches V0001), then restart:",
+                        (
+                            f"  pgmigrate -c {shlex.quote(dsn)} -d {shlex.quote(str(base_dir))} "
+                            "-b 1 baseline"
+                        ),
+                    ]
+                ),
+                exit_code=2,
+            )
+
+
 def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
     need_cmd("initdb")
     need_cmd("pg_ctl")
     need_cmd("psql")
     need_cmd("createdb")
+    need_cmd("pgmigrate")
 
-    bootstrap_state = f"{ctx.postgres_capture_meta_db_name}\n{ctx.postgres_shared_state_db_name}\n"
+    capture_base_dir = ctx.repo_root / "webshotd/sql/schema/capture_meta_db"
+    shared_base_dir = ctx.repo_root / "webshotd/sql/schema/shared_state_db"
+    capture_migrations_hash = _hash_pgmigrate_base_dir(capture_base_dir)
+    shared_migrations_hash = _hash_pgmigrate_base_dir(shared_base_dir)
+
+    bootstrap_state = (
+        f"capture_meta_db={ctx.postgres_capture_meta_db_name}\n"
+        f"shared_state_db={ctx.postgres_shared_state_db_name}\n"
+        f"capture_meta_db_migrations={capture_migrations_hash}\n"
+        f"shared_state_db_migrations={shared_migrations_hash}\n"
+    )
     if (
         ctx.postgres_bootstrap_done_file.is_file()
         and ctx.postgres_bootstrap_done_file.read_text(encoding="utf-8") == bootstrap_state
@@ -554,6 +666,14 @@ def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
         timeout_sec=120.0,
     )
     try:
+        raw_vars = _read_yaml(ctx.config_vars_source)
+        capture_meta_dsn = _require_yaml_string(
+            raw_vars, "pg_capture_meta_db_dsn", source=ctx.config_vars_source
+        )
+        shared_state_dsn = _require_yaml_string(
+            raw_vars, "pg_shared_state_db_dsn", source=ctx.config_vars_source
+        )
+
         created_capture_meta = run(
             [
                 "psql",
@@ -585,22 +705,14 @@ def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
                 ],
                 timeout_sec=30.0,
             )
-        run(
-            [
-                "psql",
-                "-h",
-                "127.0.0.1",
-                "-p",
-                "5432",
-                "-U",
-                "postgres",
-                "-d",
-                ctx.postgres_capture_meta_db_name,
-                "-f",
-                str(ctx.repo_root / "webshotd/sql/schema/capture_meta_db.sql"),
-            ],
-            timeout_sec=30.0,
+
+        _die_if_legacy_db_needs_baseline(
+            dsn=capture_meta_dsn,
+            base_dir=capture_base_dir,
+            db_name=ctx.postgres_capture_meta_db_name,
         )
+        _pgmigrate_migrate(dsn=capture_meta_dsn, base_dir=capture_base_dir)
+
         created_shared_state = run(
             [
                 "psql",
@@ -632,22 +744,14 @@ def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
                 ],
                 timeout_sec=30.0,
             )
-        run(
-            [
-                "psql",
-                "-h",
-                "127.0.0.1",
-                "-p",
-                "5432",
-                "-U",
-                "postgres",
-                "-d",
-                ctx.postgres_shared_state_db_name,
-                "-f",
-                str(ctx.repo_root / "webshotd/sql/schema/shared_state_db.sql"),
-            ],
-            timeout_sec=30.0,
+
+        _die_if_legacy_db_needs_baseline(
+            dsn=shared_state_dsn,
+            base_dir=shared_base_dir,
+            db_name=ctx.postgres_shared_state_db_name,
         )
+        _pgmigrate_migrate(dsn=shared_state_dsn, base_dir=shared_base_dir)
+
         ctx.postgres_bootstrap_done_file.write_text(bootstrap_state, encoding="utf-8")
     finally:
         run(
@@ -1184,14 +1288,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.action == "up":
-            delegated_rc = _start_up_inside_systemd_scope(
-                argv, mode=args.mode, service_profile=args.service_profile
-            )
-            if delegated_rc is not None:
-                return delegated_rc
-            _enter_systemd_subgroup()
-            _enable_delegated_systemd_scope_controllers()
-            _assert_delegated_systemd_scope()
+            if args.service_profile == "full":
+                delegated_rc = _start_up_inside_systemd_scope(
+                    argv, mode=args.mode, service_profile=args.service_profile
+                )
+                if delegated_rc is not None:
+                    return delegated_rc
+                _enter_systemd_subgroup()
+                _enable_delegated_systemd_scope_controllers()
+                _assert_delegated_systemd_scope()
             ctx = _build_up_context(
                 mode=args.mode,
                 service_profile=args.service_profile,
