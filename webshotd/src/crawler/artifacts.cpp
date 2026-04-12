@@ -390,7 +390,7 @@ serializeRecordPair(const SerializableResponse &response)
         parts.emplace_back(host.substr(offset, next - offset));
         offset = next + 1;
     }
-    std::reverse(std::begin(parts), std::end(parts));
+    std::ranges::reverse(parts);
 
     std::string surtHost;
     for (size_t index = 0; index < parts.size(); index++) {

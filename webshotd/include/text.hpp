@@ -64,7 +64,8 @@ public:
     {
         if (prefix.data.size() > data.size())
             return false;
-        return std::equal(std::begin(prefix.data), std::end(prefix.data), std::begin(data));
+        const auto dataPrefix = std::string_view{data}.substr(0, prefix.data.size());
+        return std::ranges::equal(prefix.data, dataPrefix);
     }
 
     [[nodiscard]] constexpr bool startsWith(std::string_view prefix) const noexcept
@@ -107,7 +108,7 @@ public:
     [[nodiscard]] constexpr String reversed() const
     {
         auto utf32 = una::utf8to32u(data);
-        std::reverse(std::begin(utf32), std::end(utf32));
+        std::ranges::reverse(utf32);
 
         const auto reversedUtf8 = una::utf32to8(utf32);
 

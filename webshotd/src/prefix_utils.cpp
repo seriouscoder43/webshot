@@ -43,7 +43,7 @@ void appendEncodedSegment(std::string &out, std::string_view bytes)
         labels.emplace_back(hostStr.substr(start, dot - start));
         start = dot + 1;
     }
-    std::reverse(std::begin(labels), std::end(labels));
+    std::ranges::reverse(labels);
     std::string hostRev;
     for (size_t i = 0; i < labels.size(); i++) {
         if (i != 0)
