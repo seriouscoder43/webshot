@@ -195,7 +195,8 @@ if(WEBSHOT_RAPIDOC_ASSETS_DIR STREQUAL "")
   message(FATAL_ERROR "WEBSHOT_RAPIDOC_ASSETS_DIR must be configured")
 endif()
 
-target_precompile_headers(${PROJECT_NAME}_objs PRIVATE include/text.hpp)
+target_precompile_headers(${PROJECT_NAME}_objs PRIVATE include/webshotd_pch.hpp)
+target_precompile_headers(${PROJECT_NAME} PRIVATE include/webshotd_pch.hpp)
 
 if(WEBSHOT_ENABLE_COVERAGE)
   target_compile_options(${PROJECT_NAME}_objs PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
