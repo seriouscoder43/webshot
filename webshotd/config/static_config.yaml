@@ -179,6 +179,8 @@ components_manager:
       crawler_cdp_handshake_timeout_sec: $crawler_cdp_handshake_timeout_sec
       crawler_cdp_command_timeout_sec: $crawler_cdp_command_timeout_sec
       crawler_size_limit_mib: $crawler_size_limit_mib
+      crawler_network_down_bytes_ratio_max: $crawler_network_down_bytes_ratio_max
+      crawler_local_fixture_rewrite: $crawler_local_fixture_rewrite
       crawler_devtools_poll_interval_ms: $crawler_devtools_poll_interval_ms
       crawler_cdp_wait_poll_interval_ms: $crawler_cdp_wait_poll_interval_ms
       crawler_browser_stop_timeout_ms: $crawler_browser_stop_timeout_ms

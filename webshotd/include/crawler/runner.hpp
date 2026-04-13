@@ -10,10 +10,12 @@
 #include <optional>
 #include <string>
 
-#include <userver/clients/http/client.hpp>
+#include <userver/clients/dns/resolver_fwd.hpp>
 #include <userver/engine/subprocess/process_starter.hpp>
 
 namespace v1 {
+class Denylist;
+class Config;
 namespace crawler {
 
 struct [[nodiscard]] CaptureTimings {
@@ -31,6 +33,7 @@ struct [[nodiscard]] CrawlerTunables {
     std::chrono::milliseconds cdpWaitPollInterval;
     std::chrono::milliseconds browserStopTimeout;
     std::chrono::milliseconds proxyStopTimeout;
+    bool enableLocalFixtureRewrite;
 };
 
 } // namespace crawler
@@ -47,17 +50,20 @@ struct [[nodiscard]] CrawlerRunArtifacts {
 class [[nodiscard]] CrawlerRunner final {
 public:
     CrawlerRunner(
-        us::clients::http::Client &httpClient,
-        us::engine::subprocess::ProcessStarter &processStarter, std::chrono::seconds runTimeout,
+        Denylist &denylist, const Config &config, us::clients::dns::Resolver &dnsResolver,
+        eng::subprocess::ProcessStarter &processStarter, std::chrono::seconds runTimeout,
         std::string stateDir, std::optional<crawler::CgroupLimits> limits, i64 maxArchiveBytes,
-        crawler::CaptureTimings timings, crawler::CrawlerTunables tunables
+        crawler::CaptureTimings timings, crawler::CrawlerTunables tunables,
+        i64 networkDownBytesRatioMax
     );
 
     [[nodiscard]] CrawlerRunArtifacts run(const String &seedUrl) const;
 
 private:
-    us::clients::http::Client &httpClient;
-    us::engine::subprocess::ProcessStarter &processStarter;
+    Denylist &denylist;
+    const Config &config;
+    us::clients::dns::Resolver &dnsResolver;
+    eng::subprocess::ProcessStarter &processStarter;
     std::chrono::seconds runTimeout;
     std::string browserRunsRoot;
     std::string cgroupRootPath;
@@ -65,6 +71,7 @@ private:
     i64 maxArchiveBytes;
     crawler::CaptureTimings timings;
     crawler::CrawlerTunables tunables;
+    i64 networkDownBytesRatioMax;
 };
 
 } // namespace v1

@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -58,7 +59,7 @@ struct [[nodiscard]] CdpFailure final {
 
 class [[nodiscard]] CdpClient final {
 public:
-    using ListenerId = int64_t;
+    using ListenerId = i64;
     using EventListener = std::function<void(CdpEvent)>;
 
     [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpFailure> connect(
@@ -129,6 +130,23 @@ public:
         }
     }
 
+    template <typename Params>
+    [[nodiscard]] Expected<void, CdpFailure> sendNoWait(
+        std::string_view method, const Params &params, const std::optional<String> &sessionId
+    )
+    {
+        return sendRawNoWait(
+            method, us::formats::json::ValueBuilder(params).ExtractValue(), sessionId
+        );
+    }
+
+    template <typename Params>
+    [[nodiscard]] Expected<void, CdpFailure>
+    sendNoWait(std::string_view method, const Params &params)
+    {
+        return sendNoWait(method, params, {});
+    }
+
     ListenerId addListener(EventListener listener);
     void removeListener(ListenerId id);
 
@@ -175,16 +193,19 @@ private:
         std::string_view method, const us::formats::json::Value &params,
         const std::optional<String> &sessionId
     );
+    [[nodiscard]] Expected<void, CdpFailure> sendRawNoWait(
+        std::string_view method, const us::formats::json::Value &params,
+        const std::optional<String> &sessionId
+    );
     Expected<void, CdpFailure> pumpOne();
     void dispatchEvent(CdpEvent event);
     Expected<void, CdpFailure> handleMessage(const std::string &payload);
     void closeQuietly() noexcept;
     [[nodiscard]] std::string makeEndpointPath() const;
     Expected<void, CdpFailure> writeTraceLine(const us::formats::json::Value &value);
-    void traceCommand(int64_t id, std::string_view method, const std::optional<String> &sessionId);
-    void traceResponse(
-        int64_t id, const PendingRequestTrace *request, const std::optional<String> &error
-    );
+    void traceCommand(i64 id, std::string_view method, const std::optional<String> &sessionId);
+    void
+    traceResponse(i64 id, const PendingRequestTrace *request, const std::optional<String> &error);
     void traceEvent(std::string_view method, const std::optional<String> &sessionId);
     void traceClose(std::string_view direction, int closeCode);
     void traceTransportError(std::string_view operation, std::string_view error);
@@ -193,15 +214,16 @@ private:
     String websocketPath;
     std::shared_ptr<us::websocket::WebSocketConnection> connection;
     std::unordered_map<ListenerId, EventListener> listeners;
-    std::unordered_map<int64_t, us::formats::json::Value> pendingResults;
-    std::unordered_map<int64_t, PendingRequestTrace> pendingRequests;
+    std::unordered_map<i64, us::formats::json::Value> pendingResults;
+    std::unordered_map<i64, PendingRequestTrace> pendingRequests;
+    std::unordered_set<i64> dropResults;
     std::string tracePath;
     us::fs::blocking::FileDescriptor traceFile;
     us::engine::Deadline overallDeadline;
     std::chrono::seconds commandTimeout;
     std::chrono::milliseconds waitPollInterval;
-    ListenerId nextListenerId{1};
-    int64_t nextRequestId{1};
+    ListenerId nextListenerId{1_i64};
+    i64 nextRequestId{1_i64};
     bool closed{false};
 };
 

@@ -312,3 +312,95 @@ components:
       properties:
         result:
           $ref: "#/components/schemas/RuntimeRemoteObjectWithDomState"
+    FetchHeaderEntry:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+    FetchRequestPattern:
+      type: object
+      additionalProperties: false
+      properties:
+        urlPattern:
+          type: string
+        resourceType:
+          type: string
+        requestStage:
+          type: string
+    FetchEnableParams:
+      type: object
+      additionalProperties: false
+      properties:
+        patterns:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchRequestPattern"
+        handleAuthRequests:
+          type: boolean
+    FetchRequestPausedEvent:
+      type: object
+      additionalProperties: true
+      required: [requestId, request]
+      properties:
+        requestId:
+          type: string
+        request:
+          $ref: "#/components/schemas/NetworkRequest"
+        frameId:
+          type: string
+        resourceType:
+          type: string
+        responseErrorReason:
+          type: string
+        responseStatusCode:
+          type: integer
+          format: int64
+        responseStatusText:
+          type: string
+        responseHeaders:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchHeaderEntry"
+        networkId:
+          type: string
+        redirectedRequestId:
+          type: string
+    FetchContinueRequestParams:
+      type: object
+      additionalProperties: false
+      required: [requestId]
+      properties:
+        requestId:
+          type: string
+        url:
+          type: string
+        method:
+          type: string
+        postData:
+          type: string
+        headers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchHeaderEntry"
+    FetchFulfillRequestParams:
+      type: object
+      additionalProperties: false
+      required: [requestId, responseCode]
+      properties:
+        requestId:
+          type: string
+        responseCode:
+          type: integer
+          format: int64
+        responseHeaders:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchHeaderEntry"
+        body:
+          type: string
+        responsePhrase:
+          type: string

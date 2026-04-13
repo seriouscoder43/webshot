@@ -44,6 +44,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component.hpp>
 #include <userver/components/component.hpp>
 #include <userver/components/component_base.hpp>
@@ -178,6 +179,13 @@ properties:
         type: integer
         minimum: 1
         description: 'Max WACZ archive size limit in MiB per capture'
+    crawler_network_down_bytes_ratio_max:
+        type: integer
+        minimum: 1
+        description: 'Max proxy downstream bytes per capture as a multiple of final WACZ bytes'
+    crawler_local_fixture_rewrite:
+        type: boolean
+        description: 'Rewrite local test fixture hosts (test-target) to 127.0.0.1:18080/18443 for the crawler proxy'
     crawler_devtools_poll_interval_ms:
         type: integer
         minimum: 1
@@ -256,6 +264,8 @@ public:
     const i64 crawlerCdpHandshakeTimeoutSec;
     const i64 crawlerCdpCommandTimeoutSec;
     const i64 crawlerSizeLimitMiB;
+    const i64 crawlerNetworkDownBytesRatioMax;
+    const bool crawlerLocalFixtureRewrite;
     const i64 crawlerDevtoolsPollIntervalMs;
     const i64 crawlerCdpWaitPollIntervalMs;
     const i64 crawlerBrowserStopTimeoutMs;
@@ -275,7 +285,9 @@ public:
     pg::ClusterPtr cluster;
     pg::ClusterPtr sharedCluster;
     us::clients::http::Client &httpClient;
+    us::clients::dns::Resolver &dnsResolver;
     us::engine::subprocess::ProcessStarter &processStarter;
+    Denylist &denylist;
     CrawlerRunner crawlerRunner;
     struct [[nodiscard]] S3ClientState {
         s3v4::S3Credentials creds;
@@ -285,7 +297,6 @@ public:
     rcu::Variable<S3ClientState> s3State;
     s3v4::AccessKeyId staticAccessKeyId;
     s3v4::SecretAccessKey staticSecretAccessKey;
-    Denylist &denylist;
     engine::TaskProcessor &mainTaskProcessor;
     engine::CancellableSemaphore crawlSlots;
     engine::TaskProcessor &purgeTaskProcessor;
@@ -338,6 +349,10 @@ public:
           crawlerCdpHandshakeTimeoutSec(cfg["crawler_cdp_handshake_timeout_sec"].As<int64_t>()),
           crawlerCdpCommandTimeoutSec(cfg["crawler_cdp_command_timeout_sec"].As<int64_t>()),
           crawlerSizeLimitMiB(cfg["crawler_size_limit_mib"].As<int64_t>()),
+          crawlerNetworkDownBytesRatioMax(
+              cfg["crawler_network_down_bytes_ratio_max"].As<int64_t>()
+          ),
+          crawlerLocalFixtureRewrite(cfg["crawler_local_fixture_rewrite"].As<bool>()),
           crawlerDevtoolsPollIntervalMs(cfg["crawler_devtools_poll_interval_ms"].As<int64_t>()),
           crawlerCdpWaitPollIntervalMs(cfg["crawler_cdp_wait_poll_interval_ms"].As<int64_t>()),
           crawlerBrowserStopTimeoutMs(cfg["crawler_browser_stop_timeout_ms"].As<int64_t>()),
@@ -360,9 +375,11 @@ public:
               ctx.FindComponent<us::components::Postgres>("shared_state_db").GetCluster()
           ),
           httpClient(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
+          dnsResolver(ctx.FindComponent<us::clients::dns::Component>().GetResolver()),
           processStarter(ctx.FindComponent<us::components::ProcessStarter>().Get()),
+          denylist(ctx.FindComponent<Denylist>()),
           crawlerRunner(
-              httpClient, processStarter, chrono::seconds{crawlerRunTimeoutSec},
+              denylist, svcCfg, dnsResolver, processStarter, chrono::seconds{crawlerRunTimeoutSec},
               std::string(svcCfg.stateDir()),
               computeCrawlerLimits(crawlerCpuCores, crawlerMemoryGib),
               crawlerSizeLimitMiB * 1024_i64 * 1024_i64,
@@ -380,9 +397,10 @@ public:
                   chrono::milliseconds{crawlerCdpWaitPollIntervalMs},
                   chrono::milliseconds{crawlerBrowserStopTimeoutMs},
                   chrono::milliseconds{crawlerProxyStopTimeoutMs},
-              }
+                  crawlerLocalFixtureRewrite,
+              },
+              crawlerNetworkDownBytesRatioMax
           ),
-          denylist(ctx.FindComponent<Denylist>()),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
           crawlSlots(engine::GetWorkerCount(mainTaskProcessor)),
           purgeTaskProcessor(ctx.GetTaskProcessor("purge_task_processor")),
@@ -405,6 +423,10 @@ public:
             crawlJobCleanupIntervalSec > 0_i64, "crawl_job_cleanup_interval_sec must be positive"
         );
         UINVARIANT(crawlerSizeLimitMiB > 0_i64, "crawler_size_limit_mib must be positive");
+        UINVARIANT(
+            crawlerNetworkDownBytesRatioMax > 0_i64,
+            "crawler_network_down_bytes_ratio_max must be positive"
+        );
         const auto &secdist = ctx.FindComponent<us::components::Secdist>().Get();
         const auto &creds = secdist.Get<S3CredentialsSecdist>();
         UINVARIANT(

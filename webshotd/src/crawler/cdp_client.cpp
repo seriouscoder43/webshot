@@ -333,7 +333,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
 
     const auto id = nextRequestId++;
     dto::CdpCommandRequest request;
-    request.id = id;
+    request.id = raw(id);
     request.method = std::string(method);
     if (!params.IsMissing())
         request.params = dto::CdpCommandRequest::Params{params};
@@ -373,6 +373,41 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
     auto result = it->second;
     pendingResults.erase(it);
     return result;
+}
+
+Expected<void, CdpFailure> CdpClient::sendRawNoWait(
+    std::string_view method, const json::Value &params, const std::optional<String> &sessionId
+)
+{
+    using enum CdpError;
+    if (closed)
+        return std::unexpected(CdpFailure{.code = kSocketClosed, .detail = {}});
+
+    const auto id = nextRequestId++;
+    dto::CdpCommandRequest request;
+    request.id = raw(id);
+    request.method = std::string(method);
+    if (!params.IsMissing())
+        request.params = dto::CdpCommandRequest::Params{params};
+    if (sessionId)
+        request.sessionId = std::string(sessionId->view());
+    pendingRequests.emplace(
+        id, PendingRequestTrace{
+                .method = std::string{method},
+                .sessionId = sessionId,
+            }
+    );
+    dropResults.insert(id);
+    traceCommand(id, method, sessionId);
+    try {
+        connection->SendText(json::ToString(json::ValueBuilder(request).ExtractValue()));
+    } catch (const us::utils::TracefulException &e) {
+        dropResults.erase(id);
+        pendingRequests.erase(id);
+        traceTransportError("send", e.what());
+        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+    }
+    return {};
 }
 
 CdpClient::ListenerId CdpClient::addListener(EventListener listener)
@@ -472,10 +507,8 @@ void CdpClient::dispatchEvent(CdpEvent event)
 {
     std::vector<EventListener> listenerSnapshot;
     listenerSnapshot.reserve(listeners.size());
-    for (const auto &[id, listener] : listeners) {
-        static_cast<void>(id);
-        listenerSnapshot.push_back(listener);
-    }
+    for (const auto &entry : listeners)
+        listenerSnapshot.push_back(entry.second);
 
     for (const auto &listener : listenerSnapshot)
         listener(event);
@@ -492,25 +525,42 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
     }
     const auto idValue = value["id"];
     if (!idValue.IsMissing()) {
-        const auto id = idValue.As<int64_t>();
+        const auto id = i64(idValue.As<int64_t>());
         const auto requestIt = pendingRequests.find(id);
-        UINVARIANT(
-            requestIt != std::end(pendingRequests),
-            std::format("cdp response for unknown request id {}", id)
-        );
+        if (requestIt == std::end(pendingRequests)) {
+            const auto dropped = dropResults.find(id);
+            UINVARIANT(
+                dropped != std::end(dropResults),
+                std::format("cdp response for unknown request id {}", id)
+            );
+            dropResults.erase(dropped);
+            return {};
+        }
         const auto *request = &requestIt->second;
         const auto errorValue = value["error"];
+        const auto dropped = dropResults.find(id);
+        const auto isDropped = dropped != std::end(dropResults);
         if (!errorValue.IsMissing()) {
             auto errorMessage = getErrorMessage(errorValue);
             if (!errorMessage)
                 return std::unexpected(errorMessage.error());
             traceResponse(id, request, errorMessage.value());
+            if (isDropped) {
+                dropResults.erase(dropped);
+                pendingRequests.erase(requestIt);
+                return {};
+            }
             pendingRequests.erase(requestIt);
             return std::unexpected(
                 CdpFailure{.code = kCommandFailed, .detail = errorMessage.value()}
             );
         }
         traceResponse(id, request, {});
+        if (isDropped) {
+            dropResults.erase(dropped);
+            pendingRequests.erase(requestIt);
+            return {};
+        }
         pendingResults.emplace(id, value["result"]);
         pendingRequests.erase(requestIt);
         return {};
@@ -555,22 +605,21 @@ Expected<void, CdpFailure> CdpClient::writeTraceLine(const json::Value &value)
     line.push_back('\n');
     try {
         traceFile.Write(line);
-    } catch (const std::runtime_error &e) {
-        static_cast<void>(e);
+    } catch (const std::runtime_error &) {
         return std::unexpected(CdpFailure{.code = kTraceWriteFailed, .detail = {}});
     }
     return {};
 }
 
 void CdpClient::traceCommand(
-    int64_t id, std::string_view method, const std::optional<String> &sessionId
+    i64 id, std::string_view method, const std::optional<String> &sessionId
 )
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["direction"] = "out";
     entry["kind"] = "command";
-    entry["id"] = id;
+    entry["id"] = raw(id);
     entry["method"] = std::string(method);
     if (sessionId)
         entry["sessionId"] = std::string(sessionId->view());
@@ -578,14 +627,14 @@ void CdpClient::traceCommand(
 }
 
 void CdpClient::traceResponse(
-    int64_t id, const PendingRequestTrace *request, const std::optional<String> &error
+    i64 id, const PendingRequestTrace *request, const std::optional<String> &error
 )
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["direction"] = "in";
     entry["kind"] = error ? "error" : "response";
-    entry["id"] = id;
+    entry["id"] = raw(id);
     if (request) {
         entry["method"] = request->method;
         if (request->sessionId)

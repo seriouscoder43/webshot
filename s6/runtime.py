@@ -6,7 +6,6 @@ import os
 import shlex
 import shutil
 import signal
-import ssl
 import subprocess
 import sys
 import time
@@ -74,7 +73,6 @@ class RuntimeStateContext:
 class RuntimeInspectContext(RuntimeStateContext):
     service_profile: str
     postgres_log_file: Path
-    proxy_log_file: Path
     seaweed_log_file: Path
     test_target_log_file: Path
     webshotd_service_dir: Path
@@ -92,8 +90,6 @@ class RuntimeUpContext(RuntimeInspectContext):
     postgres_bootstrap_log: Path
     postgres_capture_meta_db_name: str
     postgres_shared_state_db_name: str
-    proxy_confdir: Path
-    proxy_upstream_ca_file: Path
     seaweed_data_dir: Path
     test_target_dir: Path
 
@@ -113,11 +109,6 @@ def _shell_join(parts: list[str | Path]) -> str:
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-def _write_bytes(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -168,13 +159,6 @@ def _require_yaml_string(raw: dict[str, object], key: str, *, source: Path) -> s
     if not value:
         die(f"Missing required config var '{key}' in {source}", exit_code=2)
     return cast(str, value)
-
-
-def _require_yaml_int(raw: dict[str, object], key: str, *, source: Path) -> int:
-    value = raw.get(key)
-    if not isinstance(value, int):
-        die(f"Missing required config var '{key}' in {source}", exit_code=2)
-    return cast(int, value)
 
 
 def _database_name_from_dsn(dsn: str, *, key: str, source: Path) -> str:
@@ -394,7 +378,6 @@ def _build_inspect_context(
         svscan_pid_file=state_ctx.svscan_pid_file,
         service_profile=service_profile,
         postgres_log_file=state_ctx.state_dir / "postgres.log",
-        proxy_log_file=state_ctx.state_dir / "mitmproxy.log",
         seaweed_log_file=state_ctx.state_dir / "seaweedfs.log",
         test_target_log_file=state_ctx.state_dir / "test-target.log",
         webshotd_service_dir=state_ctx.scan_dir / "webshotd",
@@ -431,7 +414,6 @@ def _build_up_context(
         svscan_pid_file=inspect_ctx.svscan_pid_file,
         service_profile=service_profile,
         postgres_log_file=inspect_ctx.postgres_log_file,
-        proxy_log_file=inspect_ctx.proxy_log_file,
         seaweed_log_file=inspect_ctx.seaweed_log_file,
         test_target_log_file=inspect_ctx.test_target_log_file,
         webshotd_service_dir=inspect_ctx.webshotd_service_dir,
@@ -445,8 +427,6 @@ def _build_up_context(
         postgres_bootstrap_log=inspect_ctx.state_dir / "postgres-bootstrap.log",
         postgres_capture_meta_db_name=capture_meta_db_name,
         postgres_shared_state_db_name=shared_state_db_name,
-        proxy_confdir=inspect_ctx.state_dir / "mitmproxy" / "confdir",
-        proxy_upstream_ca_file=inspect_ctx.state_dir / "mitmproxy" / "upstream-ca.pem",
         seaweed_data_dir=inspect_ctx.state_dir / "seaweed",
         test_target_dir=inspect_ctx.state_dir / "test-target",
     )
@@ -460,13 +440,6 @@ def _service_specs(ctx: RuntimeInspectContext) -> list[ServiceSpec]:
             service_dir=ctx.scan_dir / "postgres",
             log_file=ctx.postgres_log_file,
             ready_cmd=["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"],
-            timeout_sec=30.0,
-        ),
-        ServiceSpec(
-            name="proxy",
-            service_dir=ctx.scan_dir / "proxy",
-            log_file=ctx.proxy_log_file,
-            ready_cmd=[python_exe, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"],
             timeout_sec=30.0,
         ),
     ]
@@ -502,6 +475,7 @@ def _service_specs(ctx: RuntimeInspectContext) -> list[ServiceSpec]:
                 ),
             ]
         )
+
     return specs
 
 
@@ -767,27 +741,6 @@ def _bootstrap_postgres(ctx: RuntimeUpContext) -> None:
         )
 
 
-def _render_proxy_runtime(ctx: RuntimeUpContext) -> None:
-    need_cmd("mitmdump")
-    ctx.proxy_confdir.mkdir(parents=True, exist_ok=True)
-    if ctx.mode != "dev":
-        return
-
-    verify_paths = ssl.get_default_verify_paths()
-    ca_file = verify_paths.cafile
-    if ca_file is None:
-        die("Failed to locate the default upstream CA bundle", exit_code=2)
-    ca_path = Path(ca_file)
-    if not ca_path.is_file():
-        die(f"Default upstream CA bundle is missing: {ca_path}", exit_code=2)
-
-    origin_ca_path = ctx.repo_root / "test/pki/origin_ca.crt"
-    _write_bytes(
-        ctx.proxy_upstream_ca_file,
-        ca_path.read_bytes().rstrip() + b"\n" + origin_ca_path.read_bytes(),
-    )
-
-
 def _wait_script(cmd: list[str]) -> str:
     return (
         f"while ! {_shell_quote(cmd[0])}"
@@ -821,74 +774,6 @@ def _render_service_tree(ctx: RuntimeUpContext) -> list[ServiceSpec]:
             f"exec postgres -D {_shell_quote(ctx.postgres_data_dir)} "
             f"-h 127.0.0.1 -k {_shell_quote(ctx.postgres_run_dir)} -p 5432 "
             "-c timezone=UTC -c log_timezone=UTC\n"
-        ),
-    )
-
-    proxy_service = ctx.scan_dir / "proxy"
-    _write_executable(
-        proxy_service / "data/check",
-        f"#!/bin/sh\nexec {python_exe} -m s6.check_tcp_ready 127.0.0.1 3128\n",
-    )
-    raw_vars = _read_yaml(ctx.config_vars_source)
-    crawler_size_limit_mib = _require_yaml_int(
-        raw_vars, "crawler_size_limit_mib", source=ctx.config_vars_source
-    )
-    crawler_run_timeout_sec = _require_yaml_int(
-        raw_vars, "crawler_run_timeout_sec", source=ctx.config_vars_source
-    )
-    if crawler_size_limit_mib <= 0:
-        die(
-            f"Config var 'crawler_size_limit_mib' in {ctx.config_vars_source} must be positive",
-            exit_code=2,
-        )
-    if crawler_run_timeout_sec <= 0:
-        die(
-            f"Config var 'crawler_run_timeout_sec' in {ctx.config_vars_source} must be positive",
-            exit_code=2,
-        )
-    proxy_cmd: list[str | Path] = [
-        "mitmdump",
-        "--mode",
-        "regular",
-        "--listen-host",
-        "127.0.0.1",
-        "--listen-port",
-        "3128",
-        "--set",
-        f"confdir={ctx.proxy_confdir}",
-        "--set",
-        "connection_strategy=lazy",
-        "--set",
-        "upstream_cert=false",
-        "--set",
-        "showhost=false",
-        "--set",
-        "validate_inbound_headers=true",
-        "--set",
-        f"webshot_mode={ctx.mode}",
-        "--set",
-        "webshot_denylist_url=http://127.0.0.1:8080/v1/denylist/check",
-        "--set",
-        f"crawler_size_limit_mib={crawler_size_limit_mib}",
-        "--set",
-        f"crawler_run_timeout_sec={crawler_run_timeout_sec}",
-        "-s",
-        ctx.repo_root / "s6/mitm_addon.py",
-    ]
-    if ctx.mode == "dev":
-        proxy_cmd.extend(
-            [
-                "--set",
-                f"ssl_verify_upstream_trusted_ca={ctx.proxy_upstream_ca_file}",
-            ]
-        )
-    _write_executable(
-        proxy_service / "run",
-        (
-            "#!/bin/sh\n"
-            f"exec >>{_shell_quote(ctx.proxy_log_file)} 2>&1\n"
-            f"cd {repo_root}\n"
-            f"exec {_shell_join(proxy_cmd)}\n"
         ),
     )
 
@@ -975,9 +860,6 @@ def _render_service_tree(ctx: RuntimeUpContext) -> list[ServiceSpec]:
         webshotd_waits = _wait_script(
             ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]
         )
-        webshotd_waits += _wait_script(
-            [sys.executable, "-m", "s6.check_tcp_ready", "127.0.0.1", "3128"]
-        )
         if ctx.mode == "dev":
             webshotd_waits += _wait_script([sys.executable, "-m", "s6.check_seaweedfs_ready"])
         _write_executable(
@@ -1036,7 +918,6 @@ def _supervisor_matches_profile(ctx: RuntimeInspectContext) -> bool:
     active_names = {spec.name for spec in _service_specs(ctx)}
     known_service_dirs = {
         "postgres": ctx.scan_dir / "postgres",
-        "proxy": ctx.scan_dir / "proxy",
         "seaweedfs": ctx.scan_dir / "seaweedfs",
         "test_target": ctx.scan_dir / "test_target",
         "webshotd": ctx.webshotd_service_dir,
@@ -1234,7 +1115,6 @@ def _ensure_dev_bucket(ctx: RuntimeStateContext) -> None:
 def _prepare_runtime(ctx: RuntimeUpContext) -> list[ServiceSpec]:
     ctx.state_dir.mkdir(parents=True, exist_ok=True)
     _bootstrap_postgres(ctx)
-    _render_proxy_runtime(ctx)
     if ctx.scan_dir.exists():
         shutil.rmtree(ctx.scan_dir)
     if ctx.mode == "dev":

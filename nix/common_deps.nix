@@ -19,7 +19,6 @@
     s6
     seaweedfs
     util-linux
-    mitmproxy
     socat
   ];
 }

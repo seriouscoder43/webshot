@@ -83,6 +83,7 @@ set(${PROJECT_NAME}_headers
 	include/crawler/limits.hpp
 	include/crawler/launch_policy.hpp
 	include/crawler/cdp_client.hpp
+    include/crawler/egress_proxy.hpp
     include/config.hpp
     include/crawler/failure.hpp
     include/crawler/fallback.hpp
@@ -115,6 +116,7 @@ add_library(
   src/crawler/artifacts.cpp
   src/crawler/browser_sandbox.cpp
   src/crawler/cdp_client.cpp
+  src/crawler/egress_proxy.cpp
   src/crawler/failure.cpp
   src/text_postgres_formatter.cpp
   src/error_utils.cpp

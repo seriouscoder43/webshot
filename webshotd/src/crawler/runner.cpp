@@ -1,14 +1,19 @@
 #include "crawler/runner.hpp"
 
+#include "config.hpp"
 #include "crawler/artifacts.hpp"
 #include "crawler/browser_sandbox.hpp"
 #include "crawler/cdp_client.hpp"
+#include "crawler/egress_proxy.hpp"
 #include "crawler/failure.hpp"
 #include "crawler/launch_policy.hpp"
 #include "crawler/limits.hpp"
 #include "deadline_utils.hpp"
+#include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
+#include "link.hpp"
+#include "prefix_utils.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
 #include "url.hpp"
@@ -21,6 +26,7 @@
 #include <chrono>
 #include <csignal>
 #include <format>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -33,6 +39,7 @@
 
 #include <absl/strings/ascii.h>
 
+#include <userver/clients/dns/resolver.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/crypto/exception.hpp>
 #include <userver/engine/deadline.hpp>
@@ -51,6 +58,7 @@
 #include <userver/utils/resources.hpp>
 #include <userver/utils/traceful_exception.hpp>
 namespace chrono = std::chrono;
+namespace dns = us::clients::dns;
 
 using namespace text::literals;
 
@@ -376,16 +384,6 @@ void removeBrowserRunDir(const std::string &path) noexcept
     return processStarter.Exec(executablePath, args, std::move(options));
 }
 
-[[nodiscard]] us::engine::subprocess::ChildProcess
-spawnProxyBridge(us::engine::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths)
-{
-    auto args = std::vector<std::string>{
-        "UNIX-LISTEN:" + paths.proxySocketPath + ",fork,unlink-early",
-        std::format("TCP-CONNECT:127.0.0.1:{}", crawler::kProxyUpstreamPort),
-    };
-    return spawnProcess(processStarter, "socat", args, paths.devNullPath, paths.devNullPath);
-}
-
 [[nodiscard]] us::engine::subprocess::ChildProcess spawnSandboxedBrowser(
     us::engine::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths,
     std::string_view cgroupRootPath, const std::optional<crawler::CgroupLimits> &cgroupLimits
@@ -491,16 +489,20 @@ template <typename Process> void stopProcess(Process &process, chrono::milliseco
 class [[nodiscard]] BrowserInstance final {
 public:
     BrowserInstance(
+        dns::Resolver &dnsResolver, size_t urlBytesMax, i64 proxyDownBytesMax,
         us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
         std::string cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
         crawler::CrawlerTunables tunables, i64 cdpMaxRemotePayloadBytes
     )
-        : processStarter(processStarter),
+        : dnsResolver(dnsResolver), urlBytesMax(urlBytesMax), proxyDownBytesMax(proxyDownBytesMax),
+          processStarter(processStarter),
           browserRunsRoot(normalizeDirPath(std::move(browserRunsRootIn))),
           cgroupRootPath(std::move(cgroupRootPath)), cgroupLimits(std::move(cgroupLimits)),
           tunables(std::move(tunables)), cdpMaxRemotePayloadBytes(cdpMaxRemotePayloadBytes)
     {
         UINVARIANT(cdpMaxRemotePayloadBytes > 0_i64, "cdp max remote payload must be positive");
+        UINVARIANT(urlBytesMax > 0UL, "urlBytesMax must be positive");
+        UINVARIANT(proxyDownBytesMax > 0_i64, "proxyDownBytesMax must be positive");
     }
 
     ~BrowserInstance() { close(); }
@@ -517,7 +519,18 @@ public:
         const auto devtoolsDeadline = us::engine::Deadline::FromDuration(
             tunables.devtoolsStartupTimeout
         );
-        proxyBridge.emplace(spawnProxyBridge(processStarter, paths));
+        markPhase("start_proxy");
+        proxy = std::make_unique<crawler::EgressProxy>(crawler::EgressProxyConfig{
+            .socketPath = paths.proxySocketPath,
+            .runId = paths.runId,
+            .urlBytesMax = urlBytesMax,
+            .downBytesMax = proxyDownBytesMax,
+            .enableLocalFixtureRewrite = tunables.enableLocalFixtureRewrite,
+        });
+        auto proxyStarted = proxy->start(dnsResolver, devtoolsDeadline);
+        if (!proxyStarted)
+            return std::unexpected(text::format("proxy failed to start: {}", proxyStarted.error()));
+        markPhase("start_proxy_done");
         process.emplace(spawnSandboxedBrowser(processStarter, paths, cgroupRootPath, cgroupLimits));
         auto ready = waitForDevtoolsPath(devtoolsDeadline);
         if (!ready)
@@ -603,9 +616,13 @@ public:
             diagnostics, "cdp_socket_exists",
             us::fs::blocking::FileExists(paths.cdpSocketPath) ? "true" : "false"
         );
-        appendDiagnosticField(
-            diagnostics, "proxy_running", isProcessRunning(proxyBridge) ? "true" : "false"
-        );
+        if (proxy) {
+            appendDiagnosticField(
+                diagnostics, "proxy_down_bytes", std::format("{}", proxy->downBytes())
+            );
+            if (const auto proxyFailure = proxy->failureReason())
+                appendDiagnosticField(diagnostics, "proxy_failure", proxyFailure->view());
+        }
         if (preservedDir)
             appendDiagnosticField(diagnostics, "preserved_browser_dir", preservedDir.value());
 
@@ -621,9 +638,18 @@ public:
         closed = true;
 
         stopProcess(process, tunables.browserStopTimeout);
-        stopProcess(proxyBridge, tunables.proxyStopTimeout);
+        if (proxy)
+            proxy->close();
         if (!paths.rootDir.empty() && !preserveRunDir)
             removeBrowserRunDir(paths.rootDir);
+    }
+
+    [[nodiscard]] i64 proxyDownBytes() const noexcept { return proxy ? proxy->downBytes() : 0_i64; }
+    [[nodiscard]] std::optional<String> proxyFailureReason() const noexcept
+    {
+        if (!proxy)
+            return {};
+        return proxy->failureReason();
     }
 
 private:
@@ -666,6 +692,9 @@ private:
         );
     }
 
+    dns::Resolver &dnsResolver;
+    size_t urlBytesMax;
+    i64 proxyDownBytesMax;
     us::engine::subprocess::ProcessStarter &processStarter;
     std::string browserRunsRoot;
     std::string cgroupRootPath;
@@ -673,7 +702,7 @@ private:
     crawler::CrawlerTunables tunables;
     i64 cdpMaxRemotePayloadBytes;
     BrowserPaths paths;
-    std::optional<us::engine::subprocess::ChildProcess> proxyBridge;
+    std::unique_ptr<crawler::EgressProxy> proxy;
     std::optional<us::engine::subprocess::ChildProcess> process;
     String websocketPath;
     std::optional<std::string> preservedFailureDir;
@@ -684,6 +713,11 @@ private:
 struct [[nodiscard]] RetainedBodyBudget {
     i64 maxBytes;
     i64 retainedBytes;
+};
+
+struct [[nodiscard]] CaptureWithNetwork final {
+    crawler::CapturedExchange exchange;
+    i64 proxyDownBytes;
 };
 
 [[nodiscard]] Expected<std::string, String>
@@ -761,6 +795,74 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
     }
 
     return requestUrl;
+}
+
+[[nodiscard]] std::optional<String> normalizeInterceptedUrlForDenylist(const String &requestUrl)
+{
+    if (requestUrl.startsWith("ws://")) {
+        auto normalized = String::fromBytes("http://" + std::string(requestUrl.view().substr(5)));
+        if (!normalized)
+            return {};
+        return grabValueOf(normalized);
+    }
+    if (requestUrl.startsWith("wss://")) {
+        auto normalized = String::fromBytes("https://" + std::string(requestUrl.view().substr(6)));
+        if (!normalized)
+            return {};
+        return grabValueOf(normalized);
+    }
+
+    const auto parsed = Url::fromText(requestUrl);
+    if (!parsed)
+        return {};
+    if (!parsed->isHttp() && !parsed->isHttps())
+        return {};
+    return requestUrl;
+}
+
+[[nodiscard]] Expected<bool, String>
+isAllowedByDenylist(Denylist &denylist, const Config &config, const String &requestUrl)
+{
+    const auto normalized = normalizeInterceptedUrlForDenylist(requestUrl);
+    if (!normalized)
+        return true;
+
+    const auto link = Link::fromText(
+        normalized.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
+    );
+    if (!link)
+        return std::unexpected(
+            text::format("failed to normalize intercepted request url {}", normalized->view())
+        );
+
+    const auto allowed = denylist.isAllowedPrefix(prefix::makePrefixKey(link.value()));
+    if (!allowed)
+        return std::unexpected("denylist check failed during fetch interception"_t);
+    return allowed.value();
+}
+
+[[nodiscard]] std::vector<dto::FetchHeaderEntry> buildBlockedFetchHeaders(size_t bodyBytes)
+{
+    std::vector<dto::FetchHeaderEntry> headers;
+    headers.push_back(
+        dto::FetchHeaderEntry{
+            .name = "Content-Type",
+            .value = "text/plain; charset=utf-8",
+        }
+    );
+    headers.push_back(
+        dto::FetchHeaderEntry{
+            .name = "Content-Length",
+            .value = std::format("{}", bodyBytes),
+        }
+    );
+    headers.push_back(
+        dto::FetchHeaderEntry{
+            .name = "Cache-Control",
+            .value = "no-store",
+        }
+    );
+    return headers;
 }
 
 struct [[nodiscard]] TrackedRequest {
@@ -951,20 +1053,21 @@ public:
     {
         if (const auto *request = resolvedMainRequest();
             request != nullptr && request->statusCode) {
+            const auto loadState = request->loaded && !mainRequestFailure ? 2_i64 : 0_i64;
             return crawler::SeedPageProbe{
                 .status = raw(request->statusCode.value()),
-                .loadState = request->loaded && !mainRequestFailure ? std::optional<int64_t>{2}
-                                                                    : std::optional<int64_t>{0},
+                .loadState = raw(loadState),
             };
         }
 
         if (mainRequestId || mainRequestFailure || loaded)
-            return crawler::SeedPageProbe{.status = 0, .loadState = 0};
+            return crawler::SeedPageProbe{.status = raw(0_i64), .loadState = raw(0_i64)};
 
         return {};
     }
 
     [[nodiscard]] const std::optional<String> &failureReason() const { return mainRequestFailure; }
+    void fail(String reason) { mainRequestFailure = std::move(reason); }
 
     [[nodiscard]] Expected<std::string, String> readBody(
         crawler::CdpClient &cdp, const String &sessionIdIn, RetainedBodyBudget &budget,
@@ -1533,22 +1636,24 @@ runSiteBehavior(crawler::CdpClient &cdp, const String &sessionId, us::engine::De
 class [[nodiscard]] CaptureSession final {
 public:
     CaptureSession(
-        us::engine::subprocess::ProcessStarter &processStarter, std::string browserRunsRootIn,
-        std::string cgroupRootPathIn, std::optional<crawler::CgroupLimits> cgroupLimitsIn,
-        crawler::CaptureTimings timings, crawler::CrawlerTunables tunablesIn, i64 maxArchiveBytesIn,
-        us::engine::Deadline deadline, crawler::RunRequest run
+        Denylist &denylist, const Config &config, dns::Resolver &dnsResolver, size_t urlBytesMax,
+        i64 proxyDownBytesMax, us::engine::subprocess::ProcessStarter &processStarter,
+        std::string browserRunsRootIn, std::string cgroupRootPathIn,
+        std::optional<crawler::CgroupLimits> cgroupLimitsIn, crawler::CaptureTimings timings,
+        crawler::CrawlerTunables tunablesIn, i64 maxArchiveBytesIn, us::engine::Deadline deadline,
+        crawler::RunRequest run
     )
-        : timings(std::move(timings)), run(std::move(run)), deadline(deadline),
-          maxArchiveBytes(maxArchiveBytesIn),
+        : denylist(denylist), config(config), timings(std::move(timings)), run(std::move(run)),
+          deadline(deadline), maxArchiveBytes(maxArchiveBytesIn),
           browser(
-              processStarter, std::move(browserRunsRootIn), std::move(cgroupRootPathIn),
-              std::move(cgroupLimitsIn), std::move(tunablesIn),
-              computeCdpMaxRemotePayloadBytes(maxArchiveBytesIn)
+              dnsResolver, urlBytesMax, proxyDownBytesMax, processStarter,
+              std::move(browserRunsRootIn), std::move(cgroupRootPathIn), std::move(cgroupLimitsIn),
+              std::move(tunablesIn), computeCdpMaxRemotePayloadBytes(maxArchiveBytesIn)
           )
     {
     }
 
-    [[nodiscard]] Expected<crawler::CapturedExchange, CaptureFailure> capture()
+    [[nodiscard]] Expected<CaptureWithNetwork, CaptureFailure> capture()
     {
         auto launched = launch();
         if (!launched) {
@@ -1569,6 +1674,10 @@ public:
                     "{}, tracker_failure={}", failureDetail, tracker->failureReason()->view()
                 );
             }
+            if (const auto proxyFailure = browser.proxyFailureReason())
+                failureDetail = std::format(
+                    "{}, proxy_failure={}", failureDetail, proxyFailure->view()
+                );
             auto seedProbe = currentSeedProbe();
             closeCdpForFailure();
             browser.close();
@@ -1579,7 +1688,11 @@ public:
                 }
             );
         }
-        return grabValueOf(captured);
+        auto value = grabValueOf(captured);
+        return CaptureWithNetwork{
+            .exchange = std::move(value),
+            .proxyDownBytes = browser.proxyDownBytes(),
+        };
     }
 
 private:
@@ -1643,6 +1756,10 @@ private:
         sessionId = String::fromBytes(attached->sessionId).expect();
         tracker = std::make_unique<PageTracker>(sessionId.value(), targetId.value());
         listenerId = cdpClient().addListener([this](crawler::CdpEvent event) {
+            if (event.method == "Fetch.requestPaused"_t) {
+                handleFetchRequestPaused(event);
+                return;
+            }
             if (tracker)
                 tracker->handleEvent(event);
         });
@@ -1659,6 +1776,12 @@ private:
             return std::unexpected(ok.error());
         browser.markPhase("enable_network");
         if (auto ok = sendVoid("Network.enable", attachedSessionId()); !ok)
+            return std::unexpected(ok.error());
+
+        browser.markPhase("enable_fetch");
+        dto::FetchEnableParams fetchParams;
+        fetchParams.handleAuthRequests = false;
+        if (auto ok = sendVoid("Fetch.enable", fetchParams, attachedSessionId()); !ok)
             return std::unexpected(ok.error());
 
         browser.markPhase("enable_lifecycle_events");
@@ -1809,6 +1932,8 @@ private:
         browser.markPhase("before_browser_close");
         LOG_INFO() << std::format("captureViaProxy closing browser for {}", run.seedUrl);
         browser.close();
+        if (const auto proxyFailure = browser.proxyFailureReason())
+            return std::unexpected(proxyFailure.value());
         LOG_INFO() << std::format("captureViaProxy returning capture for {}", run.seedUrl);
         return exchange;
     }
@@ -1894,6 +2019,69 @@ private:
         return sessionId.value();
     }
 
+    void noteInterceptionFailure(String reason)
+    {
+        if (interceptionFailure)
+            return;
+        if (tracker)
+            tracker->fail(reason);
+        interceptionFailure = std::move(reason);
+    }
+
+    void handleFetchRequestPaused(const crawler::CdpEvent &event)
+    {
+        if (!sessionId || !event.sessionId || event.sessionId->view() != sessionId->view())
+            return;
+
+        const auto paused = parseEventParams<dto::FetchRequestPausedEvent>(event);
+        if (!paused) {
+            noteInterceptionFailure(paused.error());
+            return;
+        }
+
+        const auto requestUrl = String::fromBytes(paused->request.url);
+        if (!requestUrl) {
+            noteInterceptionFailure("Fetch.requestPaused contained invalid request url"_t);
+            return;
+        }
+
+        const auto allowed = isAllowedByDenylist(denylist, config, requestUrl.value());
+        if (!allowed) {
+            noteInterceptionFailure(allowed.error());
+            return;
+        }
+
+        if (allowed.value()) {
+            dto::FetchContinueRequestParams params;
+            params.requestId = paused->requestId;
+            const auto continued = cdpClient().sendNoWait(
+                "Fetch.continueRequest", params, attachedSessionId()
+            );
+            if (!continued)
+                noteInterceptionFailure(
+                    describeCdpFailure("Fetch.continueRequest failed"_t, continued.error())
+                );
+            return;
+        }
+
+        static constexpr std::string_view kBody = "Blocked by webshot denylist\n";
+        dto::FetchFulfillRequestParams params;
+        params.requestId = paused->requestId;
+        params.responseCode = 403;
+        params.responsePhrase = "Forbidden";
+        params.responseHeaders = buildBlockedFetchHeaders(kBody.size());
+        params.body = us::crypto::base64::Base64Encode(kBody);
+        const auto fulfilled = cdpClient().sendNoWait(
+            "Fetch.fulfillRequest", params, attachedSessionId()
+        );
+        if (!fulfilled)
+            noteInterceptionFailure(
+                describeCdpFailure("Fetch.fulfillRequest failed"_t, fulfilled.error())
+            );
+    }
+
+    Denylist &denylist;
+    const Config &config;
     crawler::CaptureTimings timings;
     crawler::RunRequest run;
     us::engine::Deadline deadline;
@@ -1905,32 +2093,36 @@ private:
     std::optional<String> targetId;
     std::optional<String> sessionId;
     std::optional<crawler::CdpClient::ListenerId> listenerId;
+    std::optional<String> interceptionFailure;
 };
 
-[[nodiscard]] Expected<crawler::CapturedExchange, CaptureFailure> captureViaProxy(
-    us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
-    const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
-    crawler::CaptureTimings timings, const crawler::CrawlerTunables &tunables, i64 maxArchiveBytes,
-    us::engine::Deadline deadline, const crawler::RunRequest &run
+[[nodiscard]] Expected<CaptureWithNetwork, CaptureFailure> captureViaProxy(
+    Denylist &denylist, const Config &config, dns::Resolver &dnsResolver, size_t urlBytesMax,
+    i64 proxyDownBytesMax, us::engine::subprocess::ProcessStarter &processStarter,
+    const std::string &browserRunsRoot, const std::string &cgroupRootPath,
+    std::optional<crawler::CgroupLimits> cgroupLimits, crawler::CaptureTimings timings,
+    const crawler::CrawlerTunables &tunables, i64 maxArchiveBytes, us::engine::Deadline deadline,
+    const crawler::RunRequest &run
 )
 {
     auto session = CaptureSession(
-        processStarter, std::string(browserRunsRoot), std::string(cgroupRootPath),
-        std::move(cgroupLimits), std::move(timings), tunables, maxArchiveBytes, deadline,
+        denylist, config, dnsResolver, urlBytesMax, proxyDownBytesMax, processStarter,
+        std::string(browserRunsRoot), std::string(cgroupRootPath), std::move(cgroupLimits),
+        std::move(timings), tunables, maxArchiveBytes, deadline,
         crawler::RunRequest{.seedUrl = run.seedUrl}
     );
     return session.capture();
 }
 
 [[nodiscard]] CrawlerRunArtifacts executeRun(
-    us::clients::http::Client &httpClient, us::engine::subprocess::ProcessStarter &processStarter,
-    const std::string &browserRunsRoot, const std::string &cgroupRootPath,
-    std::optional<crawler::CgroupLimits> cgroupLimits, const crawler::CaptureTimings &timings,
-    const crawler::CrawlerTunables &tunables, i64 maxArchiveBytes, us::engine::Deadline deadline,
+    Denylist &denylist, const Config &config, dns::Resolver &dnsResolver,
+    us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
+    const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
+    const crawler::CaptureTimings &timings, const crawler::CrawlerTunables &tunables,
+    i64 maxArchiveBytes, i64 networkDownBytesRatioMax, us::engine::Deadline deadline,
     const crawler::RunRequest &run
 )
 {
-    static_cast<void>(httpClient);
     CrawlerRunArtifacts out;
     out.attempt.exited = true;
     try {
@@ -1955,14 +2147,28 @@ private:
             return out;
         };
 
-        auto exchange = captureViaProxy(
-            processStarter, browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), timings,
-            tunables, maxArchiveBytes, deadline, run
+        UINVARIANT(networkDownBytesRatioMax > 0_i64, "networkDownBytesRatioMax must be positive");
+        const auto maxDownBytes = [&]() -> i64 {
+            const auto max = maxArchiveBytes;
+            const auto ratio = networkDownBytesRatioMax;
+            UINVARIANT(max > 0_i64, "max archive bytes must be positive");
+            UINVARIANT(ratio > 0_i64, "ratio must be positive");
+            const auto maxI64 = std::numeric_limits<i64>::max();
+            if (ratio > maxI64 / max)
+                return maxI64;
+            return ratio * max;
+        }();
+
+        auto captured = captureViaProxy(
+            denylist, config, dnsResolver, config.urlBytesMax(), maxDownBytes, processStarter,
+            browserRunsRoot, cgroupRootPath, std::move(cgroupLimits), timings, tunables,
+            maxArchiveBytes, deadline, run
         );
-        if (!exchange) {
+        if (!captured) {
             constexpr std::string_view kSizeLimitPrefix = "size_limit:";
-            if (exchange.error().detail.startsWith(kSizeLimitPrefix)) {
-                auto detailText = exchange.error().detail.view();
+            constexpr std::string_view kNetLimitPrefix = "net_limit:";
+            if (captured.error().detail.startsWith(kSizeLimitPrefix)) {
+                auto detailText = captured.error().detail.view();
                 detailText.remove_prefix(kSizeLimitPrefix.size());
                 if (!detailText.empty() && detailText.front() == ' ')
                     detailText.remove_prefix(1);
@@ -1971,40 +2177,50 @@ private:
                     crawler::CrawlerExitCode::kSizeLimit
                 );
                 out.attempt.waczExists = false;
-                out.attempt.seedProbe = exchange.error().seedProbe;
+                out.attempt.seedProbe = captured.error().seedProbe;
                 out.attempt.failureDetail.reset();
                 if (parsed)
                     out.attempt.failureDetail = grabValueOf(parsed);
+            } else if (captured.error().detail.startsWith(kNetLimitPrefix)) {
+                out.attempt.exitCode = us::utils::UnderlyingValue(
+                    crawler::CrawlerExitCode::kFailedLimit
+                );
+                out.attempt.waczExists = false;
+                out.attempt.seedProbe = captured.error().seedProbe;
+                out.attempt.failureDetail = captured.error().detail;
             } else {
                 out.attempt.exitCode = 9;
                 out.attempt.waczExists = false;
-                out.attempt.seedProbe = exchange.error().seedProbe;
-                out.attempt.failureDetail = exchange.error().detail;
+                out.attempt.seedProbe = captured.error().seedProbe;
+                out.attempt.failureDetail = captured.error().detail;
             }
             out.stdoutLog.clear();
-            out.stderrLog = std::string(exchange.error().detail.view()) + "\n";
+            out.stderrLog = std::string(captured.error().detail.view()) + "\n";
             out.wacz.reset();
             out.pagesJsonl.reset();
             out.contentSha256.reset();
             return out;
         }
+
+        auto exchange = std::move(captured->exchange);
+        const auto proxyDownBytes = captured->proxyDownBytes;
         LOG_INFO() << std::format(
             "crawler captureViaProxy finished for {} with status={}", run.seedUrl,
-            exchange->statusCode
+            exchange.statusCode
         );
-        auto pages = crawler::buildPagesJsonl(*exchange);
+        auto pages = crawler::buildPagesJsonl(exchange);
         LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seedUrl);
-        out.contentSha256 = crawler::computeContentSha256(*exchange);
+        out.contentSha256 = crawler::computeContentSha256(exchange);
         {
             auto log = crawler::buildSuccessStdoutLog(
-                run, *exchange, 0_i64, crawler::ReusedBrowser::kNo
+                run, exchange, 0_i64, crawler::ReusedBrowser::kNo
             );
             if (!log)
                 UINVARIANT(false, log.error().detail);
             out.stdoutLog = grabValueOf(log);
         }
         out.stderrLog.clear();
-        auto warc = crawler::buildWarc(*exchange);
+        auto warc = crawler::buildWarc(exchange);
         if (!warc)
             return failArtifact(warc.error());
         LOG_INFO() << std::format("crawler buildWarc finished for {}", run.seedUrl);
@@ -2025,8 +2241,8 @@ private:
             out.attempt.exitCode = us::utils::UnderlyingValue(crawler::CrawlerExitCode::kSizeLimit);
             out.attempt.waczExists = false;
             out.attempt.seedProbe = crawler::SeedPageProbe{
-                .status = numericCast<int64_t>(exchange->statusCode),
-                .loadState = 0,
+                .status = raw(exchange.statusCode),
+                .loadState = raw(0_i64),
             };
             out.attempt.failureDetail = detail;
             out.wacz.reset();
@@ -2036,10 +2252,40 @@ private:
             return out;
         }
 
-        const auto exitCode = exchange->statusCode >= 400_i64 ? 9_i64 : 0_i64;
-        const auto loadState = exitCode != 0_i64 || exchange->statusCode >= 400_i64 ? 0_i64 : 2_i64;
-        if (exchange->statusCode >= 400_i64) {
-            out.attempt.failureDetail = text::format("seed returned HTTP {}", exchange->statusCode);
+        const auto maxDownByFinal = [&]() -> i64 {
+            const auto ratio = networkDownBytesRatioMax;
+            const auto maxI64 = std::numeric_limits<i64>::max();
+            if (waczBytes <= 0_i64)
+                return 0_i64;
+            if (ratio > maxI64 / waczBytes)
+                return maxI64;
+            return ratio * waczBytes;
+        }();
+        if (proxyDownBytes > maxDownByFinal) {
+            const auto detail = text::format(
+                "net_limit: proxy downstream bytes {} exceeded post-run limit {}", proxyDownBytes,
+                maxDownByFinal
+            );
+            out.attempt.exitCode = us::utils::UnderlyingValue(
+                crawler::CrawlerExitCode::kFailedLimit
+            );
+            out.attempt.waczExists = false;
+            out.attempt.seedProbe = crawler::SeedPageProbe{
+                .status = raw(exchange.statusCode),
+                .loadState = raw(0_i64),
+            };
+            out.attempt.failureDetail = detail;
+            out.wacz.reset();
+            out.pagesJsonl.reset();
+            out.contentSha256.reset();
+            out.stderrLog += std::string(detail.view()) + "\n";
+            return out;
+        }
+
+        const auto exitCode = exchange.statusCode >= 400_i64 ? 9_i64 : 0_i64;
+        const auto loadState = exitCode != 0_i64 || exchange.statusCode >= 400_i64 ? 0_i64 : 2_i64;
+        if (exchange.statusCode >= 400_i64) {
+            out.attempt.failureDetail = text::format("seed returned HTTP {}", exchange.statusCode);
         }
 
         LOG_INFO() << std::format(
@@ -2050,8 +2296,8 @@ private:
         out.attempt.exitCode = numericCast<int>(exitCode);
         out.attempt.waczExists = true;
         out.attempt.seedProbe = crawler::SeedPageProbe{
-            .status = numericCast<int64_t>(exchange->statusCode),
-            .loadState = numericCast<int64_t>(loadState),
+            .status = raw(exchange.statusCode),
+            .loadState = raw(loadState),
         };
         out.wacz = grabValueOf(wacz);
         out.pagesJsonl = std::move(pages);
@@ -2079,25 +2325,29 @@ private:
 } // namespace
 
 CrawlerRunner::CrawlerRunner(
-    us::clients::http::Client &httpClient, us::engine::subprocess::ProcessStarter &processStarter,
-    chrono::seconds runTimeout, std::string stateDir, std::optional<crawler::CgroupLimits> limits,
-    i64 maxArchiveBytes, crawler::CaptureTimings timings, crawler::CrawlerTunables tunables
+    Denylist &denylist, const Config &config, dns::Resolver &dnsResolver,
+    us::engine::subprocess::ProcessStarter &processStarter, chrono::seconds runTimeout,
+    std::string stateDir, std::optional<crawler::CgroupLimits> limits, i64 maxArchiveBytes,
+    crawler::CaptureTimings timings, crawler::CrawlerTunables tunables, i64 networkDownBytesRatioMax
 )
-    : httpClient(httpClient), processStarter(processStarter), runTimeout(runTimeout),
-      browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir))),
+    : denylist(denylist), config(config), dnsResolver(dnsResolver), processStarter(processStarter),
+      runTimeout(runTimeout), browserRunsRoot(buildBrowserRunsRoot(std::move(stateDir))),
       cgroupRootPath(limits ? resolveDelegatedCgroupRootPath() : std::string()),
-      maxArchiveBytes(maxArchiveBytes), timings(std::move(timings)), tunables(std::move(tunables))
+      cgroupLimits(std::move(limits)), maxArchiveBytes(maxArchiveBytes),
+      timings(std::move(timings)), tunables(std::move(tunables)),
+      networkDownBytesRatioMax(networkDownBytesRatioMax)
 {
     UINVARIANT(maxArchiveBytes > 0_i64, "max archive bytes must be positive");
-    cgroupLimits = std::move(limits);
+    UINVARIANT(networkDownBytesRatioMax > 0_i64, "networkDownBytesRatioMax must be positive");
 }
 
 CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
     const auto deadline = us::engine::Deadline::FromDuration(runTimeout);
     return executeRun(
-        httpClient, processStarter, browserRunsRoot, cgroupRootPath, cgroupLimits, timings,
-        tunables, maxArchiveBytes, deadline, crawler::RunRequest{.seedUrl = seedUrl}
+        denylist, config, dnsResolver, processStarter, browserRunsRoot, cgroupRootPath,
+        cgroupLimits, timings, tunables, maxArchiveBytes, networkDownBytesRatioMax, deadline,
+        crawler::RunRequest{.seedUrl = seedUrl}
     );
 }
 

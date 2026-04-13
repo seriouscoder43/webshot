@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <functional>
 #include <limits>
 #include <string_view>
 #include <type_traits>
@@ -52,6 +53,8 @@ using AbortPolicy = boost::safe_numerics::exception_policy<Abort, Abort, Abort, 
 
 } // namespace integers_detail
 
+using u16 = boost::safe_numerics::safe<
+    uint16_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
 using u32 = boost::safe_numerics::safe<
     uint32_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
 using i32 =
@@ -63,12 +66,14 @@ using i64 =
 using usize =
     boost::safe_numerics::safe<size_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
 
+static_assert(std::numeric_limits<u16>::is_specialized);
 static_assert(std::numeric_limits<u32>::is_specialized);
 static_assert(std::numeric_limits<i32>::is_specialized);
 static_assert(std::numeric_limits<u64>::is_specialized);
 static_assert(std::numeric_limits<i64>::is_specialized);
 static_assert(std::numeric_limits<usize>::is_specialized);
 
+static_assert(std::is_same_v<decltype(std::numeric_limits<u16>::max()), u16>);
 static_assert(std::is_same_v<decltype(std::numeric_limits<u32>::max()), u32>);
 static_assert(std::is_same_v<decltype(std::numeric_limits<i32>::max()), i32>);
 static_assert(std::is_same_v<decltype(std::numeric_limits<u64>::max()), u64>);
@@ -130,6 +135,8 @@ inline constexpr SSizeFn ssize{};
 
 namespace integers::literals {
 
+[[nodiscard]] constexpr u16 operator""_u16(unsigned long long value) noexcept { return u16(value); }
+
 [[nodiscard]] constexpr u32 operator""_u32(unsigned long long value) noexcept { return u32(value); }
 
 [[nodiscard]] constexpr i32 operator""_i32(unsigned long long value) noexcept { return i32(value); }
@@ -146,6 +153,13 @@ using integers::ssize;
 using namespace integers::literals;
 
 namespace std {
+
+template <> struct formatter<u16, char> : formatter<uint16_t, char> {
+    auto format(const u16 &value, format_context &ctx) const
+    {
+        return formatter<uint16_t, char>::format(integers::raw(value), ctx);
+    }
+};
 
 template <> struct formatter<u32, char> : formatter<uint32_t, char> {
     auto format(const u32 &value, format_context &ctx) const
@@ -172,6 +186,41 @@ template <> struct formatter<i64, char> : formatter<int64_t, char> {
     auto format(const i64 &value, format_context &ctx) const
     {
         return formatter<int64_t, char>::format(integers::raw(value), ctx);
+    }
+};
+
+template <> struct hash<u16> {
+    size_t operator()(const u16 &value) const noexcept
+    {
+        return hash<uint16_t>{}(integers::raw(value));
+    }
+};
+
+template <> struct hash<u32> {
+    size_t operator()(const u32 &value) const noexcept
+    {
+        return hash<uint32_t>{}(integers::raw(value));
+    }
+};
+
+template <> struct hash<i32> {
+    size_t operator()(const i32 &value) const noexcept
+    {
+        return hash<int32_t>{}(integers::raw(value));
+    }
+};
+
+template <> struct hash<u64> {
+    size_t operator()(const u64 &value) const noexcept
+    {
+        return hash<uint64_t>{}(integers::raw(value));
+    }
+};
+
+template <> struct hash<i64> {
+    size_t operator()(const i64 &value) const noexcept
+    {
+        return hash<int64_t>{}(integers::raw(value));
     }
 };
 
