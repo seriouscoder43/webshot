@@ -194,7 +194,7 @@ def patch_s3_config(s3_gate_port):
         components = config_yaml["components_manager"]["components"]
         cfg = components["config"]
         cfg["s3_endpoint"] = f"http://{_S3_GATE_HOST}:{s3_gate_port}"
-        cfg["s3_timeout_ms"] = 5000
+        cfg["s3_timeout_ms"] = 3000
 
     return _patch
 
@@ -221,7 +221,7 @@ def service_config_path_temp(
     http_client_core = components["http-client-core"]
     if http_client_core is None:
         raise RuntimeError("http-client-core component config must be present")
-    http_client_core["testsuite-timeout"] = "20s"
+    http_client_core["testsuite-timeout"] = "5s"
 
     if not config_vars:
         config_yaml.pop("config_vars", None)

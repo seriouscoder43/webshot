@@ -53,6 +53,7 @@
 #include <userver/crypto/base64.hpp>
 #include <userver/engine/semaphore.hpp>
 #include <userver/engine/sleep.hpp>
+#include <userver/engine/task/cancel.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/engine/task/task_processor_fwd.hpp>
 #include <userver/formats/json.hpp>
@@ -1153,11 +1154,20 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
     const auto createdAtTp = grabValueOf(createdAt);
     implPtr->metrics.accountCaptureJobCreated();
     implPtr->crawlBackground.AsyncDetach("crawl_job", [implPtr, id, link = std::move(link)]() {
+        const auto markFailed = [&](const String &errorCategory, const String &errorMessage) {
+            // Persist terminal job state even if the crawl deadline has already cancelled this
+            // task.
+            const engine::TaskCancellationBlocker blocker;
+            return implPtr->markJobFailed(id, errorCategory, errorMessage);
+        };
+        const auto markSucceeded = [&](Uuid resultCaptureId,
+                                       const us::utils::datetime::TimePointTz &createdAtValue) {
+            const engine::TaskCancellationBlocker blocker;
+            return implPtr->markJobSucceeded(id, resultCaptureId, createdAtValue);
+        };
         auto markInternalError = [&](std::string_view what) {
             LOG_ERROR() << std::format("Unexpected crawl job failure for {}: {}", id, what);
-            const auto marked = implPtr->markJobFailed(
-                id, "internal_server_error"_t, "internal server error"_t
-            );
+            const auto marked = markFailed("internal_server_error"_t, "internal server error"_t);
             if (!marked) {
                 LOG_ERROR() << std::format(
                     "DB update crawl job failed for {}: {}", id, marked.error().what
@@ -1181,19 +1191,13 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 using enum errors::CrawlError;
                 Expected<chrono::milliseconds, PgError> marked;
                 if (result.error().code == kSizeLimit) {
-                    marked = implPtr->markJobFailed(
-                        id, "size_limit"_t, "capture exceeded archive size limit"_t
-                    );
+                    marked = markFailed("size_limit"_t, "capture exceeded archive size limit"_t);
                 } else if (result.error().code == kPersistMetadataFailed) {
-                    marked = implPtr->markJobFailed(
-                        id, "internal_server_error"_t, "internal server error"_t
-                    );
+                    marked = markFailed("internal_server_error"_t, "internal server error"_t);
                 } else if (result.error().detail) {
-                    marked = implPtr->markJobFailed(
-                        id, "crawler_failed"_t, result.error().detail.value()
-                    );
+                    marked = markFailed("crawler_failed"_t, result.error().detail.value());
                 } else {
-                    marked = implPtr->markJobFailed(id, "crawler_failed"_t, "crawler failed"_t);
+                    marked = markFailed("crawler_failed"_t, "crawler failed"_t);
                 }
                 if (!marked) {
                     LOG_ERROR() << std::format(
@@ -1205,7 +1209,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 return;
             }
 
-            const auto succeeded = implPtr->markJobSucceeded(id, result->uuid, result->created_at);
+            const auto succeeded = markSucceeded(result->uuid, result->created_at);
             if (!succeeded) {
                 LOG_ERROR() << std::format(
                     "DB update crawl job failed for {}: {}", id, succeeded.error().what

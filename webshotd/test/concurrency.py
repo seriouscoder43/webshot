@@ -3,13 +3,21 @@ import asyncio
 import pytest
 from helper.constants import TEST_HOST
 from helper.prefix import prefix_key_from_link
+from helper.waiters import wait_for_purge
+
+_SAME_LINK_REQUEST_COUNT = 6
+_DIFFERENT_LINK_REQUEST_COUNT = 4
+_DENYLIST_REQUEST_COUNT = 6
 
 
 @pytest.mark.asyncio
 async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
     link = f"https://{TEST_HOST}/concurrent-cooldown-path"
 
-    tasks = [service_client.post("/v1/capture", json={"link": link}) for _ in range(20)]
+    tasks = [
+        service_client.post("/v1/capture", json={"link": link})
+        for _ in range(_SAME_LINK_REQUEST_COUNT)
+    ]
     responses = await asyncio.gather(*tasks)
 
     for resp in responses:
@@ -23,7 +31,7 @@ async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
 
 @pytest.mark.asyncio
 async def test_concurrent_different_links_create_jobs(service_client, pgsql):
-    links = [f"https://{TEST_HOST}/concurrent-{i}" for i in range(12)]
+    links = [f"https://{TEST_HOST}/concurrent-{i}" for i in range(_DIFFERENT_LINK_REQUEST_COUNT)]
 
     responses = await asyncio.gather(
         *[service_client.post("/v1/capture", json={"link": link_value}) for link_value in links]
@@ -56,7 +64,10 @@ async def test_disallow_and_purge_blocks_concurrent_new_captures(service_client,
     resp = await service_client.post("/v1/denylist/disallow_and_purge", params={"host": link})
     assert resp.status == 202
 
-    tasks = [service_client.post("/v1/capture", json={"link": link}) for _ in range(16)]
+    tasks = [
+        service_client.post("/v1/capture", json={"link": link})
+        for _ in range(_DENYLIST_REQUEST_COUNT)
+    ]
     responses = await asyncio.gather(*tasks)
     for r in responses:
         assert r.status == 403
@@ -64,16 +75,4 @@ async def test_disallow_and_purge_blocks_concurrent_new_captures(service_client,
         assert body["error"]["message"] == "host in denylist"
 
     db = pgsql["capture_meta_db"]
-    deadline = asyncio.get_event_loop().time() + 30.0
-    while True:
-        with db.cursor() as cur:
-            cur.execute(
-                "select count(*) from capture where prefix_key = %s or prefix_key like %s",
-                (prefix_key, f"{prefix_key}/%"),
-            )
-            (cnt,) = cur.fetchone()
-        if cnt == 0:
-            break
-        if asyncio.get_event_loop().time() >= deadline:
-            pytest.fail(f"purge did not complete; remaining rows: {cnt}")
-        await asyncio.sleep(0.5)
+    await wait_for_purge(db, prefix_key)

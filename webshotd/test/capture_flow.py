@@ -9,28 +9,13 @@ from zipfile import ZIP_STORED, ZipFile
 import pytest
 from helper.constants import TEST_ASSET_HOST, TEST_HOST
 from helper.prefix import prefix_key_from_link
+from helper.waiters import wait_for_job_status, wait_for_purge
 from minio import Minio
 
 
 def _assert_missing_job_fields(job: dict, *names: str) -> None:
     for name in names:
         assert name not in job
-
-
-async def _wait_for_purge(db, prefix_key: str, timeout: float = 30.0, delay: float = 0.5):
-    deadline = asyncio.get_event_loop().time() + timeout
-    while True:
-        with db.cursor() as cur:
-            cur.execute(
-                "select count(*) from capture where prefix_key = %s or prefix_key like %s",
-                (prefix_key, f"{prefix_key}/%"),
-            )
-            (cnt,) = cur.fetchone()
-        if cnt == 0:
-            return
-        if asyncio.get_event_loop().time() >= deadline:
-            raise AssertionError(f"purge did not complete; remaining rows: {cnt}")
-        await asyncio.sleep(delay)
 
 
 def _wacz_entries(wacz: bytes) -> dict[str, bytes]:
@@ -104,33 +89,23 @@ def _assert_wacz_cdxj_ranges_independently_replayable(wacz: bytes, urls: list[st
     assert not missing, f"missing independently replayable CDXJ ranges for: {missing!r}"
 
 
-async def _wait_for_job_status(
-    service_client, job_id: str, *, expected_status: str, attempts: int = 120
-) -> dict[str, object]:
-    for _ in range(attempts):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == expected_status:
-            return job
-        if job["status"] in {"failed", "succeeded"} and job["status"] != expected_status:
-            pytest.fail(f"job reached unexpected terminal state: {job}")
-        await asyncio.sleep(0.5)
-    pytest.fail(f"job did not reach {expected_status!r} in time")
-
-
 async def _capture_and_wait(
-    service_client, link: str, *, expected_status: str = "succeeded", attempts: int = 120
+    service_client,
+    link: str,
+    *,
+    expected_status: str = "succeeded",
+    timeout: float | None = None,
 ) -> tuple[str, dict[str, object]]:
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
-    return job_id, await _wait_for_job_status(
-        service_client,
-        job_id,
-        expected_status=expected_status,
-        attempts=attempts,
-    )
+    if timeout is None:
+        job = await wait_for_job_status(service_client, job_id, expected_status=expected_status)
+    else:
+        job = await wait_for_job_status(
+            service_client, job_id, expected_status=expected_status, timeout=timeout
+        )
+    return job_id, job
 
 
 def _wacz_cdxj_statuses_for_url(wacz: bytes, url: str) -> set[int]:
@@ -183,24 +158,13 @@ async def test_capture_and_query_roundtrip(service_client, pgsql, service_secdis
         job_body, "started_at", "finished_at", "result_created_at", "result", "error"
     )
 
-    # Wait for job completion
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{uuid_str}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            assert "started_at" in job
-            assert "finished_at" in job
-            assert "result_created_at" in job
-            assert job["result"]["uuid"] == uuid_str
-            normalized_link = job["result"]["link"]
-            _assert_missing_job_fields(job, "error")
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    job = await wait_for_job_status(service_client, uuid_str, expected_status="succeeded")
+    assert "started_at" in job
+    assert "finished_at" in job
+    assert "result_created_at" in job
+    assert job["result"]["uuid"] == uuid_str
+    normalized_link = job["result"]["link"]
+    _assert_missing_job_fields(job, "error")
 
     # Resolve by id (redirect)
     resp = await service_client.get(f"/v1/capture/{uuid_str}", allow_redirects=False)
@@ -293,17 +257,7 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     first_job_id = resp.json()["uuid"]
-    for _ in range(60):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{first_job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"initial job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("initial job did not complete")
+    await wait_for_job_status(service_client, first_job_id, expected_status="succeeded")
 
     # Disallow and purge
     resp = await service_client.post("/v1/denylist/disallow_and_purge", params={"host": link})
@@ -311,7 +265,7 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, pgsql):
 
     # Wait for purge to remove rows for this host
     db = pgsql["capture_meta_db"]
-    await _wait_for_purge(db, prefix_key)
+    await wait_for_purge(db, prefix_key)
 
     # Attempt new capture should be blocked by denylist
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -326,17 +280,7 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(160):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "failed":
-            break
-        if job["status"] == "succeeded":
-            pytest.fail(f"job succeeded unexpectedly: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not fail in time")
+    job = await wait_for_job_status(service_client, job_id, expected_status="failed")
 
     db = pgsql["capture_meta_db"]
     assert "started_at" in job
@@ -356,17 +300,7 @@ async def test_capture_depth_fetches_additional_resources(service_client, servic
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/with-subresource")
@@ -402,7 +336,7 @@ async def test_capture_near_archive_limit_success(service_client, service_secdis
                 remaining -= chunk
 
         link = f"https://{TEST_HOST}/near-archive-limit?token={token}"
-        job_id, _job = await _capture_and_wait(service_client, link, attempts=240)
+        job_id, _job = await _capture_and_wait(service_client, link, timeout=40.0)
 
         wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
         assert len(wacz) >= payload_mib * mib
@@ -495,17 +429,7 @@ async def test_denylist_blocks_subresource_fetch(service_client, service_secdist
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(
@@ -530,17 +454,7 @@ async def test_capture_fetches_https_subresource_assets(service_client, service_
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(
@@ -568,17 +482,7 @@ async def test_denylist_blocks_https_subresource_fetch(service_client, service_s
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(
@@ -603,17 +507,7 @@ async def test_https_first_succeeds_when_http_fails(service_client, service_secd
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
@@ -630,17 +524,7 @@ async def test_https_first_falls_back_to_http_when_https_no_response(
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(120):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            break
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not complete in time")
+    await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
     wacz = await _download_wacz_from_s3(service_secdist_path, job_id)
     seed_statuses = _wacz_cdxj_statuses_for_url(wacz, link)
@@ -657,17 +541,7 @@ async def test_https_first_falls_back_to_http_and_fails_when_http_fails(service_
     assert resp.status == 202
     job_id = resp.json()["uuid"]
 
-    for _ in range(160):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "failed":
-            break
-        if job["status"] == "succeeded":
-            pytest.fail(f"job succeeded unexpectedly: {job}")
-        await asyncio.sleep(0.5)
-    else:
-        pytest.fail("job did not fail in time")
+    await wait_for_job_status(service_client, job_id, expected_status="failed")
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,7 @@ components_manager:
     http-client: {}
     http-client-core:
       fs-task-processor: fs-task-processor
-      testsuite-timeout: 30s
+      testsuite-timeout: 5s
     secdist: {}
     default-secdist-provider:
       config: $secdist_path
@@ -48,7 +48,7 @@ components_manager:
       s3_endpoint: $s3_endpoint
       s3_region: $s3_region
       public_base_url: $public_base_url
-      s3_timeout_ms: 30000
+      s3_timeout_ms: 3000
     dns-client:
       fs-task-processor: fs-task-processor
     testsuite-support: {}
@@ -197,7 +197,7 @@ components_manager:
       s3_credentials_refresh_margin_sec#fallback: 300
       s3_credentials_refresh_retry_sec: $s3_credentials_refresh_retry_sec
       s3_credentials_refresh_retry_sec#fallback: 60
-      purge_job_timeout_sec: 300
+      purge_job_timeout_sec: 10
       purge_delete_batch_size: 1000
     capture_meta_db:
       dbconnection: $pg_capture_meta_db_dsn

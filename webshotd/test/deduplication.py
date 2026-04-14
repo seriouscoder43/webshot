@@ -1,31 +1,31 @@
-import asyncio
 import uuid
 
 import pytest
 from helper.constants import TEST_HOST
+from helper.waiters import wait_for_job_status
 
 
-async def _wait_for_job_succeeded(service_client, job_id: str, *, attempts: int = 120):
-    for _ in range(attempts):
-        status_resp = await service_client.get(f"/v1/capture/jobs/{job_id}")
-        assert status_resp.status == 200
-        job = status_resp.json()
-        if job["status"] == "succeeded":
-            return job
-        if job["status"] == "failed":
-            pytest.fail(f"job failed: {job}")
-        await asyncio.sleep(0.5)
-    pytest.fail("job did not complete in time")
+def _patch_dedup_crawler_timeouts(_config_yaml, config_vars):
+    # Dedup performs two full crawl jobs in one test; give only this test a bit more crawl headroom.
+    config_vars["crawler_run_timeout_sec"] = 14
+    config_vars["crawler_job_overhead_timeout_sec"] = 8
+    config_vars["crawler_devtools_startup_timeout_sec"] = 10
+    config_vars["crawler_cdp_handshake_timeout_sec"] = 6
+    config_vars["crawler_cdp_command_timeout_sec"] = 6
 
 
+@pytest.mark.uservice_oneshot(config_hooks=[_patch_dedup_crawler_timeouts])
 @pytest.mark.asyncio
 async def test_dedup_reuses_earlier_capture_uuid(service_client, pgsql):
     link = f"https://{TEST_HOST}/dedup-path"
+    dedup_timeout = 42.0
 
     resp1 = await service_client.post("/v1/capture", json={"link": link})
     assert resp1.status == 202
     job1_id = resp1.json()["uuid"]
-    job1 = await _wait_for_job_succeeded(service_client, job1_id)
+    job1 = await wait_for_job_status(
+        service_client, job1_id, expected_status="succeeded", timeout=dedup_timeout
+    )
     capture_id = job1["result"]["uuid"]
     normalized_link = job1["result"]["link"]
 
@@ -41,7 +41,9 @@ async def test_dedup_reuses_earlier_capture_uuid(service_client, pgsql):
     assert resp2.status == 202
     job2_id = resp2.json()["uuid"]
     assert job2_id != job1_id
-    job2 = await _wait_for_job_succeeded(service_client, job2_id)
+    job2 = await wait_for_job_status(
+        service_client, job2_id, expected_status="succeeded", timeout=dedup_timeout
+    )
 
     assert job2["result"]["uuid"] == capture_id
     assert job2["result"]["link"] == normalized_link
