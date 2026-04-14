@@ -357,7 +357,8 @@ serializeRecordPair(const SerializableResponse &response)
     if (defaultPort == 0)
         return true;
 
-    return url.port().view() != std::format("{}", defaultPort);
+    const auto defaultPortText = String::fromBytes(std::format("{}", defaultPort)).expect();
+    return url.port() != defaultPortText;
 }
 
 [[nodiscard]] String toSurtKey(const String &urlText)

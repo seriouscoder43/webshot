@@ -69,8 +69,8 @@ using v1::Expected;
 
 constexpr auto kMaxLogBytes = 64_i64 * 1024_i64;
 constexpr auto kCdpWsPayloadSlackBytes = 2_i64 * 1024_i64 * 1024_i64;
-constexpr auto kLocalFixtureHttpPort = "18080";
-constexpr auto kLocalFixtureHttpsPort = "18443";
+const auto kLocalFixtureHttpPort = "18080"_t;
+const auto kLocalFixtureHttpsPort = "18443"_t;
 const auto kLocalFixtureHostA = "test-target"_t;
 const auto kLocalFixtureHostB = "asset.test-target"_t;
 
@@ -177,9 +177,9 @@ normalizeHeaders(const dto::CdpHeaders &headers)
     return out;
 }
 
-[[nodiscard]] bool isLocalFixtureHost(std::string_view host) noexcept
+[[nodiscard]] bool isLocalFixtureHost(const String &host) noexcept
 {
-    return host == kLocalFixtureHostA.view() || host == kLocalFixtureHostB.view();
+    return host == kLocalFixtureHostA || host == kLocalFixtureHostB;
 }
 
 [[nodiscard]] String canonicalizeCapturedUrl(const String &urlText)
@@ -191,12 +191,12 @@ normalizeHeaders(const dto::CdpHeaders &headers)
         return urlText;
     if (!maybeUrl->hasPort())
         return urlText;
-    if (!isLocalFixtureHost(maybeUrl->hostname().view()))
+    if (!isLocalFixtureHost(maybeUrl->hostname()))
         return urlText;
 
     const auto port = maybeUrl->port();
-    const auto matchesFixturePort = (maybeUrl->isHttp() && port.view() == kLocalFixtureHttpPort) ||
-                                    (maybeUrl->isHttps() && port.view() == kLocalFixtureHttpsPort);
+    const auto matchesFixturePort = (maybeUrl->isHttp() && port == kLocalFixtureHttpPort) ||
+                                    (maybeUrl->isHttps() && port == kLocalFixtureHttpsPort);
     if (!matchesFixturePort)
         return urlText;
 
@@ -993,7 +993,7 @@ public:
             return;
         }
         if (method == "Inspector.detached") {
-            if (event.sessionId && event.sessionId->view() != sessionId.view())
+            if (event.sessionId && *event.sessionId != sessionId)
                 return;
 
             if (event.params) {
@@ -1009,7 +1009,7 @@ public:
             return;
         }
 
-        if (!event.sessionId || event.sessionId->view() != sessionId.view())
+        if (!event.sessionId || *event.sessionId != sessionId)
             return;
 
         if (method == "Page.loadEventFired") {
@@ -2099,7 +2099,7 @@ private:
 
     void handleFetchAuthRequired(const crawler::CdpEvent &event)
     {
-        if (!sessionId || !event.sessionId || event.sessionId->view() != sessionId->view())
+        if (!sessionId || !event.sessionId || *event.sessionId != *sessionId)
             return;
 
         const auto authRequired = parseEventParams<dto::FetchAuthRequiredEvent>(event);
@@ -2134,7 +2134,7 @@ private:
 
     void handleFetchRequestPaused(const crawler::CdpEvent &event)
     {
-        if (!sessionId || !event.sessionId || event.sessionId->view() != sessionId->view())
+        if (!sessionId || !event.sessionId || *event.sessionId != *sessionId)
             return;
 
         const auto paused = parseEventParams<dto::FetchRequestPausedEvent>(event);

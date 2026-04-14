@@ -19,7 +19,7 @@ UTEST(PrefixPagination, UpperExclusiveBoundNormal)
     const std::string input = "abc";
     const auto inputText = String::fromBytes(input).expect();
     const auto upper = upperExclusiveBound(inputText);
-    EXPECT_EQ(upper, std::string{"abd"});
+    EXPECT_EQ(upper, "abd");
 }
 
 UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
@@ -36,8 +36,8 @@ UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
     ASSERT_TRUE(decoded);
     if (!decoded)
         return;
-    EXPECT_EQ(std::string(decoded->prefix.view()), prefix);
-    EXPECT_EQ(std::string(decoded->link.view()), link);
+    EXPECT_EQ(decoded->prefix, prefixText);
+    EXPECT_EQ(decoded->link, linkText);
     EXPECT_FALSE(decoded->createdAt);
     EXPECT_FALSE(decoded->id);
 }
@@ -57,8 +57,8 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
     ASSERT_TRUE(decoded);
     if (!decoded)
         return;
-    EXPECT_EQ(std::string(decoded->prefix.view()), prefix);
-    EXPECT_EQ(std::string(decoded->link.view()), link);
+    EXPECT_EQ(decoded->prefix, prefixText);
+    EXPECT_EQ(decoded->link, linkText);
     ASSERT_TRUE(decoded->createdAt);
     ASSERT_TRUE(decoded->id);
     if (!decoded->createdAt || !decoded->id)

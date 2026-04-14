@@ -9,6 +9,7 @@ namespace {
 constexpr auto kUrlBytesMax = 4096_uz;
 
 using v1::Link;
+using namespace text::literals;
 
 [[nodiscard]] std::string normalizeKey(std::string_view input)
 {
@@ -52,9 +53,9 @@ UTEST(LinkFromText, AcceptsHttpsWithHostname)
         return;
     const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
     ASSERT_TRUE(link);
-    EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
-    EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com"});
-    EXPECT_EQ(std::string(link->normalized().view()), std::string{"example.com"});
+    EXPECT_EQ(link->url.hostname(), "example.com"_t);
+    EXPECT_EQ(link->httpUrl(), "http://example.com"_t);
+    EXPECT_EQ(link->normalized(), "example.com"_t);
 }
 
 UTEST(LinkFromText, RejectsUnsupportedScheme)
@@ -203,9 +204,9 @@ UTEST(LinkMembers, HostAndHttpUrlNormalized)
         return;
     const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kStripPort);
     ASSERT_TRUE(link);
-    EXPECT_EQ(std::string(link->url.hostname().view()), std::string{"example.com"});
-    EXPECT_EQ(std::string(link->httpUrl().view()), std::string{"http://example.com/Path"});
-    EXPECT_EQ(std::string(link->normalized().view()), std::string{"example.com/Path"});
+    EXPECT_EQ(link->url.hostname(), "example.com"_t);
+    EXPECT_EQ(link->httpUrl(), "http://example.com/Path"_t);
+    EXPECT_EQ(link->normalized(), "example.com/Path"_t);
 }
 
 UTEST(LinkFromTextBytes, MatchesUtf8Normalization)

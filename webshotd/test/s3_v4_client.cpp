@@ -25,11 +25,11 @@ using namespace text::literals;
 
 UTEST(S3SigV4, PercentEncodeBasicCharacters)
 {
-    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, EncodeSlash::kNo).view(), std::string{"abcXYZ-_.~"});
-    EXPECT_EQ(percentEncode(" "_t, EncodeSlash::kYes).view(), std::string{"%20"});
-    EXPECT_EQ(percentEncode("!"_t, EncodeSlash::kYes).view(), std::string{"%21"});
-    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kYes).view(), std::string{"%2F"});
-    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kNo).view(), std::string{"/"});
+    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, EncodeSlash::kNo), "abcXYZ-_.~"_t);
+    EXPECT_EQ(percentEncode(" "_t, EncodeSlash::kYes), "%20"_t);
+    EXPECT_EQ(percentEncode("!"_t, EncodeSlash::kYes), "%21"_t);
+    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kYes), "%2F"_t);
+    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kNo), "/"_t);
 }
 
 UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)

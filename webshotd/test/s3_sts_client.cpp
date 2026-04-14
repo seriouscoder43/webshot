@@ -35,9 +35,9 @@ UTEST(S3StsClient, ParsesHappyPathXml)
     ASSERT_TRUE(parsed);
     const auto &creds = parsed.value();
 
-    EXPECT_EQ(creds.accessKeyId.GetUnderlying().view(), std::string("AKIA_TEST_KEY"));
-    EXPECT_EQ(creds.secretAccessKey.GetUnderlying().view(), std::string("SECRET_TEST_KEY"));
-    EXPECT_EQ(creds.sessionToken.GetUnderlying().view(), std::string("TOKEN_TEST_VALUE"));
+    EXPECT_EQ(creds.accessKeyId.GetUnderlying(), "AKIA_TEST_KEY"_t);
+    EXPECT_EQ(creds.secretAccessKey.GetUnderlying(), "SECRET_TEST_KEY"_t);
+    EXPECT_EQ(creds.sessionToken.GetUnderlying(), "TOKEN_TEST_VALUE"_t);
 
     using std::chrono::system_clock;
     const auto expected = system_clock::from_time_t(1764547200); // 2025-12-01T00:00:00Z
@@ -109,5 +109,5 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
     EXPECT_NE(capturedBody.find("DurationSeconds=900"), std::string::npos);
     EXPECT_NE(capturedBody.find("Policy=%7B%22allow%22%3Atrue%7D"), std::string::npos);
 
-    EXPECT_EQ(creds.accessKeyId.GetUnderlying().view(), std::string("AKIA_TEST_KEY"));
+    EXPECT_EQ(creds.accessKeyId.GetUnderlying(), "AKIA_TEST_KEY"_t);
 }

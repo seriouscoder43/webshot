@@ -6,8 +6,10 @@
 #include <userver/utest/utest.hpp>
 
 #include "s3_secdist.hpp"
+#include "text.hpp"
 
 using v1::S3CredentialsSecdist;
+using namespace text::literals;
 
 UTEST(S3Secdist, ParsesAllFields)
 {
@@ -23,9 +25,9 @@ UTEST(S3Secdist, ParsesAllFields)
     ASSERT_TRUE(parsed.sessionToken);
     if (!parsed.accessKeyId || !parsed.secretAccessKey || !parsed.sessionToken)
         return;
-    EXPECT_EQ(parsed.accessKeyId->GetUnderlying().view(), std::string("ACCESS"));
-    EXPECT_EQ(parsed.secretAccessKey->GetUnderlying().view(), std::string("SECRET"));
-    EXPECT_EQ(parsed.sessionToken->GetUnderlying().view(), std::string("TOKEN"));
+    EXPECT_EQ(parsed.accessKeyId->GetUnderlying(), "ACCESS"_t);
+    EXPECT_EQ(parsed.secretAccessKey->GetUnderlying(), "SECRET"_t);
+    EXPECT_EQ(parsed.sessionToken->GetUnderlying(), "TOKEN"_t);
 }
 
 UTEST(S3Secdist, MissingObjectYieldsNullopts)
@@ -47,7 +49,7 @@ UTEST(S3Secdist, PartialCredentials)
     ASSERT_TRUE(parsed.accessKeyId);
     if (!parsed.accessKeyId)
         return;
-    EXPECT_EQ(parsed.accessKeyId->GetUnderlying().view(), std::string("ACCESS_ONLY"));
+    EXPECT_EQ(parsed.accessKeyId->GetUnderlying(), "ACCESS_ONLY"_t);
     EXPECT_FALSE(parsed.secretAccessKey);
     EXPECT_FALSE(parsed.sessionToken);
 }

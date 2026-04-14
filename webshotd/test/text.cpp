@@ -45,7 +45,7 @@ constexpr bool checkStringLiteralAndOps()
 
     auto a = "abc"_t;
     auto b = "abd"_t;
-    if (!(a.view() == std::string_view{"abc"}))
+    if (!(a == "abc"_t))
         return false;
     if (!(a < b))
         return false;
@@ -53,14 +53,14 @@ constexpr bool checkStringLiteralAndOps()
     auto lhs = "foo"_t;
     auto rhs = "bar"_t;
     auto sum = lhs + rhs;
-    if (sum.view() != std::string_view{"foobar"})
+    if (sum != "foobar"_t)
         return false;
 
     auto revOpt = String::fromBytes("ab");
     if (!revOpt)
         return false;
     auto rev = revOpt->reversed();
-    if (rev.view() != std::string_view{"ba"})
+    if (rev != "ba"_t)
         return false;
 
     if (!una::is_valid_utf8(rev.view()))
@@ -80,7 +80,7 @@ UTEST(TextString, FromBytesAscii)
 {
     const auto value = "hello"_t;
     EXPECT_FALSE(value.empty());
-    EXPECT_EQ(value.view(), std::string_view{"hello"});
+    EXPECT_EQ(value, "hello"_t);
     EXPECT_TRUE(isUtf8(value.view()));
     EXPECT_TRUE(isStreamSafe(value.view()));
 }
@@ -99,7 +99,7 @@ UTEST(TextString, FromBytesNormalizesEquivalents)
 
     const auto s1 = String::fromBytes(precomposed).expect();
     const auto s2 = String::fromBytes(decomposed).expect();
-    EXPECT_EQ(s1.view(), s2.view());
+    EXPECT_EQ(s1, s2);
     EXPECT_TRUE(isUtf8(s1.view()));
     EXPECT_TRUE(isStreamSafe(s1.view()));
 }
@@ -144,7 +144,7 @@ UTEST(TextString, PlusConcatenatesAscii)
     const auto rhs = "bar"_t;
 
     auto sum = lhs + rhs;
-    EXPECT_EQ(sum.view(), std::string_view{"foobar"});
+    EXPECT_EQ(sum, "foobar"_t);
     EXPECT_TRUE(isUtf8(sum.view()));
     EXPECT_TRUE(isStreamSafe(sum.view()));
 }
@@ -160,7 +160,7 @@ UTEST(TextString, PlusNormalizesCrossBoundary)
     std::string precomposed("\xC3\xA9", 2);
     const auto expected = String::fromBytes(precomposed).expect();
 
-    EXPECT_EQ(combined.view(), expected.view());
+    EXPECT_EQ(combined, expected);
 }
 
 UTEST(TextString, PlusEqualsEmptyRhsNoChange)
@@ -172,7 +172,7 @@ UTEST(TextString, PlusEqualsEmptyRhsNoChange)
     String empty;
     value += empty;
 
-    EXPECT_EQ(value.view(), std::string_view{original});
+    EXPECT_EQ(value, String::fromBytes(original).expect());
 }
 
 UTEST(TextString, EqualityAndOrdering)
@@ -223,7 +223,7 @@ UTEST(TextString, Idempotence)
     const auto value = String::fromBytes(raw).expect();
 
     const auto value2 = String::fromBytes(std::string{value.view()}).expect();
-    EXPECT_EQ(value.view(), value2.view());
+    EXPECT_EQ(value, value2);
 }
 
 UTEST(TextString, RejectsVariousInvalidUtf8)
@@ -248,7 +248,7 @@ UTEST(TextString, HandlesNonBmpCharacters)
     const auto value = String::fromBytes(emoji).expect();
     EXPECT_TRUE(isUtf8(value.view()));
     EXPECT_TRUE(isStreamSafe(value.view()));
-    EXPECT_EQ(value.view(), std::string_view{emoji});
+    EXPECT_EQ(value, String::fromBytes(emoji).expect());
 
     const auto prefix = "prefix-"_t;
     const auto suffix = "-suffix"_t;
