@@ -72,7 +72,7 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     if (!host)
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     const auto link = Link::fromText(
-        host.value(), config.urlBytesMax(),
+        *host, config.urlBytesMax(),
         Link::FromTextOptions::kStripPort | Link::FromTextOptions::kStripQuery
     );
     if (!link) {
@@ -80,11 +80,11 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
         return httpu::respondParamError(response, kBadRequest, "host"_t, "invalid parameter"_t);
     }
     LOG_INFO() << std::format("invoked for: {}", link->url.hostname());
-    auto prefixKey = prefix::makePrefixKey(link.value());
+    auto prefixKey = prefix::makePrefixKey(*link);
     auto clientIp = client_ip::resolve(request, config);
     if (!clientIp)
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-    auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+    auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
         return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 

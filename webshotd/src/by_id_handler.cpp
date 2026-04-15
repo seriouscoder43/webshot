@@ -100,21 +100,19 @@ std::string ById::HandleRequestThrow(
     auto clientIp = client_ip::resolve(request, config);
     if (!clientIp)
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-    auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+    auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
         return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 
-    auto location = crud.findCapture(uuidOpt.value());
+    auto location = crud.findCapture(*uuidOpt);
     if (!location)
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-    if (!location.value()) {
-        LOG_INFO() << std::format("capture not found: {}", uuidOpt.value());
+    if (!*location) {
+        LOG_INFO() << std::format("capture not found: {}", *uuidOpt);
         return httpu::respondError(response, kNotFound, "capture not found"_t);
     }
 
     response.SetStatus(kFound);
-    response.SetHeader(
-        us::http::headers::kLocation, std::string(location.value()->httpsUrl().view())
-    );
+    response.SetHeader(us::http::headers::kLocation, std::string((*location)->httpsUrl().view()));
     return {};
 }

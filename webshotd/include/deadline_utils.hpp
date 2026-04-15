@@ -86,7 +86,7 @@ sleepWithinDeadline(userver::engine::Deadline deadline, std::chrono::millisecond
     if (!remaining)
         return std::unexpected(remaining.error());
 
-    const auto sleepFor = std::min(delay, remaining.value());
+    const auto sleepFor = std::min(delay, *remaining);
     userver::engine::SleepFor(sleepFor);
     if (sleepFor != delay)
         return std::unexpected(DeadlineError::kTimeout);
@@ -104,10 +104,10 @@ sleepUntilDeadline(userver::engine::Deadline deadline)
     const auto remaining = timeLeftMs(deadline);
     if (!remaining)
         return std::unexpected(remaining.error());
-    if (remaining.value() <= 0ms)
+    if (*remaining <= 0ms)
         return std::unexpected(DeadlineError::kTimeout);
 
-    userver::engine::SleepFor(remaining.value());
+    userver::engine::SleepFor(*remaining);
     return {};
 }
 

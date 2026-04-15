@@ -1,9 +1,10 @@
 #pragma once
 
+#include <array>
 #include <concepts>
+#include <cstdio>
 #include <expected>
 #include <functional>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -26,19 +27,36 @@ concept SameUncvref = std::same_as<RemoveCvref<U>, T>;
 
 [[noreturn]] inline void abortExpected(std::string_view message) noexcept
 {
-    userver::utils::AbortWithStacktrace(std::string(message));
+    userver::utils::AbortWithStacktrace(message);
+}
+
+template <size_t N>
+[[noreturn]] inline void abortExpectedAt(std::string_view where, const char (&suffix)[N]) noexcept
+{
+    std::array<char, 128> buf{};
+    const int written = std::snprintf(
+        buf.data(), buf.size(), "%.*s: %s", static_cast<int>(where.size()), where.data(), suffix
+    );
+
+    if (written > 0) {
+        const size_t len = static_cast<size_t>(written) < buf.size() ? static_cast<size_t>(written)
+                                                                     : (buf.size() - 1);
+        userver::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
+    }
+
+    abortExpected(suffix);
 }
 
 template <typename E>
 [[noreturn]] inline void abortUnexpectedValue(std::string_view where, const E &error) noexcept
 {
     static_cast<void>(error);
-    abortExpected(std::string(where) + ": expected value");
+    abortExpectedAt(where, "expected value");
 }
 
 [[noreturn]] inline void abortUnexpectedError(std::string_view where) noexcept
 {
-    abortExpected(std::string(where) + ": expected error");
+    abortExpectedAt(where, "expected error");
 }
 
 } // namespace detail
@@ -95,21 +113,21 @@ public:
     {
         if (!inner)
             detail::abortUnexpectedValue("value()", inner.error());
-        return inner.value();
+        return *inner;
     }
 
     [[nodiscard]] constexpr const T &value() const & noexcept
     {
         if (!inner)
             detail::abortUnexpectedValue("value() const", inner.error());
-        return inner.value();
+        return *inner;
     }
 
     [[nodiscard]] constexpr T &&value() && noexcept
     {
         if (!inner)
             detail::abortUnexpectedValue("value() &&", inner.error());
-        return std::move(inner.value());
+        return std::move(*inner);
     }
 
     [[nodiscard]] constexpr E &error() & noexcept
@@ -143,7 +161,7 @@ public:
         if (!inner) {
             detail::abortExpected(message);
         }
-        return inner.value();
+        return *inner;
     }
 
     [[nodiscard]] constexpr const T &expect(std::string_view message) const & noexcept
@@ -151,7 +169,7 @@ public:
         if (!inner) {
             detail::abortExpected(message);
         }
-        return inner.value();
+        return *inner;
     }
 
     [[nodiscard]] constexpr T &expect() & noexcept { return expect("Expected::expect() failed"); }
@@ -165,7 +183,7 @@ public:
     [[nodiscard]] constexpr T valueOr(U &&defaultValue) const &
     {
         if (inner)
-            return inner.value();
+            return *inner;
         return T(std::forward<U>(defaultValue));
     }
 
@@ -174,7 +192,7 @@ public:
     [[nodiscard]] constexpr T valueOr(U &&defaultValue) &&
     {
         if (inner)
-            return std::move(inner.value());
+            return std::move(*inner);
         return T(std::forward<U>(defaultValue));
     }
 
@@ -187,10 +205,10 @@ public:
         if (!inner)
             return std::unexpected(inner.error());
         if constexpr (std::is_void_v<U>) {
-            std::invoke(std::forward<F>(f), inner.value());
+            std::invoke(std::forward<F>(f), *inner);
             return Expected<void, E>{};
         } else {
-            return Expected<U, E>{std::invoke(std::forward<F>(f), inner.value())};
+            return Expected<U, E>{std::invoke(std::forward<F>(f), *inner)};
         }
     }
 
@@ -203,10 +221,10 @@ public:
         if (!inner)
             return std::unexpected(inner.error());
         if constexpr (std::is_void_v<U>) {
-            std::invoke(std::forward<F>(f), inner.value());
+            std::invoke(std::forward<F>(f), *inner);
             return Expected<void, E>{};
         } else {
-            return Expected<U, E>{std::invoke(std::forward<F>(f), inner.value())};
+            return Expected<U, E>{std::invoke(std::forward<F>(f), *inner)};
         }
     }
 
@@ -219,10 +237,10 @@ public:
         if (!inner)
             return std::unexpected(std::move(inner.error()));
         if constexpr (std::is_void_v<U>) {
-            std::invoke(std::forward<F>(f), std::move(inner.value()));
+            std::invoke(std::forward<F>(f), std::move(*inner));
             return Expected<void, E>{};
         } else {
-            return Expected<U, E>{std::invoke(std::forward<F>(f), std::move(inner.value()))};
+            return Expected<U, E>{std::invoke(std::forward<F>(f), std::move(*inner))};
         }
     }
 
@@ -236,7 +254,7 @@ public:
     {
         if (!inner)
             return std::unexpected(inner.error());
-        return std::invoke(std::forward<F>(f), inner.value());
+        return std::invoke(std::forward<F>(f), *inner);
     }
 
     template <typename F>
@@ -251,7 +269,7 @@ public:
     {
         if (!inner)
             return std::unexpected(inner.error());
-        return std::invoke(std::forward<F>(f), inner.value());
+        return std::invoke(std::forward<F>(f), *inner);
     }
 
     template <typename F>
@@ -264,7 +282,7 @@ public:
     {
         if (!inner)
             return std::unexpected(std::move(inner.error()));
-        return std::invoke(std::forward<F>(f), std::move(inner.value()));
+        return std::invoke(std::forward<F>(f), std::move(*inner));
     }
 
     template <typename F>
@@ -318,7 +336,7 @@ public:
     {
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &>>;
         if (inner)
-            return Expected<T, E2>{inner.value()};
+            return Expected<T, E2>{*inner};
         return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
     }
 
@@ -330,7 +348,7 @@ public:
     {
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, const E &>>;
         if (inner)
-            return Expected<T, E2>{inner.value()};
+            return Expected<T, E2>{*inner};
         return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
     }
 
@@ -341,7 +359,7 @@ public:
     {
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &&>>;
         if (inner)
-            return Expected<T, E2>{std::move(inner.value())};
+            return Expected<T, E2>{std::move(*inner)};
         return std::unexpected(std::invoke(std::forward<F>(f), std::move(inner.error())));
     }
 

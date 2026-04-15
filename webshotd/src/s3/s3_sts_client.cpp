@@ -15,19 +15,20 @@
 #include <utility>
 #include <vector>
 
+#include <cctz/time_zone.h>
+
 #include <userver/clients/http/client.hpp>
 #include <userver/clients/http/response.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/utils/datetime.hpp>
-#include <userver/utils/datetime/from_string_saturating.hpp>
 using namespace text::literals;
 
 namespace v1 {
 
 namespace {
 
-[[nodiscard]] Expected<String, StsError> extractXmlTag(const String &xml, String tag) noexcept
+[[nodiscard]] Expected<String, StsError> extractXmlTag(const String &xml, String tag)
 {
     std::string open = "<";
     std::string xmlBytes(xml.view()), tagBytes(tag.view());
@@ -44,12 +45,25 @@ namespace {
     const auto extracted = String::fromBytes(xmlBytes.substr(valuePos, endPos - valuePos));
     if (!extracted)
         return std::unexpected(StsError::kInvalidUtf8);
-    return extracted.value();
+    return *extracted;
+}
+
+[[nodiscard]] Expected<std::chrono::system_clock::time_point, StsError>
+parseExpiration(const String &expiration)
+{
+    std::chrono::system_clock::time_point expiresAt;
+    if (!cctz::parse(
+            userver::utils::datetime::kRfc3339Format, std::string(expiration.view()),
+            cctz::utc_time_zone(), &expiresAt
+        )) {
+        return std::unexpected(StsError::kInvalidExpiration);
+    }
+    return expiresAt;
 }
 
 } // namespace
 
-Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml) noexcept
+Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml)
 {
     auto accessKeyId = extractXmlTag(xml, "AccessKeyId"_t);
     if (!accessKeyId)
@@ -63,12 +77,15 @@ Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml) no
     auto expiration = extractXmlTag(xml, "Expiration"_t);
     if (!expiration)
         return std::unexpected(expiration.error());
+    auto expiresAt = parseExpiration(*expiration);
+    if (!expiresAt)
+        return std::unexpected(expiresAt.error());
 
     StsCredentials creds{
-        s3v4::AccessKeyId(std::move(accessKeyId).value()),
-        s3v4::SecretAccessKey(std::move(secretAccessKey).value()),
-        s3v4::SessionToken(std::move(sessionToken).value()),
-        userver::utils::datetime::FromRfc3339StringSaturating(std::string(expiration->view())),
+        s3v4::AccessKeyId(std::move(*accessKeyId)),
+        s3v4::SecretAccessKey(std::move(*secretAccessKey)),
+        s3v4::SessionToken(std::move(*sessionToken)),
+        *expiresAt,
     };
     return creds;
 }
@@ -101,7 +118,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
         auto decoded = s3v4::decodeQueryString(search);
         if (!decoded)
             return std::unexpected(StsError::kInvalidQuery);
-        query = std::move(decoded).value();
+        query = std::move(*decoded);
     }
     String body;
     auto appendParam = [&body](const String &name, const String &value) {
@@ -141,10 +158,10 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     if (!response)
         return std::unexpected(response.error());
 
-    const auto responseXml = String::fromBytes(response.value());
+    const auto responseXml = String::fromBytes(*response);
     if (!responseXml)
         return std::unexpected(StsError::kInvalidUtf8);
-    return StsCredentials::fromXml(responseXml.value());
+    return StsCredentials::fromXml(*responseXml);
 }
 
 Expected<StsCredentials, StsError> fetchStsCredentials(

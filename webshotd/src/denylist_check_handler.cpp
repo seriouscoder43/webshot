@@ -77,21 +77,21 @@ std::string DenylistCheckHandler::HandleRequestThrow(
     }
 
     const auto link = Link::fromText(
-        body.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
+        *body, config.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!link) {
         response.SetStatus(kBadRequest);
         return {};
     }
 
-    auto prefixKey = prefix::makePrefixKey(link.value());
+    auto prefixKey = prefix::makePrefixKey(*link);
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
     if (!allowed) {
         metrics.accountError(Metrics::Error::kDenylistCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }
-    if (!allowed.value()) {
+    if (!*allowed) {
         response.SetStatus(kForbidden);
         return {};
     }

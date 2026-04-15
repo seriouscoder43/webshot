@@ -18,6 +18,7 @@ enum class StsError {
     kHttpFailure,
     kXmlMissingTag,
     kXmlMissingClosingTag,
+    kInvalidExpiration,
     kInvalidUtf8,
 };
 
@@ -30,7 +31,7 @@ struct [[nodiscard]] StsCredentials {
     s3v4::SessionToken sessionToken;
     std::chrono::system_clock::time_point expiresAt;
 
-    [[nodiscard]] static Expected<StsCredentials, StsError> fromXml(const String &xml) noexcept;
+    [[nodiscard]] static Expected<StsCredentials, StsError> fromXml(const String &xml);
 };
 
 /**

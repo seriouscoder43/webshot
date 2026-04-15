@@ -18,7 +18,7 @@ using namespace text::literals;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
+    const auto link = Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone);
     if (!link) {
         ADD_FAILURE() << "Link::fromText failed";
         return {};
@@ -35,7 +35,7 @@ using namespace text::literals;
         ADD_FAILURE() << "String::fromBytes failed";
         return {};
     }
-    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
+    const auto link = Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone);
     if (!link) {
         ADD_FAILURE() << "Link::fromText failed";
         return {};
@@ -51,7 +51,7 @@ UTEST(LinkFromText, AcceptsHttpsWithHostname)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone);
+    const auto link = Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone);
     ASSERT_TRUE(link);
     EXPECT_EQ(link->url.hostname(), "example.com"_t);
     EXPECT_EQ(link->httpUrl(), "http://example.com"_t);
@@ -62,14 +62,14 @@ UTEST(LinkFromText, RejectsUnsupportedScheme)
 {
     auto text = String::fromBytes(std::string{"ftp://example.com/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsMissingHostname)
 {
     auto text = String::fromBytes(std::string{"http:///"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, AcceptsUrlAtLimit)
@@ -90,7 +90,7 @@ UTEST(LinkFromText, RejectsUrlOverLimit)
     urlString.append(kUrlBytesMax - urlString.size() + 1, 'a');
     auto text = String::fromBytes(urlString);
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, NormalizesScheme)
@@ -131,28 +131,28 @@ UTEST(LinkFromText, RejectsNetworkPathReference)
 {
     auto text = String::fromBytes(std::string{"//example.com/path"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsOverlargePort)
 {
     auto text = String::fromBytes(std::string{"http://example.com:99999/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv6Host)
 {
     auto text = String::fromBytes(std::string{"http://[::1]/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, RejectsIPv4Host)
 {
     auto text = String::fromBytes(std::string{"http://192.0.2.1/"});
     ASSERT_TRUE(text);
-    EXPECT_FALSE(Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kNone));
+    EXPECT_FALSE(Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kNone));
 }
 
 UTEST(LinkFromText, KeepsEscapedSlashInPath)
@@ -202,7 +202,7 @@ UTEST(LinkMembers, HostAndHttpUrlNormalized)
     ASSERT_TRUE(text);
     if (!text)
         return;
-    const auto link = Link::fromText(text.value(), kUrlBytesMax, Link::FromTextOptions::kStripPort);
+    const auto link = Link::fromText(*text, kUrlBytesMax, Link::FromTextOptions::kStripPort);
     ASSERT_TRUE(link);
     EXPECT_EQ(link->url.hostname(), "example.com"_t);
     EXPECT_EQ(link->httpUrl(), "http://example.com/Path"_t);

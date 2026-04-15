@@ -51,7 +51,7 @@ constexpr std::string_view kWarcPath = "archive/data.warc.gz";
         return std::unexpected(
             ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail}
         );
-    return std::move(maybeBytes).value();
+    return std::move(*maybeBytes);
 }
 
 [[nodiscard]] std::string extractHtmlTitle(std::string_view body)
@@ -211,7 +211,7 @@ serializeRecordPair(const SerializableResponse &response)
     auto requestPath = "/"_t;
     String requestHost;
     if (const auto urlText = String::fromBytes(response.responseUrl.view())) {
-        if (const auto maybeUrl = Url::fromText(urlText.value())) {
+        if (const auto maybeUrl = Url::fromText(*urlText)) {
             requestPath = maybeUrl->pathWithSearch();
             requestHost = maybeUrl->host();
         }
@@ -247,9 +247,8 @@ serializeRecordPair(const SerializableResponse &response)
         "{}",
         response.responseUrl, recordDate, responseRecordId,
         response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
-        response.resourceType
-            ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
-            : std::string{},
+        response.resourceType ? std::format("WARC-Resource-Type: {}\r\n", *response.resourceType)
+                              : std::string{},
         ssize(httpResponseHead) + ssize(response.body), httpResponseHead
     );
 
@@ -273,9 +272,8 @@ serializeRecordPair(const SerializableResponse &response)
         "{}\r\n",
         response.responseUrl, recordDate, requestRecordId, responseRecordId,
         response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
-        response.resourceType
-            ? std::format("WARC-Resource-Type: {}\r\n", response.resourceType.value())
-            : std::string{},
+        response.resourceType ? std::format("WARC-Resource-Type: {}\r\n", *response.resourceType)
+                              : std::string{},
         ssize(requestPayload), requestPayload
     );
 
@@ -398,7 +396,7 @@ serializeRecordPair(const SerializableResponse &response)
     }
 
     auto path = std::string(maybeUrl->pathWithSearch().view());
-    if (shouldIncludePort(maybeUrl.value()))
+    if (shouldIncludePort(*maybeUrl))
         surtHost += ":" + port;
     return String::fromBytes(surtHost + ")" + path).expect();
 }
@@ -552,8 +550,8 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
                 .length = i64(responseGz->size()),
             }
         );
-        out.bytes.append(responseGz.value());
-        out.bytes.append(requestGz.value());
+        out.bytes.append(*responseGz);
+        out.bytes.append(*requestGz);
         offset += i64{responseGz->size()} + i64{requestGz->size()};
     }
 
@@ -577,7 +575,7 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
             .length = i64(pageInfoGz->size()),
         }
     );
-    out.bytes.append(pageInfoGz.value());
+    out.bytes.append(*pageInfoGz);
     return out;
 }
 
@@ -623,7 +621,7 @@ Expected<std::string, ArtifactFailure> buildWacz(
         return std::unexpected(
             ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
         );
-    return zipBytes.value();
+    return *zipBytes;
 }
 
 } // namespace v1::crawler

@@ -82,7 +82,7 @@ public:
         if (!value)
             return std::unexpected(value.error());
         try {
-            return value.value().As<T>();
+            return (*value).As<T>();
         } catch (const us::formats::json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
@@ -108,7 +108,7 @@ public:
         if (!value)
             return std::unexpected(value.error());
         try {
-            return value.value().As<T>();
+            return (*value).As<T>();
         } catch (const us::formats::json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
@@ -124,7 +124,7 @@ public:
         if (!value)
             return std::unexpected(value.error());
         try {
-            return value.value().As<T>();
+            return (*value).As<T>();
         } catch (const us::formats::json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
@@ -156,11 +156,11 @@ public:
     waitUntil(Predicate &&predicate, us::engine::Deadline deadline, std::string_view timeoutMessage)
     {
         using enum CdpError;
-        while (!std::invoke(std::forward<Predicate>(predicate))) {
+        while (!std::invoke(predicate)) {
             auto pumped = tryPumpOnce();
             if (!pumped)
                 return std::unexpected(pumped.error());
-            if (pumped.value())
+            if (*pumped)
                 continue;
             if (deadline.IsReachable() && deadline.IsReached())
                 return std::unexpected(

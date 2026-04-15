@@ -92,6 +92,9 @@ add_cpp_test(
   error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
 
+add_cpp_test(integers_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/integers.cpp)
+
 add_cpp_test(text_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
 

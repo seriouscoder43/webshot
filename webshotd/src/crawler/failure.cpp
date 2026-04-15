@@ -104,11 +104,11 @@ summarizeProcessOutputs(const std::string &stdoutPath, const std::string &stderr
 
     String detail;
     if (stdoutText)
-        detail = text::format("stdout=\"{}\"", stdoutText.value());
+        detail = text::format("stdout=\"{}\"", *stdoutText);
     if (stderrText) {
         if (!detail.empty())
             detail += ", "_t;
-        detail += text::format("stderr=\"{}\"", stderrText.value());
+        detail += text::format("stderr=\"{}\"", *stderrText);
     }
     return detail;
 }
@@ -125,7 +125,7 @@ String formatAttemptContext(const AttemptSummary &attempt)
     if (attempt.failureDetail) {
         if (!msg.empty())
             msg += ", "_t;
-        msg += attempt.failureDetail.value();
+        msg += *attempt.failureDetail;
     }
     return msg;
 }

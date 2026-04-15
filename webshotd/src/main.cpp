@@ -18,6 +18,7 @@
 
 #include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component_list.hpp>
+#include <userver/components/component_list.hpp>
 #include <userver/components/fs_cache.hpp>
 #include <userver/components/minimal_server_component_list.hpp>
 #include <userver/components/process_starter.hpp>

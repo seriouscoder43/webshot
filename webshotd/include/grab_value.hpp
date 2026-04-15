@@ -18,12 +18,12 @@ template <typename T> inline T grabValueOf(std::optional<T> &&opt) { return grab
 
 template <typename T, typename E> inline T grabValueOf(Expected<T, E> &expected)
 {
-    return std::move(expected).value();
+    return std::move(*expected);
 }
 
 template <typename T, typename E> inline T grabValueOf(Expected<T, E> &&expected)
 {
-    return std::move(expected).value();
+    return std::move(*expected);
 }
 
 } // namespace v1

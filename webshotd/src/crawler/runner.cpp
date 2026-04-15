@@ -113,7 +113,7 @@ constexpr std::array kLocalFixtureHosts = {
 {
     auto message = action;
     if (failure.detail)
-        message = text::format("{}: {}", message, failure.detail.value());
+        message = text::format("{}: {}", message, *failure.detail);
     return message;
 }
 
@@ -235,7 +235,7 @@ canonicalizeCapturedLocationHeader(const String &responseUrl, std::string_view l
         return std::string(location->view());
     }
 
-    const auto canonicalLocation = canonicalizeCapturedUrl(location.value());
+    const auto canonicalLocation = canonicalizeCapturedUrl(*location);
     const auto maybeCanonicalUrl = Url::fromText(canonicalLocation);
     const auto maybeResponseUrl = Url::fromText(responseUrl);
     if (!maybeCanonicalUrl || !maybeResponseUrl)
@@ -254,7 +254,7 @@ normalizeHeadersOrEmpty(const std::optional<dto::CdpHeaders> &headers)
 {
     if (!headers)
         return {};
-    return normalizeHeaders(headers.value());
+    return normalizeHeaders(*headers);
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -270,7 +270,7 @@ normalizeHeadersForCapture(const std::optional<dto::CdpHeaders> &headers, const 
 {
     if (!value)
         return {};
-    auto parsed = String::fromBytes(value.value());
+    auto parsed = String::fromBytes(*value);
     if (!parsed)
         return {};
     return grabValueOf(parsed);
@@ -731,7 +731,7 @@ public:
                 appendDiagnosticField(diagnostics, "proxy_failure", proxyFailure->view());
         }
         if (preservedDir)
-            appendDiagnosticField(diagnostics, "preserved_browser_dir", preservedDir.value());
+            appendDiagnosticField(diagnostics, "preserved_browser_dir", *preservedDir);
 
         if (diagnostics.empty())
             return std::string{message};
@@ -879,7 +879,7 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
     const auto location = String::fromBytes(locationIt->second);
     if (!location)
         return canonicalizeCapturedUrl(requestUrl);
-    if (const auto absoluteLocation = Url::fromText(location.value()))
+    if (const auto absoluteLocation = Url::fromText(*location))
         return canonicalizeCapturedUrl(absoluteLocation->href());
 
     const auto origin = buildUrlOrigin(baseUrl);
@@ -891,19 +891,19 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
         if (!maybeBaseUrl)
             return canonicalizeCapturedUrl(requestUrl);
         return canonicalizeCapturedUrl(
-            text::format("{}:{}", maybeBaseUrl->isHttps() ? "https" : "http", location.value())
+            text::format("{}:{}", maybeBaseUrl->isHttps() ? "https" : "http", *location)
         );
     }
 
     if (location->startsWith('/'))
-        return canonicalizeCapturedUrl(text::format("{}{}", origin.value(), location.value()));
+        return canonicalizeCapturedUrl(text::format("{}{}", *origin, *location));
 
     if (location->startsWith('?')) {
         const auto maybeBaseUrl = Url::fromText(baseUrl);
         if (!maybeBaseUrl)
             return canonicalizeCapturedUrl(requestUrl);
         return canonicalizeCapturedUrl(
-            text::format("{}{}{}", origin.value(), maybeBaseUrl->pathname(), location.value())
+            text::format("{}{}{}", *origin, maybeBaseUrl->pathname(), *location)
         );
     }
 
@@ -941,17 +941,17 @@ isAllowedByDenylist(Denylist &denylist, const Config &config, const String &requ
         return true;
 
     const auto link = Link::fromText(
-        normalized.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
+        *normalized, config.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!link)
         return std::unexpected(
             text::format("failed to normalize intercepted request url {}", normalized->view())
         );
 
-    const auto allowed = denylist.isAllowedPrefix(prefix::makePrefixKey(link.value()));
+    const auto allowed = denylist.isAllowedPrefix(prefix::makePrefixKey(*link));
     if (!allowed)
         return std::unexpected("denylist check failed during fetch interception"_t);
-    return allowed.value();
+    return *allowed;
 }
 
 [[nodiscard]] std::vector<dto::FetchHeaderEntry> buildBlockedFetchHeaders(usize bodyBytes)
@@ -1008,7 +1008,7 @@ public:
     void setExpectedMainLoaderId(std::optional<String> loaderId)
     {
         if (loaderId)
-            mainLoaderId = std::move(loaderId.value());
+            mainLoaderId = std::move(*loaderId);
     }
 
     void handleEvent(const crawler::CdpEvent &event)
@@ -1017,7 +1017,7 @@ public:
         if (method == "Target.targetCrashed") {
             if (event.params) {
                 const auto crashed = event.params->extra.As<dto::TargetTargetCrashedEvent>();
-                if (crashed.targetId && targetId.view() == crashed.targetId.value())
+                if (crashed.targetId && targetId.view() == *crashed.targetId)
                     mainRequestFailure = "page target crashed"_t;
             }
             return;
@@ -1114,7 +1114,7 @@ public:
             return std::unexpected(describeCdpFailure(action, waited.error()));
         }
         if (mainRequestFailure)
-            return std::unexpected(mainRequestFailure.value());
+            return std::unexpected(*mainRequestFailure);
         return {};
     }
 
@@ -1126,7 +1126,7 @@ public:
                 const auto *request = activeMainRequest();
                 return mainRequestFailure.has_value() ||
                        (completedMainRequest.has_value() && completedMainRequest->loaded &&
-                        hasResponse(completedMainRequest.value())) ||
+                        hasResponse(*completedMainRequest)) ||
                        (request != nullptr && hasResponse(*request) && request->loaded);
             },
             deadline, "timed out waiting for main document response"
@@ -1139,7 +1139,7 @@ public:
             return std::unexpected(describeCdpFailure(action, waited.error()));
         }
         if (mainRequestFailure)
-            return std::unexpected(mainRequestFailure.value());
+            return std::unexpected(*mainRequestFailure);
         return {};
     }
 
@@ -1168,7 +1168,7 @@ public:
             request != nullptr && request->statusCode) {
             const auto loadState = request->loaded && !mainRequestFailure ? 2_i64 : 0_i64;
             return crawler::SeedPageProbe{
-                .status = raw(request->statusCode.value()),
+                .status = raw(*request->statusCode),
                 .loadState = raw(loadState),
             };
         }
@@ -1189,10 +1189,9 @@ public:
     {
         if (!fallbackBody.empty())
             return retainBody(fallbackBody, budget);
-        const auto *bodyRequestId = mainResponseRequestId ? &mainResponseRequestId.value()
-                                                          : nullptr;
+        const auto *bodyRequestId = mainResponseRequestId ? &*mainResponseRequestId : nullptr;
         if (bodyRequestId == nullptr && mainRequestId)
-            bodyRequestId = &mainRequestId.value();
+            bodyRequestId = &*mainRequestId;
         if (bodyRequestId == nullptr)
             return retainBody(fallbackBody, budget);
 
@@ -1302,7 +1301,7 @@ public:
     ) const
     {
         crawler::CapturedExchange exchange{};
-        exchange.seedUrl = seedNavigationUrl ? seedNavigationUrl.value() : finalUrl;
+        exchange.seedUrl = seedNavigationUrl ? *seedNavigationUrl : finalUrl;
         exchange.pageId = pageId;
         exchange.finalUrl = std::move(finalUrl);
         applyMainResponse(exchange, exchange.finalUrl);
@@ -1354,8 +1353,8 @@ private:
             "tracked request missing response"
         );
         return {
-            request.requestUrl,      request.statusCode.value(), request.statusMessage.value(),
-            request.headers.value(), request.timestamp.value(),
+            request.requestUrl, *request.statusCode, *request.statusMessage,
+            *request.headers,   *request.timestamp,
         };
     }
 
@@ -1363,8 +1362,7 @@ private:
     {
         if (!mainRequestId)
             return nullptr;
-        if (const auto it = activeRequests.find(mainRequestId.value());
-            it != std::end(activeRequests))
+        if (const auto it = activeRequests.find(*mainRequestId); it != std::end(activeRequests))
             return &it->second;
         return nullptr;
     }
@@ -1373,32 +1371,31 @@ private:
     {
         if (!mainRequestId)
             return nullptr;
-        if (const auto it = activeRequests.find(mainRequestId.value());
-            it != std::end(activeRequests))
+        if (const auto it = activeRequests.find(*mainRequestId); it != std::end(activeRequests))
             return &it->second;
         return nullptr;
     }
 
     [[nodiscard]] const TrackedRequest *resolvedMainRequest() const
     {
-        if (completedMainRequest && hasResponse(completedMainRequest.value()))
-            return &completedMainRequest.value();
+        if (completedMainRequest && hasResponse(*completedMainRequest))
+            return &*completedMainRequest;
         return activeMainRequest();
     }
 
     [[nodiscard]] std::optional<MainResponse> selectMainResponse(const String &finalUrl) const
     {
-        if (completedMainRequest && hasResponse(completedMainRequest.value())) {
+        if (completedMainRequest && hasResponse(*completedMainRequest)) {
             if (completedMainRequest->requestUrl == finalUrl)
-                return toMainResponse(completedMainRequest.value());
+                return toMainResponse(*completedMainRequest);
         }
         if (const auto *request = activeMainRequest();
             request != nullptr && hasResponse(*request)) {
             if (request->requestUrl == finalUrl)
                 return toMainResponse(*request);
         }
-        if (completedMainRequest && hasResponse(completedMainRequest.value()))
-            return toMainResponse(completedMainRequest.value());
+        if (completedMainRequest && hasResponse(*completedMainRequest))
+            return toMainResponse(*completedMainRequest);
         if (const auto *request = activeMainRequest(); request != nullptr && hasResponse(*request))
             return toMainResponse(*request);
         return {};
@@ -1408,15 +1405,15 @@ private:
     {
         if (!mainLoaderId)
             return true;
-        return loaderId && loaderId.value() == mainLoaderId->view();
+        return loaderId && *loaderId == mainLoaderId->view();
     }
 
     [[nodiscard]] bool
     isMainFrameDocumentRequest(const dto::NetworkRequestWillBeSentEvent &requestWillBeSent) const
     {
         return requestWillBeSent.frameId && mainFrameId &&
-               requestWillBeSent.frameId.value() == mainFrameId->view() && requestWillBeSent.type &&
-               requestWillBeSent.type.value() == "Document";
+               *requestWillBeSent.frameId == mainFrameId->view() && requestWillBeSent.type &&
+               *requestWillBeSent.type == "Document";
     }
 
     void handleRequestWillBeSent(dto::NetworkRequestWillBeSentEvent requestWillBeSent)
@@ -1440,12 +1437,12 @@ private:
             if (mainLoaderId && !matchesTrackedMainLoader(requestWillBeSent.loaderId))
                 return;
             if (!mainLoaderId && !mainRequestId && seedNavigationUrl) {
-                const auto matchesExact = rawRequestUrl == seedNavigationUrl.value();
-                const auto matchesTrailingSlash =
-                    !seedNavigationUrl->endsWith('/') &&
-                    rawRequestUrl.sizeBytes() == seedNavigationUrl->sizeBytes() + 1 &&
-                    rawRequestUrl.startsWith(seedNavigationUrl.value()) &&
-                    rawRequestUrl.endsWith('/');
+                const auto matchesExact = rawRequestUrl == *seedNavigationUrl;
+                const auto matchesTrailingSlash = !seedNavigationUrl->endsWith('/') &&
+                                                  rawRequestUrl.sizeBytes() ==
+                                                      seedNavigationUrl->sizeBytes() + 1 &&
+                                                  rawRequestUrl.startsWith(*seedNavigationUrl) &&
+                                                  rawRequestUrl.endsWith('/');
                 if (!matchesExact && !matchesTrailingSlash)
                     return;
             }
@@ -1462,7 +1459,7 @@ private:
 
         const auto canonicalRequestUrl = previousRequestUrl
                                              ? resolveRedirectTargetUrl(
-                                                   previousRequestUrl.value(), rawRequestUrl,
+                                                   *previousRequestUrl, rawRequestUrl,
                                                    requestWillBeSent.redirectResponse
                                                )
                                              : canonicalizeCapturedUrl(rawRequestUrl);
@@ -1495,7 +1492,7 @@ private:
         const auto requestIdText = String::fromBytes(responseReceived.requestId).expect();
         const auto requestIt = activeRequests.find(requestIdText);
         if (requestIt == std::end(activeRequests)) {
-            if (mainRequestId && mainRequestId.value() == requestIdText) {
+            if (mainRequestId && *mainRequestId == requestIdText) {
                 UINVARIANT(
                     false, std::format(
                                "main document response received for unknown request id {}",
@@ -1509,7 +1506,7 @@ private:
         const auto timestamp = currentTimestamp();
         auto &request = requestIt->second;
         request.statusCode = responseReceived.response.status
-                                 ? i64(responseReceived.response.status.value())
+                                 ? i64(*responseReceived.response.status)
                                  : 0_i64;
         request.statusMessage =
             String::fromBytes(responseReceived.response.statusText.value_or("")).expect();
@@ -1538,7 +1535,7 @@ private:
                 completedMainRequest = it->second;
                 mainResponseRequestId = requestIdText;
             }
-        } else if (mainRequestId && mainRequestId.value() == requestIdText) {
+        } else if (mainRequestId && *mainRequestId == requestIdText) {
             UINVARIANT(
                 false,
                 std::format(
@@ -1556,7 +1553,7 @@ private:
 
         const auto requestIt = activeRequests.find(requestIdText);
         if (requestIt == std::end(activeRequests)) {
-            if (mainRequestId && mainRequestId.value() == requestIdText) {
+            if (mainRequestId && *mainRequestId == requestIdText) {
                 UINVARIANT(
                     false, std::format(
                                "main document loading failed for unknown request id {}",
@@ -1597,7 +1594,7 @@ private:
         auto request = std::move(requestIt->second);
         activeRequests.erase(requestIt);
 
-        request.statusCode = i64(redirectResponse->status.value());
+        request.statusCode = i64(*redirectResponse->status);
         request.statusMessage =
             String::fromBytes(redirectResponse->statusText.value_or("")).expect();
         request.headers = normalizeHeadersForCapture(redirectResponse->headers, request.requestUrl);
@@ -1606,7 +1603,7 @@ private:
 
         if (request.isTrackedMainDocument) {
             recordMainDocumentRedirect(request);
-            if (mainRequestId && mainRequestId.value() == requestId)
+            if (mainRequestId && *mainRequestId == requestId)
                 mainRequestId.reset();
             return;
         }
@@ -1625,10 +1622,10 @@ private:
 
         crawler::CapturedMainDocumentRedirect redirect;
         redirect.redirectUrl = request.requestUrl;
-        redirect.statusCode = request.statusCode.value();
-        redirect.statusMessage = request.statusMessage.value();
-        redirect.headers = request.headers.value();
-        redirect.timestamp = request.timestamp.value();
+        redirect.statusCode = *request.statusCode;
+        redirect.statusMessage = *request.statusMessage;
+        redirect.headers = *request.headers;
+        redirect.timestamp = *request.timestamp;
 
         if (!mainDocumentRedirects.empty()) {
             const auto &previous = mainDocumentRedirects.back();
@@ -1653,11 +1650,11 @@ private:
             request.requestUrl,
             request.method,
             request.resourceType,
-            request.statusCode.value(),
-            request.statusMessage.value(),
-            request.headers.value(),
+            *request.statusCode,
+            *request.statusMessage,
+            *request.headers,
             {},
-            request.timestamp.value(),
+            *request.timestamp,
         });
     }
 
@@ -1711,7 +1708,7 @@ readDomState(crawler::CdpClient &cdp, const String &sessionId)
     auto finalUrl = String::fromBytes(value.finalUrl);
     if (!finalUrl)
         return std::unexpected("Runtime.evaluate returned invalid finalUrl"_t);
-    finalUrl = canonicalizeCapturedUrl(finalUrl.value());
+    finalUrl = canonicalizeCapturedUrl(*finalUrl);
     return DomState{
         .finalUrl = grabValueOf(finalUrl),
         .title = title.value_or(std::nullopt),
@@ -1870,7 +1867,7 @@ private:
         if (!attached)
             return std::unexpected(attached.error());
         sessionId = String::fromBytes(attached->sessionId).expect();
-        tracker = std::make_unique<PageTracker>(sessionId.value(), targetId.value());
+        tracker = std::make_unique<PageTracker>(*sessionId, *targetId);
         listenerId = cdpClient().addListener([this](crawler::CdpEvent event) {
             if (event.method == "Fetch.authRequired"_t) {
                 handleFetchAuthRequired(event);
@@ -1954,7 +1951,7 @@ private:
         if (!navigateResult)
             return std::unexpected(navigateResult.error());
         if (navigateResult->errorText)
-            return std::unexpected(String::fromBytes(navigateResult->errorText.value()).expect());
+            return std::unexpected(String::fromBytes(*navigateResult->errorText).expect());
         pageTracker().setExpectedMainLoaderId(stringOrNull(navigateResult->loaderId));
 
         browser.markPhase("wait_for_load");
@@ -2053,7 +2050,7 @@ private:
         LOG_INFO() << std::format("captureViaProxy closing browser for {}", run.seedUrl);
         browser.close();
         if (const auto proxyFailure = browser.proxyFailureReason())
-            return std::unexpected(proxyFailure.value());
+            return std::unexpected(*proxyFailure);
         LOG_INFO() << std::format("captureViaProxy returning capture for {}", run.seedUrl);
         return exchange;
     }
@@ -2093,7 +2090,7 @@ private:
     {
         if (!cdp || !listenerId)
             return;
-        cdp->removeListener(listenerId.value());
+        cdp->removeListener(*listenerId);
         listenerId.reset();
     }
 
@@ -2107,7 +2104,7 @@ private:
             LOG_WARNING() << std::format(
                 "Suppressing CDP close failure during capture cleanup: code={}{}",
                 numericCast<int>(closed.error().code),
-                closed.error().detail ? std::format(", detail={}", closed.error().detail.value())
+                closed.error().detail ? std::format(", detail={}", *closed.error().detail)
                                       : std::string{}
             );
         }
@@ -2136,7 +2133,7 @@ private:
     [[nodiscard]] const String &attachedSessionId() const
     {
         UINVARIANT(sessionId, "cdp session is not attached");
-        return sessionId.value();
+        return *sessionId;
     }
 
     void noteInterceptionFailure(String reason)
@@ -2164,7 +2161,7 @@ private:
 
         dto::FetchAuthChallengeResponse authChallengeResponse;
         const auto isProxyChallenge = !authRequired->authChallenge.source ||
-                                      authRequired->authChallenge.source.value() == "Proxy";
+                                      *authRequired->authChallenge.source == "Proxy";
         if (isProxyChallenge) {
             authChallengeResponse.response = "ProvideCredentials";
             authChallengeResponse.username = browser.runId();
@@ -2200,13 +2197,13 @@ private:
             return;
         }
 
-        const auto allowed = isAllowedByDenylist(denylist, config, requestUrl.value());
+        const auto allowed = isAllowedByDenylist(denylist, config, *requestUrl);
         if (!allowed) {
             noteInterceptionFailure(allowed.error());
             return;
         }
 
-        if (allowed.value()) {
+        if (*allowed) {
             dto::FetchContinueRequestParams params;
             params.requestId = paused->requestId;
             const auto continued = cdpClient().sendNoWait(

@@ -23,7 +23,7 @@ namespace v1::client_ip {
     auto clientIp = String::fromBytes(text);
     if (!clientIp)
         return {};
-    return clientIp.value();
+    return *clientIp;
 }
 
 [[nodiscard]] inline std::optional<String>

@@ -76,7 +76,7 @@ struct HandshakeResponse final {
         auto message = String::fromBytes(error.As<dto::CdpError>().message);
         if (!message)
             return std::unexpected(CdpFailure{.code = kProtocol, .detail = {}});
-        return std::move(message).value();
+        return std::move(*message);
     } catch (const json::Exception &e) {
         UINVARIANT(
             false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
@@ -431,13 +431,12 @@ Expected<bool, CdpFailure> CdpClient::tryPumpOnce()
     }
     if (message.close_status) {
         closed = true;
-        traceClose("in", us::utils::UnderlyingValue(message.close_status.value()));
+        traceClose("in", us::utils::UnderlyingValue(*message.close_status));
         return std::unexpected(
             CdpFailure{
                 .code = kSocketClosed,
                 .detail = text::format(
-                    "websocket close status {}",
-                    us::utils::UnderlyingValue(message.close_status.value())
+                    "websocket close status {}", us::utils::UnderlyingValue(*message.close_status)
                 ),
             }
         );
@@ -479,13 +478,12 @@ Expected<void, CdpFailure> CdpClient::pumpOne()
     }
     if (message.close_status) {
         closed = true;
-        traceClose("in", us::utils::UnderlyingValue(message.close_status.value()));
+        traceClose("in", us::utils::UnderlyingValue(*message.close_status));
         return std::unexpected(
             CdpFailure{
                 .code = kSocketClosed,
                 .detail = text::format(
-                    "websocket close status {}",
-                    us::utils::UnderlyingValue(message.close_status.value())
+                    "websocket close status {}", us::utils::UnderlyingValue(*message.close_status)
                 ),
             }
         );
@@ -540,16 +538,14 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
             auto errorMessage = getErrorMessage(errorValue);
             if (!errorMessage)
                 return std::unexpected(errorMessage.error());
-            traceResponse(id, request, errorMessage.value());
+            traceResponse(id, request, *errorMessage);
             if (isDropped) {
                 dropResults.erase(dropped);
                 pendingRequests.erase(requestIt);
                 return {};
             }
             pendingRequests.erase(requestIt);
-            return std::unexpected(
-                CdpFailure{.code = kCommandFailed, .detail = errorMessage.value()}
-            );
+            return std::unexpected(CdpFailure{.code = kCommandFailed, .detail = *errorMessage});
         }
         traceResponse(id, request, {});
         if (isDropped) {

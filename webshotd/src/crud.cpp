@@ -161,23 +161,23 @@ struct [[nodiscard]] ClientIpCooldownRow final {
         job.status = dto::CaptureJob::Status::kFailed;
     job.created_at = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying());
     if (row.startedAt)
-        job.started_at = us::utils::datetime::TimePointTz(row.startedAt.value().GetUnderlying());
+        job.started_at = us::utils::datetime::TimePointTz(row.startedAt->GetUnderlying());
     if (row.finishedAt)
-        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt.value().GetUnderlying());
+        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt->GetUnderlying());
     if (row.resultCreatedAt) {
         job.result_created_at = us::utils::datetime::TimePointTz(
-            row.resultCreatedAt.value().GetUnderlying()
+            row.resultCreatedAt->GetUnderlying()
         );
     }
     if (job.status == dto::CaptureJob::Status::kFailed) {
         // Never expose internal diagnostics (crawler details, exception text, etc) to API clients.
         std::string message = "internal server error";
         if (row.errorCategory) {
-            if (row.errorCategory.value() == "size_limit") {
+            if (*row.errorCategory == "size_limit") {
                 message = "capture exceeded archive size limit";
-            } else if (row.errorCategory.value() == "crawler_failed") {
+            } else if (*row.errorCategory == "crawler_failed") {
                 message = "capture failed";
-            } else if (row.errorCategory.value() == "internal_server_error") {
+            } else if (*row.errorCategory == "internal_server_error") {
                 message = "internal server error";
             }
         }
@@ -186,9 +186,7 @@ struct [[nodiscard]] ClientIpCooldownRow final {
     }
     if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at) {
         UINVARIANT(row.resultCaptureId, "succeeded job must have result_capture_id");
-        job.result = dto::UuidWithTimeLink(
-            row.resultCaptureId.value(), job.result_created_at.value(), job.link
-        );
+        job.result = dto::UuidWithTimeLink(*row.resultCaptureId, *job.result_created_at, job.link);
     }
     return job;
 }
@@ -520,8 +518,8 @@ public:
         UINVARIANT(
             creds.accessKeyId && creds.secretAccessKey, "missing required S3 secdist credentials"
         );
-        staticAccessKeyId = creds.accessKeyId.value();
-        staticSecretAccessKey = creds.secretAccessKey.value();
+        staticAccessKeyId = *creds.accessKeyId;
+        staticSecretAccessKey = *creds.secretAccessKey;
         S3ClientState initialState;
         if (s3UseSts) {
             initialState = fetchS3ClientStateFromSts();
@@ -695,7 +693,7 @@ Crud::Impl::acquireClientIpCooldownLocked(const String &clientIp)
         auto rowOpt = trx.Execute(sql::kSelectClientIpCooldown, clientIp)
                           .template AsOptionalSingleRow<ClientIpCooldownRow>(pg::kRowTag);
         if (rowOpt) {
-            const auto expiresAt = rowOpt.value().expiresAt.GetUnderlying();
+            const auto expiresAt = rowOpt->expiresAt.GetUnderlying();
             if (now < expiresAt) {
                 trx.Commit();
                 return ClientIpCooldown{
@@ -765,7 +763,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
     );
     if (!rowOpt)
         return std::unexpected(std::move(rowOpt).error());
-    if (!rowOpt.value())
+    if (!*rowOpt)
         return {};
     return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
 }
@@ -813,7 +811,7 @@ Crud::Impl::findLatestJobForLink(const String &link)
     );
     if (!rowOpt)
         return std::unexpected(std::move(rowOpt).error());
-    if (!rowOpt.value())
+    if (!*rowOpt)
         return {};
     return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
 }
@@ -982,9 +980,9 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         UINVARIANT(
             run.contentSha256, "crawler did not provide content hash for a successful capture"
         );
-        UINVARIANT(ssize(run.contentSha256.value()) == 32_i64, "content hash must be 32 bytes");
-        ctx.waczBytes = run.wacz.value();
-        ctx.contentSha256 = run.contentSha256.value();
+        UINVARIANT(ssize(*run.contentSha256) == 32_i64, "content hash must be 32 bytes");
+        ctx.waczBytes = *run.wacz;
+        ctx.contentSha256 = *run.contentSha256;
         return true;
     };
 
@@ -1112,7 +1110,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     const auto host = ctx.link.url.hostname();
 
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
-    if (!allowed || !allowed.value()) {
+    if (!allowed || !*allowed) {
         if (!allowed) {
             metrics.accountError(Metrics::Error::kDenylistCheck);
             LOG_ERROR() << std::format("Failed to check denylist state during crawl: {}", host);
@@ -1124,7 +1122,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
 
     UINVARIANT(ctx.waczBytes, "persistMetadataForContext called without WACZ bytes");
     UINVARIANT(ctx.contentSha256, "persistMetadataForContext called without content hash");
-    UINVARIANT(ssize(ctx.contentSha256.value()) == 32_i64, "content hash must be 32 bytes");
+    UINVARIANT(ssize(*ctx.contentSha256) == 32_i64, "content hash must be 32 bytes");
 
     struct ExistingRow {
         Uuid id;
@@ -1133,7 +1131,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     auto existing = readonly(
         [&](auto &res) { return res.template AsOptionalSingleRow<ExistingRow>(pg::kRowTag); },
         sql::kSelectCaptureByLinkHash, ctx.link.normalized(),
-        pg::Bytea(std::string_view{ctx.contentSha256.value()})
+        pg::Bytea(std::string_view{*ctx.contentSha256})
     );
     if (!existing) {
         LOG_ERROR() << std::format(
@@ -1142,7 +1140,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         );
         return {};
     }
-    if (existing.value()) {
+    if (*existing) {
         auto row = grabValueOf(grabValueOf(existing));
         return StoredCapture{
             .id = row.id,
@@ -1153,7 +1151,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     try {
         auto snapshot = s3State.Read();
         snapshot->client->PutObject(
-            ctx.s3Key.view(), ctx.waczBytes.value(), {}, "application/zip", {}, {}
+            ctx.s3Key.view(), *ctx.waczBytes, {}, "application/zip", {}, {}
         );
     } catch (const us::utils::TracefulException &e) {
         metrics.accountError(Metrics::Error::kS3PutObject);
@@ -1168,7 +1166,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     auto row = readwrite(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); }, sql::kInsertCapture,
         ctx.id, ctx.link.normalized(), prefixKey, prefixTree, ctx.location,
-        pg::Bytea(std::string_view{ctx.contentSha256.value()})
+        pg::Bytea(std::string_view{*ctx.contentSha256})
     );
     if (!row) {
         try {
@@ -1214,7 +1212,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
 
         std::vector<Uuid> single;
         single.reserve(1);
-        for (auto &&id : ids.value()) {
+        for (auto &&id : *ids) {
             const auto key = std::format("{}/{}", svcCfg.s3Bucket(), id);
             try {
                 auto snapshot = s3State.Read();
@@ -1306,7 +1304,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                     "DB update crawl job failed for {}: {}", id, marked.error().what
                 );
             } else {
-                implPtr->metrics.accountCaptureCompleted(false, marked.value());
+                implPtr->metrics.accountCaptureCompleted(false, *marked);
             }
         };
 
@@ -1328,7 +1326,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 } else if (result.error().code == kPersistMetadataFailed) {
                     marked = markFailed("internal_server_error"_t, "internal server error"_t);
                 } else if (result.error().detail) {
-                    marked = markFailed("crawler_failed"_t, result.error().detail.value());
+                    marked = markFailed("crawler_failed"_t, *result.error().detail);
                 } else {
                     marked = markFailed("crawler_failed"_t, "crawler failed"_t);
                 }
@@ -1337,7 +1335,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                         "DB update crawl job failed for {}: {}", id, marked.error().what
                     );
                 } else {
-                    implPtr->metrics.accountCaptureCompleted(false, marked.value());
+                    implPtr->metrics.accountCaptureCompleted(false, *marked);
                 }
                 return;
             }
@@ -1348,7 +1346,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                     "DB update crawl job failed for {}: {}", id, succeeded.error().what
                 );
             } else {
-                implPtr->metrics.accountCaptureCompleted(true, succeeded.value());
+                implPtr->metrics.accountCaptureCompleted(true, *succeeded);
             }
         } catch (const us::utils::TracefulException &e) {
             markInternalError(e.what());
@@ -1400,7 +1398,7 @@ Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
     if (!locationText)
         return std::unexpected(kCorruptData);
     auto link = Link::fromText(
-        locationText.value(), impl->svcCfg.urlBytesMax(), Link::FromTextOptions::kNone
+        *locationText, impl->svcCfg.urlBytesMax(), Link::FromTextOptions::kNone
     );
     if (!link)
         return std::unexpected(kCorruptData);
@@ -1416,7 +1414,7 @@ Expected<std::optional<dto::CaptureJob>, errors::CrudError> Crud::findCaptureJob
         LOG_ERROR() << std::format("DB select job failed for {}: {}", uuid, job.error().what);
         return std::unexpected(kDbFailure);
     }
-    return job.value();
+    return *job;
 }
 
 Expected<dto::PagedFindCapturesByUrlResponse, errors::CapturePageError>
@@ -1538,7 +1536,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
                     );
                     return std::unexpected(kDbFailure);
                 }
-                links.insert(std::end(links), std::begin(more.value()), std::end(more.value()));
+                links.insert(std::end(links), std::begin(*more), std::end(*more));
             }
         } else {
             auto more = selectLinksNext(cursorLink, linksPerPage);
@@ -1546,7 +1544,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
                 LOG_ERROR() << std::format("DB select prefix links failed: {}", more.error().what);
                 return std::unexpected(kDbFailure);
             }
-            links.insert(std::end(links), std::begin(more.value()), std::end(more.value()));
+            links.insert(std::end(links), std::begin(*more), std::end(*more));
         }
     } else {
         auto first = selectLinksFirst(linksPerPage);
@@ -1554,7 +1552,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             LOG_ERROR() << std::format("DB select prefix links failed: {}", first.error().what);
             return std::unexpected(kDbFailure);
         }
-        links.insert(std::end(links), std::begin(first.value()), std::end(first.value()));
+        links.insert(std::end(links), std::begin(*first), std::end(*first));
     }
 
     struct Row {
@@ -1572,7 +1570,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             return impl->readonly(
                 [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
                 sql::kSelectCaptureByLinkNext, link, raw(impl->perLinkMax),
-                pg::TimePointTz(cur->createdAt.value()), cur->id.value()
+                pg::TimePointTz(*cur->createdAt), *cur->id
             );
         }
         return impl->readonly(
@@ -1589,7 +1587,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             LOG_ERROR() << std::format("DB select prefix captures failed: {}", rows.error().what);
             return std::unexpected(kDbFailure);
         }
-        for (auto &&r : rows.value()) {
+        for (auto &&r : *rows) {
             items.emplace_back(
                 r.uuid, us::utils::datetime::TimePointTz(r.tp.GetUnderlying()),
                 std::string(link.view())
@@ -1598,7 +1596,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         if (!rows->empty()) {
             lastRow = rows->back();
             lastLink = link;
-            if (ssize(rows.value()) == impl->perLinkMax && idx + 1_i64 == linkCount) {
+            if (ssize(*rows) == impl->perLinkMax && idx + 1_i64 == linkCount) {
                 endedMidLink = true;
             }
         } else {

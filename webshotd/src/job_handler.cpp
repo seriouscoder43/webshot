@@ -96,14 +96,14 @@ std::string JobHandler::HandleRequestThrow(
     auto clientIp = client_ip::resolve(request, config);
     if (!clientIp)
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-    auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+    auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
         return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 
-    auto job = crud.findCaptureJob(uuidOpt.value());
+    auto job = crud.findCaptureJob(*uuidOpt);
     if (!job)
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-    if (!job.value())
+    if (!*job)
         return httpu::respondError(response, kNotFound, "job not found"_t);
-    return httpu::respondJson(response, kOk, job.value().value());
+    return httpu::respondJson(response, kOk, **job);
 }

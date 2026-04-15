@@ -91,30 +91,30 @@ std::string Handler::HandleRequestThrow(
         if (!linkText)
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
         auto parsed = Link::fromText(
-            linkText.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
+            *linkText, config.urlBytesMax(), Link::FromTextOptions::kStripPort
         );
         if (!parsed)
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
-        auto prefixKey = prefix::makePrefixKey(parsed.value());
+        auto prefixKey = prefix::makePrefixKey(*parsed);
         const auto allowed = denylist.isAllowedPrefix(prefixKey);
         if (!allowed) {
             metrics.accountError(Metrics::Error::kDenylistCheck);
             return httpu::respondError(response, kInternalServerError, "internal server error"_t);
         }
-        if (!allowed.value())
+        if (!*allowed)
             return httpu::respondError(response, kForbidden, "host in denylist"_t);
 
         auto clientIp = client_ip::resolve(request, config);
         if (!clientIp)
             return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-        auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+        auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
         if (cooldown)
             return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 
-        auto job = crud.createCaptureJob(std::move(parsed).value());
+        auto job = crud.createCaptureJob(std::move(*parsed));
         if (!job)
             return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-        return httpu::respondJson(response, kAccepted, job.value());
+        return httpu::respondJson(response, kAccepted, *job);
     }
 
     const std::string arg = request.GetArg("link");
@@ -123,9 +123,7 @@ std::string Handler::HandleRequestThrow(
     auto str = String::fromBytes(arg);
     if (!str)
         return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
-    const auto link = Link::fromText(
-        str.value(), config.urlBytesMax(), Link::FromTextOptions::kStripPort
-    );
+    const auto link = Link::fromText(*str, config.urlBytesMax(), Link::FromTextOptions::kStripPort);
     if (!link)
         return httpu::respondParamError(response, kBadRequest, "link"_t, "invalid parameter"_t);
     const std::string tokenArg = request.GetArg("page_token");
@@ -137,11 +135,11 @@ std::string Handler::HandleRequestThrow(
     auto clientIp = client_ip::resolve(request, config);
     if (!clientIp)
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-    auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+    auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
         return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 
-    auto page = crud.findCapturesByLinkPage(link.value(), token.value());
+    auto page = crud.findCapturesByLinkPage(*link, *token);
     if (!page) {
         using enum errors::CapturePageError;
         if (page.error() == kDbFailure)
@@ -150,5 +148,5 @@ std::string Handler::HandleRequestThrow(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t
         );
     }
-    return httpu::respondJson(response, kOk, page.value());
+    return httpu::respondJson(response, kOk, *page);
 }

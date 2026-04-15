@@ -102,7 +102,7 @@ Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
         LOG_ERROR() << std::format("denylist check failed: {}", blocked.error().what);
         return std::unexpected(DenylistError::kDbFailure);
     }
-    return !blocked.value();
+    return !*blocked;
 }
 
 Expected<void, DenylistError>

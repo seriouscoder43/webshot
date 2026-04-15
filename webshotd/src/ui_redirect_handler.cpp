@@ -8,11 +8,13 @@
 
 #include <chrono>
 
+#include <userver/components/component.hpp>
 #include <userver/engine/task/current_task.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/server/http/http_response.hpp>
 #include <userver/server/http/http_status.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
+#include <userver/yaml_config/yaml_config.hpp>
 
 namespace v1 {
 

@@ -75,7 +75,7 @@ std::string ByPrefixHandler::HandleRequestThrow(
         return httpu::respondParamError(response, kBadRequest, "prefix"_t, "invalid parameter"_t);
 
     const auto parsed = Link::fromText(
-        prefix.value(), cfg.urlBytesMax(), Link::FromTextOptions::kStripPort
+        *prefix, cfg.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!parsed)
         return httpu::respondParamError(response, kBadRequest, "prefix"_t, "invalid parameter"_t);
@@ -91,11 +91,11 @@ std::string ByPrefixHandler::HandleRequestThrow(
     auto clientIp = client_ip::resolve(request, cfg);
     if (!clientIp)
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
-    auto cooldown = crud.acquireClientIpCooldown(std::move(clientIp).value()).value();
+    auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
         return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
 
-    auto page = crud.findCapturesByPrefixPage(normalizedPrefix, token.value());
+    auto page = crud.findCapturesByPrefixPage(normalizedPrefix, *token);
     if (!page) {
         using enum errors::CapturePageError;
         if (page.error() == kDbFailure)
@@ -104,5 +104,5 @@ std::string ByPrefixHandler::HandleRequestThrow(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t
         );
     }
-    return httpu::respondJson(response, kOk, page.value());
+    return httpu::respondJson(response, kOk, *page);
 }

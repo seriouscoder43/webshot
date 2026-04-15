@@ -40,7 +40,7 @@ Expected<std::vector<std::pair<String, String>>, QueryStringError> decodeQuerySt
         const auto valueText = String::fromBytes(value);
         if (!valueText)
             return std::unexpected(QueryStringError::kInvalidUtf8Value);
-        query.emplace_back(keyText.value(), valueText.value());
+        query.emplace_back(*keyText, *valueText);
         if (amp == std::string::npos)
             break;
         pos = amp + 1;

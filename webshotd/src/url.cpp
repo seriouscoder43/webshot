@@ -12,7 +12,7 @@ std::optional<Url> Url::fromText(const String &text)
     auto parsed = ada::parse<ada::url_aggregator>(text.view());
     if (!parsed)
         return {};
-    return Url(std::move(parsed.value()));
+    return Url(std::move(*parsed));
 }
 
 Url Url::fromParsed(ada::url_aggregator url) { return Url(std::move(url)); }

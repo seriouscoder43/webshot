@@ -1,12 +1,16 @@
 #pragma once
 
+#include <boost/safe_numerics/checked_default.hpp>
+#include <boost/safe_numerics/checked_result_operations.hpp>
 #include <boost/safe_numerics/exception_policies.hpp>
+#include <boost/safe_numerics/safe_base_operations.hpp>
+#include <boost/safe_numerics/safe_common.hpp>
 #include <boost/safe_numerics/safe_integer.hpp>
 
 #include <userver/utils/assert.hpp>
-#include <userver/utils/numeric_cast.hpp>
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -17,9 +21,9 @@
 #include <string_view>
 #include <type_traits>
 
-namespace integers_detail {
+namespace integers {
 
-struct Abort {
+struct SafeIntegerAbort {
     [[noreturn]] void
     operator()(const boost::safe_numerics::safe_numerics_error &e, const char *msg) const noexcept
     {
@@ -49,22 +53,18 @@ struct TrapUninitialized {
     }
 };
 
-using AbortPolicy = boost::safe_numerics::exception_policy<Abort, Abort, Abort, TrapUninitialized>;
+using AbortPolicy = boost::safe_numerics::exception_policy<
+    SafeIntegerAbort, SafeIntegerAbort, SafeIntegerAbort, TrapUninitialized>;
 
-} // namespace integers_detail
+template <typename T>
+using SafeInteger = boost::safe_numerics::safe<T, boost::safe_numerics::native, AbortPolicy>;
 
-using u16 = boost::safe_numerics::safe<
-    uint16_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
-using u32 = boost::safe_numerics::safe<
-    uint32_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
-using i32 =
-    boost::safe_numerics::safe<int32_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
-using u64 = boost::safe_numerics::safe<
-    uint64_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
-using i64 =
-    boost::safe_numerics::safe<int64_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
-using usize =
-    boost::safe_numerics::safe<size_t, boost::safe_numerics::native, integers_detail::AbortPolicy>;
+using u16 = SafeInteger<uint16_t>;
+using u32 = SafeInteger<uint32_t>;
+using i32 = SafeInteger<int32_t>;
+using u64 = SafeInteger<uint64_t>;
+using i64 = SafeInteger<int64_t>;
+using usize = SafeInteger<size_t>;
 
 static_assert(std::numeric_limits<u16>::is_specialized);
 static_assert(std::numeric_limits<u32>::is_specialized);
@@ -80,18 +80,25 @@ static_assert(std::is_same_v<decltype(std::numeric_limits<u64>::max()), u64>);
 static_assert(std::is_same_v<decltype(std::numeric_limits<i64>::max()), i64>);
 static_assert(std::is_same_v<decltype(std::numeric_limits<usize>::max()), usize>);
 
-namespace integers {
+template <typename T>
+concept NumericCastType = std::integral<std::remove_cvref_t<T>> ||
+                          std::is_enum_v<std::remove_cvref_t<T>>;
 
-template <typename To, typename From> [[nodiscard]] constexpr To numericCast(From value)
+template <typename To, typename From>
+    requires NumericCastType<To> && NumericCastType<From>
+[[nodiscard]] constexpr std::remove_cvref_t<To> numericCast(From value) noexcept
 {
-    if constexpr (std::is_enum_v<To>) {
-        using ToUnderlying = std::underlying_type_t<To>;
-        return static_cast<To>(numericCast<ToUnderlying>(value));
-    } else if constexpr (std::is_enum_v<From>) {
-        using FromUnderlying = std::underlying_type_t<From>;
-        return numericCast<To>(static_cast<FromUnderlying>(value));
+    using ToValue = std::remove_cvref_t<To>;
+    using FromValue = std::remove_cvref_t<From>;
+
+    if constexpr (std::is_enum_v<ToValue>) {
+        using ToUnderlying = std::underlying_type_t<ToValue>;
+        return static_cast<ToValue>(numericCast<ToUnderlying>(value));
+    } else if constexpr (std::is_enum_v<FromValue>) {
+        using FromUnderlying = std::underlying_type_t<FromValue>;
+        return numericCast<ToValue>(static_cast<FromUnderlying>(value));
     } else {
-        return userver::utils::numeric_cast<To>(value);
+        return static_cast<ToValue>(SafeInteger<ToValue>{SafeInteger<FromValue>{value}});
     }
 }
 
@@ -103,14 +110,17 @@ numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy
 }
 
 template <typename To, typename T, typename PromotionPolicy, typename ExceptionPolicy>
-[[nodiscard]] constexpr std::enable_if_t<!std::is_same_v<To, T>, To>
-numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value)
+[[nodiscard]] constexpr std::remove_cvref_t<To>
+numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+    requires NumericCastType<To> && (!std::same_as<std::remove_cvref_t<To>, T>)
 {
-    if constexpr (std::is_enum_v<To>) {
-        using ToUnderlying = std::underlying_type_t<To>;
-        return static_cast<To>(numericCast<ToUnderlying>(numericCast(value)));
+    using ToValue = std::remove_cvref_t<To>;
+
+    if constexpr (std::is_enum_v<ToValue>) {
+        using ToUnderlying = std::underlying_type_t<ToValue>;
+        return static_cast<ToValue>(numericCast<ToUnderlying>(numericCast(value)));
     } else {
-        return userver::utils::numeric_cast<To>(numericCast(value));
+        return static_cast<ToValue>(SafeInteger<ToValue>{numericCast(value)});
     }
 }
 
@@ -138,7 +148,9 @@ struct USizeFn {
     }
 };
 
+// NOLINTNEXTLINE(readability-identifier-naming)
 inline constexpr SSizeFn ssize{};
+// NOLINTNEXTLINE(readability-identifier-naming)
 inline constexpr USizeFn usz{};
 
 } // namespace integers
@@ -162,9 +174,16 @@ namespace integers::literals {
 
 } // namespace integers::literals
 
+using integers::i32;
+using integers::i64;
 using integers::numericCast;
 using integers::raw;
+using integers::SafeInteger;
 using integers::ssize;
+using integers::u16;
+using integers::u32;
+using integers::u64;
+using integers::usize;
 using integers::usz;
 using namespace integers::literals;
 

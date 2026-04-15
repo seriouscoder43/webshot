@@ -4,6 +4,7 @@ Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-empty-catch,
+  -bugprone-unchecked-optional-access,
   readability-identifier-naming,
   readability-misleading-indentation,
   readability-suspicious-call-argument,

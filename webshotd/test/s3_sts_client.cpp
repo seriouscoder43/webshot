@@ -33,7 +33,7 @@ UTEST(S3StsClient, ParsesHappyPathXml)
 {
     const auto parsed = StsCredentials::fromXml(String::fromBytes(makeValidXml()).expect());
     ASSERT_TRUE(parsed);
-    const auto &creds = parsed.value();
+    const auto &creds = *parsed;
 
     EXPECT_EQ(creds.accessKeyId.GetUnderlying(), "AKIA_TEST_KEY"_t);
     EXPECT_EQ(creds.secretAccessKey.GetUnderlying(), "SECRET_TEST_KEY"_t);
@@ -61,6 +61,25 @@ UTEST(S3StsClient, MissingClosingTagThrows)
     EXPECT_EQ(parsed.error(), v1::StsError::kXmlMissingClosingTag);
 }
 
+UTEST(S3StsClient, InvalidExpirationReturnsError)
+{
+    const std::string xml =
+        R"(<?xml version="1.0" encoding="UTF-8"?>
+<AssumeRoleResponse>
+  <AssumeRoleResult>
+    <Credentials>
+      <AccessKeyId>AKIA_TEST_KEY</AccessKeyId>
+      <SecretAccessKey>SECRET_TEST_KEY</SecretAccessKey>
+      <SessionToken>TOKEN_TEST_VALUE</SessionToken>
+      <Expiration>not-a-timestamp</Expiration>
+    </Credentials>
+  </AssumeRoleResult>
+</AssumeRoleResponse>)";
+    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    ASSERT_FALSE(parsed);
+    EXPECT_EQ(parsed.error(), v1::StsError::kInvalidExpiration);
+}
+
 UTEST(S3StsClient, BuildsRequestWithExecutor)
 {
     std::string capturedUrl;
@@ -86,7 +105,7 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
         std::chrono::seconds{900}, std::chrono::milliseconds{1500}
     );
     ASSERT_TRUE(parsed);
-    const auto &creds = parsed.value();
+    const auto &creds = *parsed;
 
     EXPECT_EQ(capturedUrl, endpoint);
     const std::string authKey = "authorization";

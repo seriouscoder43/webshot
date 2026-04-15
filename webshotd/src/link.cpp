@@ -91,7 +91,7 @@ fromTextImpl(const String &text, usize urlBytesMax, Link::FromTextOptions option
     if (auto hostname = url->get_hostname(); !hostname.empty() && hostname.back() == '.')
         url->set_hostname(std::string(begin(hostname), end(hostname) - 1));
 
-    return Link{Url::fromParsed(std::move(url.value()))};
+    return Link{Url::fromParsed(std::move(*url))};
 }
 
 } // namespace
