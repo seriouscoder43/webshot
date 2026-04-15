@@ -25,8 +25,13 @@ async def test_concurrent_same_link_uses_single_job(service_client, pgsql):
 
     bodies = [resp.json() for resp in responses]
     uuids = {body["uuid"] for body in bodies}
-    # Under concurrency multiple jobs may legitimately be created; just assert at least one.
-    assert len(uuids) >= 1
+    assert len(uuids) == 1
+
+    db = pgsql["shared_state_db"]
+    with db.cursor() as cur:
+        cur.execute("select count(*) from crawl_job where link = %s", (bodies[0]["link"],))
+        (cnt,) = cur.fetchone()
+    assert cnt == 1
 
 
 @pytest.mark.asyncio

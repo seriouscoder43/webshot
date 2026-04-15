@@ -29,6 +29,30 @@ async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
 
 
 @pytest.mark.asyncio
+async def test_recent_failed_job_is_reused_during_cooldown(service_client, s3_gate):
+    await s3_gate.sockets_close()
+    await s3_gate.stop_accepting()
+
+    link = f"https://{TEST_HOST}/chaos-s3-failed-reuse"
+    resp1 = await service_client.post("/v1/capture", json={"link": link})
+    assert resp1.status == 202
+    job1_id = resp1.json()["uuid"]
+
+    job1 = await wait_for_job_status(service_client, job1_id, expected_status="failed")
+    assert job1["status"] == "failed"
+
+    await s3_gate.to_server_pass()
+    await s3_gate.to_client_pass()
+    s3_gate.start_accepting()
+
+    resp2 = await service_client.post("/v1/capture", json={"link": link})
+    assert resp2.status == 202
+    job2 = resp2.json()
+    assert job2["uuid"] == job1_id
+    assert job2["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_s3_recovers_after_outage(service_client, s3_gate):
     await s3_gate.to_server_pass()
     await s3_gate.to_client_pass()

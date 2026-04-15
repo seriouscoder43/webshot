@@ -65,6 +65,7 @@
 #include <userver/storages/postgres/io/row_types.hpp>
 #include <userver/storages/postgres/io/uuid.hpp>
 #include <userver/storages/postgres/postgres.hpp>
+#include <userver/storages/postgres/transaction.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/secdist.hpp>
 #include <userver/utils/assert.hpp>
@@ -97,6 +98,24 @@ struct [[nodiscard]] PgError final {
     std::string what;
 };
 
+struct [[nodiscard]] CaptureJobRow final {
+    Uuid uuid;
+    String link;
+    std::string status;
+    std::optional<std::string> errorCategory;
+    std::optional<std::string> errorMessage;
+    pg::TimePointTz createdAt;
+    std::optional<pg::TimePointTz> startedAt;
+    std::optional<pg::TimePointTz> finishedAt;
+    std::optional<pg::TimePointTz> resultCreatedAt;
+    std::optional<Uuid> resultCaptureId;
+};
+
+struct [[nodiscard]] CreateCaptureJobResult final {
+    dto::CaptureJob job;
+    bool created;
+};
+
 [[nodiscard]] std::optional<crawler::CgroupLimits> computeCrawlerLimits(i64 cpuCores, i64 memoryGib)
 {
     if (cpuCores == 0_i64 && memoryGib == 0_i64)
@@ -109,6 +128,65 @@ struct [[nodiscard]] PgError final {
     const auto maxCpuCores = maxI64 / kCpuMaxPeriodUs;
     UINVARIANT(cpuCores <= maxCpuCores, "cpu core limit is too large");
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
+}
+
+[[nodiscard]] dto::CaptureJob makePendingCaptureJob(
+    Uuid uuid, const String &link, const us::utils::datetime::TimePointTz &createdAt
+)
+{
+    return dto::CaptureJob{
+        .uuid = uuid,
+        .link = std::string(link.view()),
+        .status = dto::CaptureJob::Status::kPending,
+        .created_at = createdAt,
+    };
+}
+
+[[nodiscard]] dto::CaptureJob makeCaptureJob(CaptureJobRow row)
+{
+    dto::CaptureJob job;
+    job.uuid = row.uuid;
+    job.link = std::string(row.link.view());
+    if (row.status == "pending")
+        job.status = dto::CaptureJob::Status::kPending;
+    else if (row.status == "running")
+        job.status = dto::CaptureJob::Status::kRunning;
+    else if (row.status == "succeeded")
+        job.status = dto::CaptureJob::Status::kSucceeded;
+    else
+        job.status = dto::CaptureJob::Status::kFailed;
+    job.created_at = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying());
+    if (row.startedAt)
+        job.started_at = us::utils::datetime::TimePointTz(row.startedAt.value().GetUnderlying());
+    if (row.finishedAt)
+        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt.value().GetUnderlying());
+    if (row.resultCreatedAt) {
+        job.result_created_at = us::utils::datetime::TimePointTz(
+            row.resultCreatedAt.value().GetUnderlying()
+        );
+    }
+    if (job.status == dto::CaptureJob::Status::kFailed) {
+        // Never expose internal diagnostics (crawler details, exception text, etc) to API clients.
+        std::string message = "internal server error";
+        if (row.errorCategory) {
+            if (row.errorCategory.value() == "size_limit") {
+                message = "capture exceeded archive size limit";
+            } else if (row.errorCategory.value() == "crawler_failed") {
+                message = "capture failed";
+            } else if (row.errorCategory.value() == "internal_server_error") {
+                message = "internal server error";
+            }
+        }
+        dto::ErrorEnvelope::Error err{std::move(message)};
+        job.error = dto::ErrorEnvelope{err};
+    }
+    if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at) {
+        UINVARIANT(row.resultCaptureId, "succeeded job must have result_capture_id");
+        job.result = dto::UuidWithTimeLink(
+            row.resultCaptureId.value(), job.result_created_at.value(), job.link
+        );
+    }
+    return job;
 }
 
 } // namespace
@@ -314,6 +392,8 @@ public:
     insertJob(Uuid id, String link);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError>
     findLatestJobForLink(const String &link);
+    [[nodiscard]] Expected<CreateCaptureJobResult, PgError>
+    getOrCreateCaptureJobLocked(const String &normalizedLink);
     [[nodiscard]] Expected<void, PgError> markJobRunning(Uuid id);
     [[nodiscard]] Expected<chrono::milliseconds, PgError> markJobSucceeded(
         Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
@@ -626,70 +706,15 @@ Crud::Impl::markJobFailed(Uuid id, const String &errorCategory, const String &er
 
 Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
 {
-    struct Row {
-        Uuid uuid;
-        String link;
-        std::string status;
-        std::optional<std::string> errorCategory;
-        std::optional<std::string> errorMessage;
-        pg::TimePointTz createdAt;
-        std::optional<pg::TimePointTz> startedAt;
-        std::optional<pg::TimePointTz> finishedAt;
-        std::optional<pg::TimePointTz> resultCreatedAt;
-        std::optional<Uuid> resultCaptureId;
-    };
     auto rowOpt = sharedReadonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<Row>(pg::kRowTag); },
+        [&](auto &res) { return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag); },
         sql::kSelectCrawlJob, id
     );
     if (!rowOpt)
         return std::unexpected(std::move(rowOpt).error());
     if (!rowOpt.value())
         return {};
-    auto row = grabValueOf(grabValueOf(rowOpt));
-
-    dto::CaptureJob job;
-    job.uuid = row.uuid;
-    job.link = std::string(row.link.view());
-    if (row.status == "pending")
-        job.status = dto::CaptureJob::Status::kPending;
-    else if (row.status == "running")
-        job.status = dto::CaptureJob::Status::kRunning;
-    else if (row.status == "succeeded")
-        job.status = dto::CaptureJob::Status::kSucceeded;
-    else
-        job.status = dto::CaptureJob::Status::kFailed;
-    job.created_at = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying());
-    if (row.startedAt)
-        job.started_at = us::utils::datetime::TimePointTz(row.startedAt.value().GetUnderlying());
-    if (row.finishedAt)
-        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt.value().GetUnderlying());
-    if (row.resultCreatedAt)
-        job.result_created_at = us::utils::datetime::TimePointTz(
-            row.resultCreatedAt.value().GetUnderlying()
-        );
-    if (job.status == dto::CaptureJob::Status::kFailed) {
-        // Never expose internal diagnostics (crawler details, exception text, etc) to API clients.
-        std::string message = "internal server error";
-        if (row.errorCategory) {
-            if (row.errorCategory.value() == "size_limit") {
-                message = "capture exceeded archive size limit";
-            } else if (row.errorCategory.value() == "crawler_failed") {
-                message = "capture failed";
-            } else if (row.errorCategory.value() == "internal_server_error") {
-                message = "internal server error";
-            }
-        }
-        dto::ErrorEnvelope::Error err{std::move(message)};
-        job.error = dto::ErrorEnvelope{err};
-    }
-    if (job.status == dto::CaptureJob::Status::kSucceeded && job.result_created_at) {
-        UINVARIANT(row.resultCaptureId, "succeeded job must have result_capture_id");
-        job.result = dto::UuidWithTimeLink(
-            row.resultCaptureId.value(), job.result_created_at.value(), job.link
-        );
-    }
-    return {std::move(job)};
+    return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
 }
 
 Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
@@ -729,15 +754,58 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
 Expected<std::optional<dto::CaptureJob>, PgError>
 Crud::Impl::findLatestJobForLink(const String &link)
 {
-    auto idOpt = sharedReadonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<Uuid>(); },
+    auto rowOpt = sharedReadonly(
+        [&](auto &res) { return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag); },
         sql::kSelectLatestCrawlJobByLink, link
     );
-    if (!idOpt)
-        return std::unexpected(std::move(idOpt).error());
-    if (!idOpt.value())
+    if (!rowOpt)
+        return std::unexpected(std::move(rowOpt).error());
+    if (!rowOpt.value())
         return {};
-    return loadJob(grabValueOf(grabValueOf(idOpt)));
+    return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
+}
+
+Expected<CreateCaptureJobResult, PgError>
+Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
+{
+    struct Row {
+        pg::TimePointTz createdAt;
+    };
+
+    try {
+        auto trx = sharedCluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW);
+        // Serialize same-link create-or-reuse decisions without blocking unrelated links.
+        trx.Execute(sql::kLockCrawlJobLink, normalizedLink);
+
+        auto latestJobRowOpt = trx.Execute(sql::kSelectLatestCrawlJobByLink, normalizedLink)
+                                   .template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
+        if (latestJobRowOpt) {
+            auto job = makeCaptureJob(grabValueOf(std::move(latestJobRowOpt)));
+            const auto now = us::utils::datetime::Now();
+            const auto lastCreated = job.created_at.GetTimePoint();
+            const auto deadline = lastCreated + chrono::seconds{linkCooldownSec};
+            if (now < deadline) {
+                trx.Commit();
+                return CreateCaptureJobResult{.job = std::move(job), .created = false};
+            }
+        }
+
+        auto id = us::utils::generators::GenerateBoostUuid();
+        auto row = trx.Execute(sql::kInsertCrawlJob, id, normalizedLink)
+                       .template AsSingleRow<Row>(pg::kRowTag);
+        trx.Commit();
+
+        metrics.accountCaptureJobCreated();
+        return CreateCaptureJobResult{
+            .job = makePendingCaptureJob(
+                id, normalizedLink, us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying())
+            ),
+            .created = true,
+        };
+    } catch (const pg::Error &e) {
+        metrics.accountError(Metrics::Error::kDbSharedStateWrite);
+        return std::unexpected(PgError{.what = std::string(e.what())});
+    }
 }
 
 void Crud::Impl::startS3RefreshTask()
@@ -1122,37 +1190,35 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
 
     auto *implPtr = impl.get();
     const auto normalizedLink = link.normalized();
+    dto::CaptureJob job;
+    Uuid id;
 
     if (implPtr->linkCooldownSec > 0_i64) {
-        auto latestJob = implPtr->findLatestJobForLink(normalizedLink);
-        if (!latestJob) {
+        auto decision = implPtr->getOrCreateCaptureJobLocked(normalizedLink);
+        if (!decision) {
             LOG_ERROR() << std::format(
-                "DB select latest crawl job failed for {}: {}", normalizedLink,
-                latestJob.error().what
+                "Failed to create or reuse crawl job for {}: {}", normalizedLink,
+                decision.error().what
             );
             return std::unexpected(kDbFailure);
         }
-        auto latestJobOpt = grabValueOf(latestJob);
-        if (latestJobOpt) {
-            auto job = grabValueOf(latestJobOpt);
-            const auto now = us::utils::datetime::Now();
-            const auto lastCreated = job.created_at.GetTimePoint();
-            const auto deadline = lastCreated + chrono::seconds{implPtr->linkCooldownSec};
-            if (now < deadline)
-                return std::move(job);
+        auto result = grabValueOf(decision);
+        job = std::move(result.job);
+        if (!result.created)
+            return job;
+        id = job.uuid;
+    } else {
+        id = us::utils::generators::GenerateBoostUuid();
+        auto createdAt = implPtr->insertJob(id, normalizedLink);
+        if (!createdAt) {
+            LOG_ERROR() << std::format(
+                "Failed to create crawl job for {}: {}", normalizedLink, createdAt.error().what
+            );
+            return std::unexpected(kDbFailure);
         }
+        implPtr->metrics.accountCaptureJobCreated();
+        job = makePendingCaptureJob(id, normalizedLink, grabValueOf(createdAt));
     }
-
-    auto id = us::utils::generators::GenerateBoostUuid();
-    auto createdAt = implPtr->insertJob(id, normalizedLink);
-    if (!createdAt) {
-        LOG_ERROR() << std::format(
-            "Failed to create crawl job for {}: {}", normalizedLink, createdAt.error().what
-        );
-        return std::unexpected(kDbFailure);
-    }
-    const auto createdAtTp = grabValueOf(createdAt);
-    implPtr->metrics.accountCaptureJobCreated();
     implPtr->crawlBackground.AsyncDetach("crawl_job", [implPtr, id, link = std::move(link)]() {
         const auto markFailed = [&](const String &errorCategory, const String &errorMessage) {
             // Persist terminal job state even if the crawl deadline has already cancelled this
@@ -1224,17 +1290,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
         }
     });
 
-    return dto::CaptureJob{
-        .uuid = id,
-        .link = std::string(normalizedLink.view()),
-        .status = dto::CaptureJob::Status::kPending,
-        .created_at = createdAtTp,
-        .started_at = {},
-        .finished_at = {},
-        .result_created_at = {},
-        .result = {},
-        .error = {},
-    };
+    return job;
 }
 
 Expected<std::optional<Link>, errors::CrudError> Crud::findCapture(Uuid uuid)
