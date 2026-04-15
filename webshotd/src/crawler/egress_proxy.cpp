@@ -218,6 +218,11 @@ struct [[nodiscard]] Authority final {
     u16 port;
 };
 
+struct [[nodiscard]] ResolvedTcpAddress final {
+    engine::io::Sockaddr sockaddr;
+    std::string label;
+};
+
 [[nodiscard]] std::optional<Authority>
 parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) noexcept
 {
@@ -287,14 +292,37 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     return engine::io::Sockaddr(&addr6);
 }
 
-[[nodiscard]] Expected<engine::io::Sockaddr, String>
+[[nodiscard]] std::string describeSockaddr(const engine::io::Sockaddr &addr)
+{
+    if (!addr.HasPort())
+        return addr.PrimaryAddressString();
+    if (addr.Domain() == engine::io::AddrDomain::kInet6)
+        return std::format("[{}]:{}", addr.PrimaryAddressString(), addr.Port());
+    return std::format("{}:{}", addr.PrimaryAddressString(), addr.Port());
+}
+
+[[nodiscard]] Expected<std::vector<ResolvedTcpAddress>, String>
 resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, engine::Deadline deadline)
 {
     const auto hostText = std::string(host);
-    if (isIpv4Address(hostText))
-        return sockaddrFromIpv4(hostText, port);
-    if (isIpv6Address(hostText))
-        return sockaddrFromIpv6(hostText, port);
+    if (isIpv4Address(hostText)) {
+        auto addr = sockaddrFromIpv4(hostText, port);
+        return std::vector<ResolvedTcpAddress>{
+            ResolvedTcpAddress{
+                .sockaddr = addr,
+                .label = describeSockaddr(addr),
+            },
+        };
+    }
+    if (isIpv6Address(hostText)) {
+        auto addr = sockaddrFromIpv6(hostText, port);
+        return std::vector<ResolvedTcpAddress>{
+            ResolvedTcpAddress{
+                .sockaddr = addr,
+                .label = describeSockaddr(addr),
+            },
+        };
+    }
 
     try {
         auto addrs = resolver.Resolve(hostText, deadline);
@@ -302,9 +330,20 @@ resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, engine::Dea
             return std::unexpected(
                 text::format("dns resolve returned no addresses for {}", hostText)
             );
-        addrs.front().SetPort(raw(port));
-        return addrs.front();
-    } catch (const dns::NotResolvedException &) {
+
+        auto resolved = std::vector<ResolvedTcpAddress>{};
+        resolved.reserve(addrs.size());
+        for (auto &addr : addrs) {
+            addr.SetPort(raw(port));
+            resolved.push_back(
+                ResolvedTcpAddress{
+                    .sockaddr = addr,
+                    .label = describeSockaddr(addr),
+                }
+            );
+        }
+        return resolved;
+    } catch (const dns::ResolverException &) {
         return std::unexpected(text::format("dns resolve failed for {}", hostText));
     }
 }
@@ -591,17 +630,36 @@ struct EgressProxy::Impl final {
     ) noexcept
     {
         const auto upstream = rewriteLocalFixtureIfNeeded(config, host, port);
-        auto addr = resolveTcp(resolver, upstream.connectHost, upstream.connectPort, deadline);
-        if (!addr)
-            return std::unexpected(std::move(addr).error());
+        auto addrs = resolveTcp(resolver, upstream.connectHost, upstream.connectPort, deadline);
+        if (!addrs)
+            return std::unexpected(std::move(addrs).error());
 
-        auto socket = engine::io::Socket{addr->Domain(), engine::io::SocketType::kStream};
-        try {
-            socket.Connect(addr.value(), deadline);
-        } catch (const utils::TracefulException &) {
-            return std::unexpected("connect upstream failed"_t);
+        auto errors = std::vector<std::string>{};
+        errors.reserve(addrs->size());
+        for (const auto &addr : *addrs) {
+            auto socket = engine::io::Socket{
+                addr.sockaddr.Domain(), engine::io::SocketType::kStream
+            };
+            try {
+                socket.Connect(addr.sockaddr, deadline);
+                return socket;
+            } catch (const utils::TracefulException &e) {
+                errors.push_back(std::format("{} ({})", addr.label, e.what()));
+            }
         }
-        return socket;
+
+        auto details = std::string{};
+        for (const auto &error : errors) {
+            if (!details.empty())
+                details.append("; ");
+            details.append(error);
+        }
+        return std::unexpected(
+            text::format(
+                "connect upstream failed for {}:{} after {} attempt(s): {}", upstream.connectHost,
+                upstream.connectPort, errors.size(), details
+            )
+        );
     }
 
     void copyClientToUpstream(
@@ -724,6 +782,7 @@ struct EgressProxy::Impl final {
 
         auto upstream = connectUpstream(resolver, authority->host, authority->port, deadline);
         if (!upstream) {
+            noteFailure(upstream.error());
             send502(client, upstream.error().view(), deadline);
             return;
         }
@@ -762,6 +821,7 @@ struct EgressProxy::Impl final {
 
         auto upstream = connectUpstream(resolver, target->host, target->port, deadline);
         if (!upstream) {
+            noteFailure(upstream.error());
             send502(client, upstream.error().view(), deadline);
             return;
         }
@@ -769,6 +829,7 @@ struct EgressProxy::Impl final {
         auto upstreamSocket = std::move(upstream).value();
         const auto request = buildForwardRequest(req, target->path);
         if (!sendAll(upstreamSocket, request, deadline)) {
+            noteFailure("send upstream failed"_t);
             send502(client, "send upstream failed", deadline);
             closeSocketsQuietly(client, upstreamSocket);
             return;
