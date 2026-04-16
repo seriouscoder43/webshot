@@ -3,6 +3,7 @@
 #include "expected.hpp"
 #include "text.hpp"
 
+#include <utility>
 #include <vector>
 
 namespace v1::s3v4 {

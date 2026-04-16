@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include <userver/clients/http/client.hpp>
+#include <userver/clients/http/response.hpp>
 
 #include "s3_credentials_types.hpp"
 #include "text.hpp"

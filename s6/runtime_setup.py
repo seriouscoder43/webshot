@@ -261,7 +261,7 @@ def _hash_pgmigrate_base_dir(base_dir: Path) -> str:
 
 def _hash_file_inputs(files: list[Path]) -> str:
     hasher = hashlib.sha256()
-    for path in sorted(files, key=str):
+    for path in sorted(files, key=lambda candidate: str(candidate)):
         hasher.update(str(path).encode("utf-8"))
         hasher.update(b"\0")
         hasher.update(path.read_bytes())

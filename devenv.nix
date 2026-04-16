@@ -15,6 +15,7 @@
         ./devenv/drv.nix
         ./devenv/overlay/backtrace.nix
         ./devenv/pkgs/pgmigrate.nix
+        ./devenv/pkgs/seaweedfs.nix
         ./devenv/pkgs/testsuite.nix
         ./devenv/pkgs/include-what-you-use.nix
         ./devenv/pkgs/uni-algo.nix

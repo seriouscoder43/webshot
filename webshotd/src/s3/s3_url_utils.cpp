@@ -1,5 +1,7 @@
 #include "s3/s3_url_utils.hpp"
 
+#include <expected>
+#include <stddef.h>
 #include <string>
 
 #include <ada/unicode.h>

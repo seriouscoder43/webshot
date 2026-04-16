@@ -105,8 +105,7 @@ Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
     return !*blocked;
 }
 
-Expected<void, DenylistError>
-Denylist::insertPrefix(const String &prefixKey, const String &reason)
+Expected<void, DenylistError> Denylist::insertPrefix(const String &prefixKey, const String &reason)
 {
     const auto tree = prefix::makePrefixTree(prefixKey);
     const auto inserted = impl->readwrite(

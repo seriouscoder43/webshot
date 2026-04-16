@@ -556,17 +556,23 @@ class _CoarseProfiler:
             if bucket in self._bucket_trackers:
                 continue
             status_path = entry / "supervise" / "status"
-            self._bucket_trackers[bucket] = _CpuTracker(
-                name=bucket,
-                pid_resolver=lambda profiler,
-                _proc_table,
+
+            def resolve_pid(
+                profiler: _CoarseProfiler,
+                _proc_table: dict[int, _ProcInfo],
                 *,
-                status_path=status_path,
-                service_name=entry.name: _resolve_s6_service_pid(
+                status_path: pathlib.Path = status_path,
+                service_name: str = entry.name,
+            ) -> int | None:
+                return _resolve_s6_service_pid(
                     profiler=profiler,
                     service_name=service_name,
                     status_path=status_path,
-                ),
+                )
+
+            self._bucket_trackers[bucket] = _CpuTracker(
+                name=bucket,
+                pid_resolver=resolve_pid,
                 include_descendants=True,
             )
 

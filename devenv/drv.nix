@@ -1,4 +1,5 @@
 {
+  inputs,
   nix,
   paths,
   sets,
@@ -25,6 +26,9 @@
   pgmigrate = callSrcPkg ./pkgs/pgmigrate.nix "pgmigrate" {};
   testsuite = callSrcPkg ./pkgs/testsuite.nix "testsuite" {
     inherit pgmigrate;
+  };
+  seaweedfs = callPkg ./pkgs/seaweedfs.nix {
+    inherit inputs;
   };
   includeWhatYouUse = callPkg ./pkgs/include-what-you-use.nix {};
   unialgo = callSrcPkg ./pkgs/uni-algo.nix "unialgo" {
@@ -150,6 +154,7 @@ in {
   includeWhatYouUse = includeWhatYouUse;
   pgmigrate = pgmigrate;
   rapidoc = rapidoc;
+  seaweedfs = seaweedfs;
   testCov = nix.writeShellScriptBin "test_cov" ''
     set -euo pipefail
     export LD_LIBRARY_PATH='${lib.makeLibraryPath sets.testLibs}'

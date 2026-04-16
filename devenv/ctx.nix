@@ -71,7 +71,7 @@
   };
 
   drv = import ./drv.nix {
-    inherit nix paths sets srcs toolchain;
+    inherit inputs nix paths sets srcs toolchain;
   };
 
   sets = import ./sets.nix {
@@ -84,7 +84,8 @@
   gitignorePatterns =
     builtins.filter (
       line:
-        line != ""
+        line
+        != ""
         && !(lib.hasPrefix "#" line)
     )
     (map (line: lib.removeSuffix "\r" line) gitignoreLines);

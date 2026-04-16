@@ -628,11 +628,11 @@ public:
         );
         markPhase("start_proxy");
         proxy = std::make_unique<crawler::EgressProxy>(crawler::EgressProxyConfig{
-            .socketPath = paths.proxySocketPath,
-            .runId = paths.runId,
-            .urlBytesMax = urlBytesMax,
-            .downBytesMax = proxyDownBytesMax,
-            .enableLocalFixtureRewrite = tunables.enableLocalFixtureRewrite,
+            paths.proxySocketPath,
+            paths.runId,
+            urlBytesMax,
+            proxyDownBytesMax,
+            tunables.enableLocalFixtureRewrite,
         });
         auto proxyStarted = proxy->start(dnsResolver, devtoolsDeadline);
         if (!proxyStarted)
@@ -820,6 +820,11 @@ private:
 };
 
 struct [[nodiscard]] RetainedBodyBudget {
+    RetainedBodyBudget(i64 maxBytes, i64 retainedBytes)
+        : maxBytes(maxBytes), retainedBytes(retainedBytes)
+    {
+    }
+
     i64 maxBytes;
     i64 retainedBytes;
 };

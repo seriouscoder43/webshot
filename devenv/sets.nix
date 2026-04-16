@@ -30,16 +30,17 @@
     socat
   ];
 
-  runtime = with nix; [
-    postgresql_18
-    nginx
-    s6
-    seaweedfs
-    util-linux
-    socat
-    openssl
-    nssTools.tools
-  ];
+  runtime = with nix;
+    [
+      postgresql_18
+      nginx
+      s6
+      util-linux
+      socat
+      openssl
+      nssTools.tools
+    ]
+    ++ [drv.seaweedfs];
 
   userverLibs = drv.userverLibs;
   userver = userverLibs ++ [drv.userverPy];

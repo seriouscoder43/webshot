@@ -8,6 +8,8 @@ inputs:
         follows: nixpkgs
   nixpkgs:
     url: github:NixOS/nixpkgs/cc1e0e027707ad53dddae39d3b3e992262c7d8c7
+  seaweedfsNixpkgs:
+    url: github:NixOS/nixpkgs/a672be65651c80d3f592a89b3945466584a22069
   treefmt-nix:
     url: github:numtide/treefmt-nix
     inputs:

@@ -8,12 +8,22 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include <userver/clients/dns/resolver_fwd.hpp>
 
 namespace v1::crawler {
 
 struct [[nodiscard]] EgressProxyConfig final {
+    EgressProxyConfig(
+        std::string socketPath, std::string runId, usize urlBytesMax, i64 downBytesMax,
+        bool enableLocalFixtureRewrite
+    )
+        : socketPath(std::move(socketPath)), runId(std::move(runId)), urlBytesMax(urlBytesMax),
+          downBytesMax(downBytesMax), enableLocalFixtureRewrite(enableLocalFixtureRewrite)
+    {
+    }
+
     std::string socketPath;
     std::string runId;
     usize urlBytesMax;

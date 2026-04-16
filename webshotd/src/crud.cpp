@@ -191,6 +191,13 @@ struct [[nodiscard]] ClientIpCooldownRow final {
     return job;
 }
 
+[[nodiscard]] s3v4::S3Credentials makeStaticS3Credentials(
+    const s3v4::AccessKeyId &accessKeyId, const s3v4::SecretAccessKey &secretAccessKey
+)
+{
+    return {accessKeyId, secretAccessKey, {}};
+}
+
 } // namespace
 
 us::yaml_config::Schema Crud::GetStaticConfigSchema()
@@ -526,9 +533,7 @@ public:
             startS3RefreshTask();
         } else {
             S3ClientState state;
-            state.creds = s3v4::S3Credentials(
-                staticAccessKeyId, staticSecretAccessKey, creds.sessionToken
-            );
+            state.creds = makeStaticS3Credentials(staticAccessKeyId, staticSecretAccessKey);
             state.expiresAt = system_clock::time_point::max();
             state.client = std::make_shared<s3v4::S3V4Client>(
                 httpClient,
