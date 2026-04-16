@@ -695,9 +695,9 @@ class _CoarseProfiler:
             return set()
 
         candidates = {service_binary}
-        sibling_bin = service_binary.parent / "webshotd_bin"
-        if sibling_bin.exists():
-            candidates.add(sibling_bin.resolve())
+        sibling_binary = service_binary.parent / "webshotd"
+        if sibling_binary.exists():
+            candidates.add(sibling_binary.resolve())
         return candidates
 
     @staticmethod

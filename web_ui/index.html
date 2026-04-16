@@ -113,7 +113,7 @@
         <div
           class="job-status"
           hx-get="/v1/capture/jobs/{{ uuid }}"
-          hx-trigger="load, every 1s"
+          hx-trigger="load delay:1s"
           hx-target="this"
           hx-swap="outerHTML"
           hx-ext="response-targets, client-side-templates"
@@ -128,7 +128,26 @@
 
     <!-- Job status response (CaptureJob): keep polling while pending/running -->
     <template id="tpl_job_status">
-      {% if error and error.message %}
+      {% if retry_after_sec and uuid %}
+      <div
+        class="job-status"
+        hx-get="/v1/capture/jobs/{{ uuid }}"
+        hx-trigger="load delay:{{ retry_after_sec }}s"
+        hx-target="this"
+        hx-swap="outerHTML"
+        hx-ext="response-targets, client-side-templates"
+        nunjucks-template="tpl_job_status"
+        hx-target-error="this"
+      >
+        <span class="badge pending">retrying</span>
+        <span class="mono">{{ uuid }}</span>
+        {% if error and error.message %}
+        <pre class="pre">{{ error.message }}; retrying in {{ retry_after_sec }}s</pre>
+        {% else %}
+        <pre class="pre">retrying in {{ retry_after_sec }}s</pre>
+        {% endif %}
+      </div>
+      {% elif error and error.message %}
       <div class="job-status terminal">
         <span class="badge failed">error</span>
         <pre class="pre">{{ error.message }}</pre>
@@ -137,7 +156,7 @@
       <div
         class="job-status"
         hx-get="/v1/capture/jobs/{{ uuid }}"
-        hx-trigger="every 1s"
+        hx-trigger="load delay:1s"
         hx-target="this"
         hx-swap="outerHTML"
         hx-ext="response-targets, client-side-templates"

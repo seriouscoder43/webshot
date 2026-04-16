@@ -101,7 +101,7 @@
     then ''
       python3 -m s6.runtime up \
         --mode ${lib.escapeShellArg cfg.infra}${profileArg} \
-        --binary-path ${lib.escapeShellArg "${cfg.buildDir}/runtime_root/webshotd/webshotd"} \
+        --binary-path ${lib.escapeShellArg "${cfg.buildDir}/runtime_root/webshotd/webshotd_wrapper"} \
         --config-vars-source ${lib.escapeShellArg cfg.configVars} \
         --runtime-ld-library-path ${lib.escapeShellArg runtimeLdPath}
     ''

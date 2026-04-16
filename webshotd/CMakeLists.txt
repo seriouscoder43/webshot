@@ -187,24 +187,24 @@ file(
 add_custom_target(
   ${PROJECT_NAME}_stage_runtime_layout ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd"
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui"
-  COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui/vendor"
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui/vendor"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/web_ui"
+  COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui/index.html"
+    "${CMAKE_INSTALL_PREFIX}/web_ui/index.html"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui/style.css"
+    "${CMAKE_INSTALL_PREFIX}/web_ui/style.css"
   COMMAND
     ${CMAKE_COMMAND} -E copy_directory "${WEBSHOT_WEB_UI_VENDOR_DIR}"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/web_ui/vendor"
+    "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}>
-    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_bin"
+    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
+    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_BINARY_DIR}/CMakeCache.txt"

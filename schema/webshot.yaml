@@ -284,10 +284,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '#/components/schemas/CaptureJobCooldownResponse'
               examples:
                 ip_cooldown:
                   value:
+                    uuid: 123e4567-e89b-12d3-a456-426614174000
+                    retry_after_sec: 1
                     error:
                       message: client IP in cooldown
         '500':
@@ -395,6 +397,29 @@ components:
       example:
         error:
           message: internal server error
+    CaptureJobCooldownResponse:
+      type: object
+      additionalProperties: false
+      required: [uuid, retry_after_sec, error]
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        retry_after_sec:
+          type: integer
+          minimum: 1
+        error:
+          type: object
+          additionalProperties: false
+          required: [message]
+          properties:
+            message:
+              type: string
+      example:
+        uuid: 123e4567-e89b-12d3-a456-426614174000
+        retry_after_sec: 1
+        error:
+          message: client IP in cooldown
     CreateCaptureRequest:
       type: object
       additionalProperties: false

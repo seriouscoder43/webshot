@@ -264,7 +264,7 @@ def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
                 "rapidoc_assets_dir": rapidoc_assets_dir,
                 "openapi_dir": str(ctx.repo_root / "schema" / "public_openapi"),
                 "openapi_admin_dir": str(ctx.repo_root / "schema" / "admin_openapi"),
-                "web_ui_dir": str(ctx.binary_path.parent / "web_ui"),
+                "web_ui_dir": str(ctx.binary_path.parent.parent / "web_ui"),
                 "state_dir": str(ctx.webshotd_state_dir),
             },
             sort_keys=True,

@@ -193,4 +193,4 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 unset CPU_LIMIT DEPLOY_VCPU_LIMIT VCPU_LIMIT
-exec "$script_dir/webshotd_bin" "$@"
+exec "$script_dir/webshotd" "$@"

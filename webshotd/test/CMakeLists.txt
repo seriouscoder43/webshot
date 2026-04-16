@@ -143,7 +143,7 @@ if(USERVER_FEATURE_TESTSUITE)
     ${CMAKE_CURRENT_SOURCE_DIR}/pytest.ini
     --service-config=${CMAKE_SOURCE_DIR}/config/static_config.yaml
     --service-config-vars=${CMAKE_SOURCE_DIR}/config/config_vars.testsuite.yaml
-    --service-binary=${CMAKE_INSTALL_PREFIX}/webshotd/webshotd
+    --service-binary=${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper
     --service-secdist=${CMAKE_SOURCE_DIR}/secret/test_secdist.json
     --service-source-dir=${CMAKE_SOURCE_DIR}
     --postgresql=postgresql://postgres@localhost:5432/postgres)

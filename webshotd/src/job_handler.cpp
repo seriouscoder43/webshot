@@ -9,8 +9,10 @@
 #include "deadline_utils.hpp"
 #include "http_utils.hpp"
 #include "integers.hpp"
+#include "schema/webshot.hpp"
 #include "text.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <optional>
@@ -21,6 +23,7 @@
 #include <userver/components/component.hpp>
 #include <userver/engine/exception.hpp>
 #include <userver/engine/task/current_task.hpp>
+#include <userver/http/common_headers.hpp>
 #include <userver/http/status_code.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/server/handlers/http_handler_base.hpp>
@@ -43,6 +46,25 @@ namespace {
     } catch (const std::runtime_error &) {
         return {};
     }
+}
+
+[[nodiscard]] std::string respondJobPollCooldown(
+    server::http::HttpResponse &response, const Uuid &uuid, std::chrono::milliseconds retryAfter
+)
+{
+    using enum server::http::HttpStatus;
+
+    const auto retryAfterSeconds = std::chrono::ceil<std::chrono::seconds>(retryAfter).count();
+    const auto retryAfterSecondsCount = std::max<i64>(1, i64(retryAfterSeconds));
+    dto::CaptureJobCooldownResponse body;
+    body.uuid = uuid;
+    body.retry_after_sec = retryAfterSecondsCount;
+    body.error = dto::CaptureJobCooldownResponse::Error{"client IP in cooldown"};
+
+    response.SetHeader(
+        userver::http::headers::kRetryAfter, std::format("{}", retryAfterSecondsCount)
+    );
+    return httpu::respondJson(response, kTooManyRequests, body);
 }
 
 } // namespace
@@ -98,7 +120,7 @@ std::string JobHandler::HandleRequestThrow(
         return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
     auto cooldown = *crud.acquireClientIpCooldown(std::move(*clientIp));
     if (cooldown)
-        return httpu::respondClientIpCooldown(response, cooldown->retryAfter);
+        return respondJobPollCooldown(response, *uuidOpt, cooldown->retryAfter);
 
     auto job = crud.findCaptureJob(*uuidOpt);
     if (!job)

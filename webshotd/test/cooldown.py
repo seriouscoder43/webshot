@@ -95,17 +95,26 @@ async def test_create_capture_ip_cooldown_expires(service_client, pgsql):
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_ip_cooldown])
-async def test_ip_cooldown_applies_to_read_crud_operation(service_client):
+async def test_ip_cooldown_applies_to_read_crud_operations(service_client):
     link = f"https://{TEST_HOST}/ip-cooldown-read-crud"
     headers = {_CLIENT_IP_HEADER: _CLIENT_IP}
 
     resp1 = await service_client.post("/v1/capture", json={"link": link}, headers=headers)
     assert resp1.status == 202
+    job_id = resp1.json()["uuid"]
 
     resp2 = await service_client.get("/v1/capture", params={"link": link}, headers=headers)
     assert resp2.status == 429
     assert resp2.headers["Retry-After"]
     assert resp2.json()["error"]["message"] == "client IP in cooldown"
+
+    resp3 = await service_client.get(f"/v1/capture/jobs/{job_id}", headers=headers)
+    assert resp3.status == 429
+    assert resp3.headers["Retry-After"]
+    body = resp3.json()
+    assert body["uuid"] == job_id
+    assert body["retry_after_sec"] >= 1
+    assert body["error"]["message"] == "client IP in cooldown"
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_ip_cooldown])
