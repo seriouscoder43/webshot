@@ -1,16 +1,10 @@
 {
   pkgs,
-  userverSrc,
+  src,
+  toolchain,
+  userverHelperPython,
+  userverLibs,
 }: let
-  llvm = pkgs.llvmPackages_21;
-  stdenv = llvm.stdenv;
-
-  userverPython = import ./deps.nix {
-    inherit pkgs;
-    python = pkgs.python3;
-  };
-  inherit (userverPython) userverDeps userverHelperPython;
-
   baseCmakeFlags = [
     "-DUSERVER_DOWNLOAD_PACKAGES=OFF"
     "-DUSERVER_USE_STATIC_LIBS=OFF"
@@ -41,11 +35,11 @@
     buildType,
     sanitize ? "",
   }:
-    stdenv.mkDerivation {
+    toolchain.stdenv.mkDerivation {
       pname = "userver";
       version = "dev";
 
-      src = userverSrc;
+      inherit src;
 
       patches = [
         ../../patch/userver_testsuite_no_venv.patch
@@ -56,15 +50,16 @@
         ../../patch/userver_stdlib_cxx17_variant.patch
       ];
 
-      nativeBuildInputs = with pkgs; [
-        cmake
-        ninja
-        python3
-        pkg-config
-        llvm.clang
-      ];
+      nativeBuildInputs =
+        (with pkgs; [
+          cmake
+          ninja
+          python3
+          pkg-config
+        ])
+        ++ [toolchain.cc];
 
-      buildInputs = userverDeps;
+      buildInputs = userverLibs ++ [userverHelperPython];
 
       cmakeFlags =
         baseCmakeFlags

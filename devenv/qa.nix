@@ -4,7 +4,7 @@
   inputs,
   ...
 }: let
-  common = import ./lib.nix {inherit pkgs config inputs;};
+  ctx = import ./ctx.nix {inherit pkgs config inputs;};
 in {
   cachix.enable = true;
 
@@ -19,7 +19,7 @@ in {
         sqlfluff.enable = true;
         yamlfmt.enable = true;
       };
-      settings.global.excludes = common.treefmtExcludesFromGitignore;
+      settings.global.excludes = ctx.treefmtExcludes;
     };
   };
 
@@ -36,7 +36,7 @@ in {
     unicode_hygiene = {
       enable = true;
       entry = "python3 check_unicode_hygiene.py";
-      package = common.python;
+      package = ctx.nix.python3;
       language = "system";
       files = "";
     };
@@ -51,7 +51,7 @@ in {
     sqlfluff-lint = {
       enable = true;
       entry = "sqlfluff lint";
-      package = common.pkgsWithOverlay.sqlfluff;
+      package = ctx.nix.sqlfluff;
       language = "system";
       files = "\\.sql$";
     };
@@ -59,7 +59,7 @@ in {
     ty = {
       enable = true;
       entry = "ty check --no-progress";
-      package = common.pkgsWithOverlay.ty;
+      package = ctx.nix.ty;
       language = "system";
       types = ["python"];
       pass_filenames = false;

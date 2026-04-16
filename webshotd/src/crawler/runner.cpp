@@ -826,7 +826,7 @@ struct [[nodiscard]] RetainedBodyBudget {
 
 struct [[nodiscard]] CaptureWithNetwork final {
     crawler::CapturedExchange exchange;
-    i64 proxyDownBytes;
+    i64 proxyDownBytes{0};
 };
 
 [[nodiscard]] Expected<std::string, String>
@@ -1318,7 +1318,7 @@ public:
 private:
     struct [[nodiscard]] MainResponse {
         String requestUrl;
-        i64 statusCode;
+        i64 statusCode{0};
         String statusMessage;
         std::unordered_map<std::string, std::string> headers;
         String timestamp;

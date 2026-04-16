@@ -4,29 +4,30 @@
   inputs,
   ...
 }: let
-  common = import ../devenv/lib.nix {inherit pkgs config inputs;};
+  ctx = import ../devenv/ctx.nix {inherit pkgs config inputs;};
+  lib = ctx.nix.lib;
 in {
-  outputs.webshot = common.mkWebshotOutput {
-    userverPkg = common.userverPkgs.userver-debug-addr-ub;
+  outputs.webshot = ctx.mkWebshot {
+    userver = ctx.drv.userverDbg;
   };
 
   packages =
-    common.buildDeps.native
-    ++ common.buildDeps.runtime
+    ctx.sets.buildNative
+    ++ ctx.sets.runtime
     ++ [
-      common.userverHelperPython
-      common.toolchain.cc
-      common.llvm21.llvm
-      common.llvm21.clang-tools
-      common.pkgsWithOverlay.include-what-you-use
-      common.userverPkgs.userver-debug-addr-ub
-      common.uniAlgoPkgs.default
-      common.yttsPkgs.default
-      common.pgmigratePkgs.default
+      ctx.drv.userverPy
+      ctx.toolchain.cc
+      ctx.nix.llvmPackages_22.llvm
+      ctx.nix.llvmPackages_22.clang-tools
+      ctx.drv.includeWhatYouUse
+      ctx.drv.userverDbg
+      ctx.drv.unialgo
+      ctx.drv.testsuite
+      ctx.drv.pgmigrate
     ]
-    ++ common.userverDeps
-    ++ [common.testSan common.testCov]
-    ++ (with common.pkgsWithOverlay; [
+    ++ ctx.sets.userverLibs
+    ++ [ctx.drv.testSan ctx.drv.testCov]
+    ++ (with ctx.nix; [
       git
       gdb
       ty
@@ -34,28 +35,21 @@ in {
       bubblewrap
     ]);
 
-  env.CMAKE_PREFIX_PATH = common.lib.makeSearchPath "lib/cmake" [
-    common.userverPkgs.userver-debug-addr-ub
-    common.pkgsWithOverlay.boost183.dev
-    common.pkgsWithOverlay.fmt.dev
-    common.pkgsWithOverlay.zstd.dev
-    common.pkgsWithOverlay.cctz
-    common.pkgsWithOverlay.yaml-cpp
+  env.CMAKE_PREFIX_PATH = ctx.paths.cmakePrefix;
+
+  env.PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
+    ctx.nix.cryptopp.dev
   ];
 
-  env.PKG_CONFIG_PATH = common.lib.makeSearchPath "lib/pkgconfig" [
-    common.pkgsWithOverlay.cryptopp.dev
-  ];
-
-  env.USERVER_PYTHON = "${common.userverHelperPython}/bin/python3";
-  env.USERVER_PYTHON_PATH = "${common.userverHelperPython}/bin/python3";
-  env.USERVER_DIR = "${common.userverPkgs.userver-debug-addr-ub}/lib/cmake/userver";
+  env.USERVER_PYTHON = "${ctx.drv.userverPy}/bin/python3";
+  env.USERVER_PYTHON_PATH = "${ctx.drv.userverPy}/bin/python3";
+  env.USERVER_DIR = "${ctx.drv.userverDbg}/lib/cmake/userver";
 
   # Expose the yandex-taxi-testsuite Python package so pytest_userver
   # can import `testsuite` (for chaos, pgsql helpers, etc.).
   env.PYTHONPATH =
     "${config.devenv.root}:"
-    + (common.lib.makeSearchPath common.python.sitePackages [
-      common.yttsPkgs.default
+    + (lib.makeSearchPath ctx.nix.python3.sitePackages [
+      ctx.drv.testsuite
     ]);
 }

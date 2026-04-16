@@ -101,7 +101,7 @@ struct [[nodiscard]] SerializableResponse {
     String method;
     String pageId;
     std::optional<String> resourceType;
-    i64 statusCode;
+    i64 statusCode{0};
     String statusMessage;
     std::unordered_map<std::string, std::string> headers;
     std::string body;

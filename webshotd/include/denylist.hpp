@@ -32,10 +32,10 @@ public:
     ~Denylist() override;
 
     /** @brief Returns true if the normalized prefix key is not deny-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> isAllowedPrefix(const String &prefixKey) noexcept;
+    [[nodiscard]] Expected<bool, DenylistError> isAllowedPrefix(const String &prefixKey);
     /** @brief Insert a prefix key into the denylist (noop if already present). */
     [[nodiscard]] Expected<void, DenylistError>
-    insertPrefix(const String &prefixKey, const String &reason) noexcept;
+    insertPrefix(const String &prefixKey, const String &reason);
     static userver::yaml_config::Schema GetStaticConfigSchema();
 
 private:

@@ -264,8 +264,12 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ${jemalloc_LIBRARIES_jemalloc})
 if(CMAKE_CXX_INCLUDE_WHAT_YOU_USE)
   set(_webshot_iwyu_cmd ${CMAKE_CXX_INCLUDE_WHAT_YOU_USE})
   list(GET _webshot_iwyu_cmd 0 _webshot_iwyu_tool)
-  find_program(_webshot_iwyu_path NAMES "${_webshot_iwyu_tool}")
-  if(NOT _webshot_iwyu_path)
+  if(IS_ABSOLUTE "${_webshot_iwyu_tool}")
+    set(_webshot_iwyu_path "${_webshot_iwyu_tool}")
+  else()
+    find_program(_webshot_iwyu_path NAMES "${_webshot_iwyu_tool}")
+  endif()
+  if(NOT EXISTS "${_webshot_iwyu_path}")
     message(
       FATAL_ERROR
         "CMAKE_CXX_INCLUDE_WHAT_YOU_USE is set to '${_webshot_iwyu_tool}', but include-what-you-use was not found in PATH"
@@ -300,6 +304,8 @@ userver_add_sql_library(
   ${CMAKE_CURRENT_BINARY_DIR}
   SQL_FILES
   *.sql)
+set_source_files_properties(
+  "${CMAKE_CURRENT_BINARY_DIR}/src/webshot/sql_queries.cpp" PROPERTIES SKIP_LINTING ON)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ${PROJECT_NAME}_sql)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_sql)
 

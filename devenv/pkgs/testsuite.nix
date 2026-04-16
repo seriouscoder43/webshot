@@ -1,18 +1,15 @@
 {
   pkgs,
-  pgmigrateSrc,
-  yandexTaxiTestsuiteSrc,
+  pgmigrate,
+  src,
 }: let
   pyPkgs = pkgs.python3Packages;
-  pgmigratePkg = import ../pgmigrate/package.nix {
-    inherit pgmigrateSrc pkgs;
-  };
 in
   pyPkgs.buildPythonPackage {
     pname = "yandex-taxi-testsuite";
     version = "0.4.5";
 
-    src = yandexTaxiTestsuiteSrc;
+    inherit src;
 
     pyproject = true;
     "build-system" = with pyPkgs; [setuptools wheel];
@@ -36,7 +33,7 @@ in
         cached-property
         psycopg2
       ])
-      ++ [pgmigratePkg];
+      ++ [pgmigrate];
 
     doCheck = false;
   }

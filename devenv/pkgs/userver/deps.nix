@@ -51,34 +51,29 @@
     websocketsCompatible
     pyPkgs.zstd
   ]);
-
-  userverDeps =
-    (with pkgs; [
-      python3
-      openssl
-      jemalloc
-      zlib
-      boost183
-      libbacktrace
-      zstd
-      yaml-cpp
-      cryptopp
-      fmt
-      cctz
-      re2
-      abseil-cpp
-      gbenchmark
-      gtest
-      libev
-      libpq
-      curl
-      c-ares
-      nghttp2
-      pugixml
-    ])
-    ++ [
-      userverHelperPython
-    ];
 in {
-  inherit userverDeps userverHelperPython;
+  inherit userverHelperPython;
+  userverLibs = with pkgs; [
+    python
+    openssl
+    jemalloc
+    zlib
+    boost183
+    libbacktrace
+    zstd
+    yaml-cpp
+    cryptopp
+    fmt
+    cctz
+    re2
+    abseil-cpp
+    gbenchmark
+    gtest
+    libev
+    libpq
+    curl
+    c-ares
+    nghttp2
+    pugixml
+  ];
 }

@@ -92,7 +92,7 @@ Denylist::Denylist(
 
 Denylist::~Denylist() = default;
 
-Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey) noexcept
+Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
 {
     const auto tree = prefix::makePrefixTree(prefixKey);
     const auto blocked = impl->readonly(
@@ -106,7 +106,7 @@ Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
 }
 
 Expected<void, DenylistError>
-Denylist::insertPrefix(const String &prefixKey, const String &reason) noexcept
+Denylist::insertPrefix(const String &prefixKey, const String &reason)
 {
     const auto tree = prefix::makePrefixTree(prefixKey);
     const auto inserted = impl->readwrite(

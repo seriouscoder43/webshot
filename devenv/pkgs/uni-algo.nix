@@ -1,14 +1,12 @@
 {
   pkgs,
-  uniAlgoSrc,
-}: let
-  llvm = pkgs.llvmPackages_21;
-  stdenv = llvm.stdenv;
-in
-  stdenv.mkDerivation {
+  src,
+  toolchain,
+}:
+  toolchain.stdenv.mkDerivation {
     pname = "uni-algo";
     version = "1.2.0";
-    src = uniAlgoSrc;
+    inherit src;
 
     patches = [../../patch/uni_algo_enable_constexpr.patch];
 

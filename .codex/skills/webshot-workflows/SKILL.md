@@ -9,8 +9,8 @@ Use this when the task involves building, running, or testing.
 
 ## Toolchain context
 - C++26 is required to build the service.
-- The primary toolchain comes from `nix/toolchain.nix` and uses `pkgs.llvmPackages_21` (Clang 21 + matching `stdenv`).
-- userver is consumed via the Nix flake in `nix/userver` (not by checking out userver sources in this repo).
+- The primary toolchain comes from `devenv/toolchain.nix` and uses `pkgs.llvmPackages_22` (Clang 22 + matching `stdenv`).
+- userver source comes from the flake inputs and is packaged via `devenv/pkgs/userver.nix` (not by checking out userver sources in this repo).
 - CMake configures `./webshotd` with Ninja into `build/webshotd/{san,tidy,cov,release}`.
 
 ## Agent sandbox limits

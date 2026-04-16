@@ -1,5 +1,5 @@
 {pkgs}: let
-  llvm = pkgs.llvmPackages_21;
+  llvm = pkgs.llvmPackages_22;
 in {
   stdenv = llvm.stdenv;
   cc = llvm.clang;

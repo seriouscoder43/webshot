@@ -216,7 +216,7 @@ enum class PortMode : bool { kOptional, kRequired };
 
 struct [[nodiscard]] Authority final {
     std::string_view host;
-    u16 port;
+    u16 port{0};
 };
 
 struct [[nodiscard]] ResolvedTcpAddress final {
@@ -414,7 +414,7 @@ void appendHeaderLine(std::string &out, std::string_view name, std::string_view 
 
 struct [[nodiscard]] HttpRequestTarget final {
     std::string_view host;
-    u16 port;
+    u16 port{0};
     std::string_view path;
 };
 
