@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: Browser probe test DTOs
+  version: 0.1.0
+paths: {}
+components:
+  schemas:
+    BrowserProbeRequest:
+      type: object
+      additionalProperties: false
+      required: [url, wait_expression, timeout_ms]
+      properties:
+        url:
+          type: string
+        wait_expression:
+          type: string
+        frame_expression:
+          type: string
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+    BrowserProbePageState:
+      type: object
+      additionalProperties: false
+      required: [final_url, title, text]
+      properties:
+        final_url:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+    BrowserProbeFrameState:
+      type: object
+      additionalProperties: false
+      required:
+        - url
+        - title
+        - text
+        - html
+        - background_color
+        - color
+        - redirected_asset_loaded
+      properties:
+        url:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+        html:
+          type: string
+        background_color:
+          type: string
+        color:
+          type: string
+        redirected_asset_loaded:
+          type: boolean
+    BrowserProbeResponse:
+      type: object
+      additionalProperties: false
+      required: [final_url, title, text, console, page_errors]
+      properties:
+        final_url:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+        frame:
+          $ref: "#/components/schemas/BrowserProbeFrameState"
+        console:
+          type: array
+          items:
+            type: string
+        page_errors:
+          type: array
+          items:
+            type: string

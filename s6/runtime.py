@@ -103,10 +103,21 @@ def _managed_scope_service_dir(current_cgroup: str) -> Path | None:
 
 def _managed_cgroup_parent_dir(current_cgroup: str) -> _ManagedCgroupParent:
     base_user_slice, app_slice_dir = _managed_app_slice_dir()
-    if current_cgroup.startswith(base_user_slice) and _has_cgroup_control_files(app_slice_dir):
-        return _ManagedCgroupParent(path=app_slice_dir, drain_processes_before_enable=False)
-
     current_dir = _cgroup_v2_dir(current_cgroup)
+    uid = os.getuid()
+    app_slice_cgroup = f"{base_user_slice}user@{uid}.service/app.slice"
+
+    if current_cgroup == app_slice_cgroup or current_cgroup.startswith(app_slice_cgroup + "/"):
+        if _has_cgroup_control_files(app_slice_dir):
+            return _ManagedCgroupParent(path=app_slice_dir, drain_processes_before_enable=False)
+        if _has_cgroup_control_files(current_dir):
+            return _ManagedCgroupParent(path=current_dir, drain_processes_before_enable=True)
+
+        runtime_die(
+            f"managed cgroup parent is not available from current cgroup: {current_dir}",
+            exit_code=1,
+        )
+
     if current_dir.name == PARENT_PROCS_CGROUP_NAME and _has_cgroup_control_files(
         current_dir.parent
     ):

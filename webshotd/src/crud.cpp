@@ -278,10 +278,6 @@ properties:
         type: integer
         minimum: 1
         description: 'Polling interval for devtools socket/path discovery in milliseconds'
-    crawler_cdp_wait_poll_interval_ms:
-        type: integer
-        minimum: 1
-        description: 'Polling interval for CDP response wait loop in milliseconds'
     crawler_browser_stop_timeout_ms:
         type: integer
         minimum: 1
@@ -359,7 +355,6 @@ public:
     const i64 crawlerNetworkDownBytesRatioMax;
     const bool crawlerLocalFixtureRewrite;
     const i64 crawlerDevtoolsPollIntervalMs;
-    const i64 crawlerCdpWaitPollIntervalMs;
     const i64 crawlerBrowserStopTimeoutMs;
     const i64 crawlerProxyStopTimeoutMs;
     const i64 linkCooldownSec;
@@ -451,7 +446,6 @@ public:
           ),
           crawlerLocalFixtureRewrite(cfg["crawler_local_fixture_rewrite"].As<bool>()),
           crawlerDevtoolsPollIntervalMs(cfg["crawler_devtools_poll_interval_ms"].As<int64_t>()),
-          crawlerCdpWaitPollIntervalMs(cfg["crawler_cdp_wait_poll_interval_ms"].As<int64_t>()),
           crawlerBrowserStopTimeoutMs(cfg["crawler_browser_stop_timeout_ms"].As<int64_t>()),
           crawlerProxyStopTimeoutMs(cfg["crawler_proxy_stop_timeout_ms"].As<int64_t>()),
           linkCooldownSec(cfg["link_cooldown_sec"].As<int64_t>()),
@@ -492,7 +486,6 @@ public:
                   chrono::seconds{crawlerCdpHandshakeTimeoutSec},
                   chrono::seconds{crawlerCdpCommandTimeoutSec},
                   chrono::milliseconds{crawlerDevtoolsPollIntervalMs},
-                  chrono::milliseconds{crawlerCdpWaitPollIntervalMs},
                   chrono::milliseconds{crawlerBrowserStopTimeoutMs},
                   chrono::milliseconds{crawlerProxyStopTimeoutMs},
                   crawlerLocalFixtureRewrite,

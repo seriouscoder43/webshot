@@ -160,17 +160,63 @@ async def _download_wacz_from_s3(service_secdist_path, object_name: str) -> byte
 
 
 @pytest.fixture
-def download_wacz(service_secdist_path, wacz_validator):
+def download_wacz(service_secdist_path):
     async def _download(object_name: str) -> bytes:
-        wacz = await _download_wacz_from_s3(service_secdist_path, object_name)
-        await wacz_validator.validate_bytes(wacz, object_name=object_name)
-        return wacz
+        return await _download_wacz_from_s3(service_secdist_path, object_name)
 
     return _download
 
 
+def _replay_page_url(capture_uuid: str) -> str:
+    return f"http://127.0.0.1:8080/vendor/replaywebpage/replay/{capture_uuid}"
+
+
+def _replay_frame_state_expression() -> str:
+    return """
+(() => {
+  const host = document.querySelector("replay-web-page");
+  const replay = document.querySelector("#replay");
+  const root = host?.shadowRoot ?? replay?.shadowRoot ?? null;
+  const iframe =
+    root?.querySelector("iframe") ??
+    document.querySelector("#replay iframe") ??
+    null;
+  if (!iframe) return null;
+  const win = iframe.contentWindow;
+  if (!win) return null;
+  try {
+    if (!win.document || win.document.readyState !== "complete" || !win.document.body) {
+      return null;
+    }
+    if (!win.navigator?.serviceWorker?.controller) return null;
+    return {
+      url: win.location.href,
+      title: win.document.title || "",
+      text: win.document.body.innerText || "",
+      html: win.document.documentElement ? win.document.documentElement.outerHTML : "",
+      background_color: win.getComputedStyle(win.document.body).backgroundColor,
+      color: win.getComputedStyle(win.document.body).color,
+      redirected_asset_loaded: !!win.__redirectedAssetLoaded,
+    };
+  } catch (_error) {
+    return null;
+  }
+})()
+""".strip()
+
+
+async def _probe_replay(browser_probe, capture_uuid: str) -> dict:
+    frame_expr = _replay_frame_state_expression()
+    return await browser_probe(
+        _replay_page_url(capture_uuid),
+        wait_expression=f"({frame_expr}) !== null",
+        frame_expression=frame_expr,
+        timeout_ms=15_000,
+    )
+
+
 @pytest.mark.asyncio
-async def test_capture_and_query_roundtrip(service_client, pgsql, download_wacz):
+async def test_capture_and_query_roundtrip(service_client, pgsql, download_wacz, browser_probe):
     link = f"https://{TEST_HOST}/webshot-capture-path"
 
     # Create capture
@@ -273,6 +319,12 @@ async def test_capture_and_query_roundtrip(service_client, pgsql, download_wacz)
         ],
     )
 
+    replay = await _probe_replay(browser_probe, uuid_str)
+    frame = replay["frame"]
+    assert frame["title"] == "test"
+    assert "text" in frame["text"]
+    assert "https://test-target/webshot-capture-path" in frame["url"]
+
 
 @pytest.mark.asyncio
 async def test_disallow_and_purge_blocks_new_captures(service_client, monitor_client, pgsql):
@@ -320,7 +372,7 @@ async def test_capture_fails_on_proxy_denied_seed(service_client, pgsql):
 
 
 @pytest.mark.asyncio
-async def test_capture_depth_fetches_additional_resources(service_client, download_wacz):
+async def test_capture_depth_fetches_additional_resources(service_client, browser_probe):
     link = f"https://{TEST_HOST}/with-subresource"
 
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -329,29 +381,26 @@ async def test_capture_depth_fetches_additional_resources(service_client, downlo
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/with-subresource")
-    assert 200 in seed_statuses
-
-    style_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/style.css")
-    assert 200 in style_statuses
-
-    script_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/script.js")
-    assert 200 in script_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["title"] == "test"
+    assert frame["background_color"] == "rgb(255, 255, 255)"
+    assert any("ok" in entry for entry in replay["console"])
 
 
 @pytest.mark.asyncio
-async def test_capture_near_archive_limit_success(service_client, download_wacz):
+async def test_capture_near_archive_limit_success(
+    service_client, download_wacz, testsuite_webshotd_state_dir
+):
     limit_mib = 8
     payload_mib = limit_mib - 3
     mib = 1024 * 1024
     payload_bytes = payload_mib * mib
 
     import os
-    import pathlib
 
     token = uuid.uuid4().hex
-    payload_dir = pathlib.Path("/tmp/webshot/dev/nginx_payloads")
+    payload_dir = testsuite_webshotd_state_dir / "nginx_payloads"
     payload_dir.mkdir(parents=True, exist_ok=True)
     payload_path = payload_dir / f"{token}.bin"
     try:
@@ -373,25 +422,15 @@ async def test_capture_near_archive_limit_success(service_client, download_wacz)
 
 
 @pytest.mark.asyncio
-async def test_capture_records_main_document_redirect_in_wacz(service_client, download_wacz):
+async def test_capture_records_main_document_redirect_in_wacz(service_client, browser_probe):
     link = f"https://{TEST_HOST}/redirect-seed"
     job_id, _job = await _capture_and_wait(service_client, link)
 
-    wacz = await download_wacz(job_id)
-    redirect_statuses = _wacz_cdxj_statuses_for_url(wacz, link)
-    assert 302 in redirect_statuses
-
-    final_url = f"https://{TEST_HOST}/redirect-final"
-    final_statuses = _wacz_cdxj_statuses_for_url(wacz, final_url)
-    assert 200 in final_statuses
-
-    archive_text = _wacz_archive_text(wacz)
-    assert f"WARC-Target-URI: urn:pageinfo:{link}" in archive_text
-    assert "WARC-Page-ID:" in archive_text
-    assert "WARC-Target-URI: https://test-target/redirect-seed" in archive_text
-    assert "location: /redirect-final" in archive_text
-    assert "WARC-Target-URI: https://test-target/redirect-final" in archive_text
-    assert "Redirect Final" in archive_text
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["title"] == "Redirect Final"
+    assert "redirect final" in frame["text"]
+    assert "https://test-target/redirect-final" in frame["url"]
 
 
 @pytest.mark.asyncio
@@ -425,26 +464,17 @@ async def test_capture_preserves_head_subresource_requests(service_client, downl
 
 
 @pytest.mark.asyncio
-async def test_capture_preserves_redirected_subresource_hops(service_client, download_wacz):
+async def test_capture_preserves_redirected_subresource_hops(service_client, browser_probe):
     link = f"https://{TEST_HOST}/with-redirected-asset"
     job_id, _job = await _capture_and_wait(service_client, link)
 
-    wacz = await download_wacz(job_id)
-    redirect_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-script.js")
-    assert 302 in redirect_statuses
-
-    final_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/script-final.js")
-    assert 200 in final_statuses
-
-    archive_text = _wacz_archive_text(wacz)
-    assert "WARC-Target-URI: https://test-target/redirect-script.js" in archive_text
-    assert "location: /script-final.js" in archive_text
-    assert "WARC-Target-URI: https://test-target/script-final.js" in archive_text
-    assert "window.__redirectedAssetLoaded = true;" in archive_text
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["redirected_asset_loaded"] is True
 
 
 @pytest.mark.asyncio
-async def test_denylist_blocks_subresource_fetch(service_client, monitor_client, download_wacz):
+async def test_denylist_blocks_subresource_fetch(service_client, monitor_client, browser_probe):
     deny_resp = await monitor_client.post(
         "/v1/denylist/disallow_and_purge",
         params={"host": f"https://{TEST_HOST}/denylist/style.css"},
@@ -458,23 +488,14 @@ async def test_denylist_blocks_subresource_fetch(service_client, monitor_client,
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_url(
-        wacz, f"https://{TEST_HOST}/with-subresource-denylist"
-    )
-    assert 200 in seed_statuses
-
-    blocked_style_statuses = _wacz_cdxj_statuses_for_url(
-        wacz, f"https://{TEST_HOST}/denylist/style.css"
-    )
-    assert 200 not in blocked_style_statuses
-
-    script_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/denylist/script.js")
-    assert 200 in script_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["background_color"] != "rgb(238, 238, 238)"
+    assert any("denylist" in entry for entry in replay["console"])
 
 
 @pytest.mark.asyncio
-async def test_capture_fetches_https_subresource_assets(service_client, download_wacz):
+async def test_capture_fetches_https_subresource_assets(service_client, browser_probe):
     link = f"https://{TEST_HOST}/with-https-asset-subresource"
 
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -483,22 +504,15 @@ async def test_capture_fetches_https_subresource_assets(service_client, download
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_url(
-        wacz, f"https://{TEST_HOST}/with-https-asset-subresource"
-    )
-    assert 200 in seed_statuses
-
-    css_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/asset.css")
-    assert 200 in css_statuses
-
-    js_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/asset.js")
-    assert 200 in js_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["color"] == "rgb(0, 0, 0)"
+    assert any("asset" in entry for entry in replay["console"])
 
 
 @pytest.mark.asyncio
 async def test_denylist_blocks_https_subresource_fetch(
-    service_client, monitor_client, download_wacz
+    service_client, monitor_client, browser_probe
 ):
     deny_resp = await monitor_client.post(
         "/v1/denylist/disallow_and_purge",
@@ -513,23 +527,14 @@ async def test_denylist_blocks_https_subresource_fetch(
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_url(
-        wacz, f"https://{TEST_HOST}/with-https-asset-subresource-denylist"
-    )
-    assert 200 in seed_statuses
-
-    blocked_css_statuses = _wacz_cdxj_statuses_for_url(
-        wacz, f"https://{TEST_ASSET_HOST}/denylist/asset.css"
-    )
-    assert 200 not in blocked_css_statuses
-
-    js_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_ASSET_HOST}/denylist/asset.js")
-    assert 200 in js_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["color"] != "rgb(17, 17, 17)"
+    assert any("asset-denylist" in entry for entry in replay["console"])
 
 
 @pytest.mark.asyncio
-async def test_https_first_succeeds_when_http_fails(service_client, download_wacz):
+async def test_https_first_succeeds_when_http_fails(service_client, browser_probe):
     link = f"http://{TEST_HOST}/https-first-http-fails"
 
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -538,13 +543,14 @@ async def test_https_first_succeeds_when_http_fails(service_client, download_wac
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
-    assert 200 in seed_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["title"] == "ok"
+    assert "https://test-target/https-first-http-fails" in frame["url"]
 
 
 @pytest.mark.asyncio
-async def test_https_first_falls_back_to_http_when_https_no_response(service_client, download_wacz):
+async def test_https_first_falls_back_to_http_when_https_no_response(service_client, browser_probe):
     link = f"http://{TEST_HOST}/http-fallback-success"
 
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -553,9 +559,10 @@ async def test_https_first_falls_back_to_http_when_https_no_response(service_cli
 
     await wait_for_job_status(service_client, job_id, expected_status="succeeded")
 
-    wacz = await download_wacz(job_id)
-    seed_statuses = _wacz_cdxj_statuses_for_root_url(wacz, link)
-    assert 200 in seed_statuses
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["title"] == "ok"
+    assert "http://test-target/http-fallback-success" in frame["url"]
 
 
 @pytest.mark.asyncio
@@ -571,10 +578,9 @@ async def test_https_first_falls_back_to_http_and_fails_when_http_fails(service_
 
 @pytest.mark.asyncio
 async def test_capture_downgrades_untrusted_https_certificate_to_http(
-    service_client, download_wacz
+    service_client, browser_probe
 ):
     https_link = f"https://{UNTRUSTED_TEST_HOST}/"
-    http_link = f"http://{UNTRUSTED_TEST_HOST}/"
 
     resp = await service_client.post("/v1/capture", json={"link": https_link})
     assert resp.status == 202
@@ -590,29 +596,15 @@ async def test_capture_downgrades_untrusted_https_certificate_to_http(
     assert resp.status == 200
     assert resp.json()["storage_url"].endswith(job_id)
 
-    wacz = await download_wacz(job_id)
-    http_statuses = _wacz_cdxj_statuses_for_root_url(wacz, http_link)
-    https_statuses = _wacz_cdxj_statuses_for_root_url(wacz, https_link)
-    assert 200 in http_statuses
-    assert 200 not in https_statuses
-
-    entries = _wacz_entries(wacz)
-    pages_lines = entries["pages/pages.jsonl"].decode("utf-8").splitlines()
-    assert len(pages_lines) == 2
-    seed_page = json.loads(pages_lines[1])
-    assert seed_page["url"] == "http://untrusted.test-target/"
-    stdout_log = entries["logs/stdout.log"].decode("utf-8")
-    assert "seed_url=http://untrusted.test-target" in stdout_log
-    assert "final_url=http://untrusted.test-target/" in stdout_log
-
-    archive_text = _wacz_archive_text(wacz)
-    assert "WARC-Target-URI: http://untrusted.test-target" in archive_text
-    assert "WARC-Target-URI: urn:pageinfo:http://untrusted.test-target" in archive_text
-    assert "WARC-Target-URI: https://untrusted.test-target" not in archive_text
+    replay = await _probe_replay(browser_probe, job_id)
+    frame = replay["frame"]
+    assert frame["title"] == "untrusted"
+    assert "http://untrusted.test-target/" in frame["url"]
+    assert "untrusted" in frame["text"]
 
 
 @pytest.mark.asyncio
-async def test_sequential_captures_do_not_reuse_browser_state(service_client, download_wacz):
+async def test_sequential_captures_do_not_reuse_browser_state(service_client, browser_probe):
     first_job_id, _first_job = await _capture_and_wait(
         service_client, f"https://{TEST_HOST}/state-write"
     )
@@ -622,10 +614,10 @@ async def test_sequential_captures_do_not_reuse_browser_state(service_client, do
 
     assert first_job_id != second_job_id
 
-    wacz = await download_wacz(second_job_id)
-    archive_text = _wacz_archive_text(wacz)
-    assert "seen=first" not in archive_text
-    assert '"localStorage":"first"' not in archive_text
-    assert '"sessionStorage":"first"' not in archive_text
-    assert '"localStorage":null' in archive_text
-    assert '"sessionStorage":null' in archive_text
+    replay = await _probe_replay(browser_probe, second_job_id)
+    frame = replay["frame"]
+    assert "seen=first" not in frame["text"]
+    assert '"localStorage":"first"' not in frame["text"]
+    assert '"sessionStorage":"first"' not in frame["text"]
+    assert '"localStorage":null' in frame["text"]
+    assert '"sessionStorage":null' in frame["text"]

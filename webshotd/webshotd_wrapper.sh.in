@@ -8,6 +8,7 @@ parent_procs_cgroup=webshotd-parent-procs
 delegated_controllers=( cpu memory )
 uid=
 base_user_slice=
+app_slice_cgroup=
 app_slice_dir=
 current_cgroup=
 current_cgroup_dir=
@@ -127,6 +128,7 @@ fi
 current_cgroup_dir=/sys/fs/cgroup${current_cgroup}
 uid=$(id -u)
 base_user_slice="/user.slice/user-${uid}.slice/"
+app_slice_cgroup="${base_user_slice}user@${uid}.service/app.slice"
 app_slice_dir=/sys/fs/cgroup${base_user_slice%/}/user@${uid}.service/app.slice
 
 case "$current_cgroup" in
@@ -147,7 +149,7 @@ case "$current_cgroup" in
     cleanup_cgroup_layout=1
     ;;
   "${base_user_slice}"*)
-    if cgroupHasControlFiles "$app_slice_dir"; then
+    if [[ $current_cgroup == "$app_slice_cgroup" || $current_cgroup == "$app_slice_cgroup"/* ]] && cgroupHasControlFiles "$app_slice_dir"; then
       cleanup_parent_dir=$app_slice_dir
     elif cgroupHasControlFiles "$current_cgroup_dir"; then
       cleanup_parent_dir=$current_cgroup_dir

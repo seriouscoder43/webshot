@@ -33,14 +33,33 @@ cdp_pid=''
 browser_pid=''
 chromium_stderr_path='chromium-stderr.log'
 browser_cgroup_dir=''
+devtools_active_port_file=''
+
+for arg in "$@"; do
+  if [[ $arg == --user-data-dir=* ]]; then
+    devtools_active_port_file=${arg#--user-data-dir=}/DevToolsActivePort
+    break
+  fi
+done
 
 browserAlive() {
   kill -0 "$browser_pid" 2>/dev/null
 }
 
 devtoolsWebsocketPath() {
+  if [[ -n $devtools_active_port_file && -f $devtools_active_port_file ]]; then
+    local recorded_port=''
+    local websocket_path=''
+    IFS= read -r recorded_port <"$devtools_active_port_file" || true
+    websocket_path=$(sed -n '2{s/[[:space:]]*$//;p;q;}' "$devtools_active_port_file")
+    if [[ -n $websocket_path && ( -z $recorded_port || $recorded_port == "$devtools_port" ) ]]; then
+      printf '%s\n' "$websocket_path"
+      return 0
+    fi
+  fi
+
   [[ -f $chromium_stderr_path ]] || return 0
-  sed -n "s#^DevTools listening on ws://127\\.0\\.0\\.1:${devtools_port}\\(/[^[:space:]]*\\)\$#\\1#p" \
+  sed -n "s#^DevTools listening on ws://[^/[:space:]]*:${devtools_port}\\(/[^[:space:]]*\\)\$#\\1#p" \
     "$chromium_stderr_path" | tail -n 1
 }
 

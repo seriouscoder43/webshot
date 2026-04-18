@@ -22,7 +22,6 @@ crawler_size_limit_mib: 50
 crawler_network_down_bytes_ratio_max: 10
 crawler_local_fixture_rewrite: false
 crawler_devtools_poll_interval_ms: 100
-crawler_cdp_wait_poll_interval_ms: 10
 crawler_browser_stop_timeout_ms: 1500
 crawler_proxy_stop_timeout_ms: 500
 link_cooldown_sec: 0

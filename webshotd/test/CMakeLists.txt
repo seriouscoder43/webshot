@@ -112,11 +112,6 @@ add_cpp_test(
   crawler_fallback_test SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback.cpp)
 
-add_cpp_test(
-  browser_sandbox_test SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/browser_sandbox.cpp
-  ${CMAKE_SOURCE_DIR}/src/crawler/browser_sandbox.cpp)
-
 add_cpp_test(cdp_request_tracker_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/cdp_request_tracker.cpp)
 
@@ -150,6 +145,11 @@ if(USERVER_FEATURE_TESTSUITE)
     --service-secdist=${CMAKE_SOURCE_DIR}/secret/test_secdist.json
     --service-source-dir=${CMAKE_SOURCE_DIR}
     --postgresql=postgresql://postgres@localhost:5432/postgres)
+
+  add_test(
+    NAME testsuite-testsuite-tests-fail-fast
+    COMMAND ${TESTSUITE_PYTHON_BINARY} ${testsuite_runner_path}
+            --service-logs-pretty -vv -x)
 
   add_custom_target(
     testsuite-runner-guard ALL

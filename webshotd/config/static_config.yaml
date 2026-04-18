@@ -133,6 +133,20 @@ components_manager:
       max_request_size: *max-data-per-request
       title: Webshot Admin API
       spec-url: /openapi/webshot.yaml
+    browser_probe:
+      path: /tests/browser-probe
+      method: POST
+      monitor-handler: true
+      task_processor: main-task-processor
+      request-timeout-ms: 30000
+      max_request_size: *max-data-per-request
+      devtools_startup_timeout_ms: 10000
+      cdp_handshake_timeout_ms: 10000
+      cdp_command_timeout_ms: 10000
+      devtools_poll_interval_ms: 100
+      browser_stop_timeout_ms: 2000
+      cdp_max_remote_payload_bytes: 33554432
+      local_fixture_rewrite: true
     rapidoc_assets_cache:
       dir: $rapidoc_assets_dir
       update-period: 0s
@@ -252,7 +266,6 @@ components_manager:
       crawler_network_down_bytes_ratio_max: $crawler_network_down_bytes_ratio_max
       crawler_local_fixture_rewrite: $crawler_local_fixture_rewrite
       crawler_devtools_poll_interval_ms: $crawler_devtools_poll_interval_ms
-      crawler_cdp_wait_poll_interval_ms: $crawler_cdp_wait_poll_interval_ms
       crawler_browser_stop_timeout_ms: $crawler_browser_stop_timeout_ms
       crawler_proxy_stop_timeout_ms: $crawler_proxy_stop_timeout_ms
       link_cooldown_sec: $link_cooldown_sec

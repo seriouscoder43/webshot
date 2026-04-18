@@ -72,6 +72,7 @@ set(${PROJECT_NAME}_headers
     include/job_handler.hpp
     include/by_prefix_handler.hpp
     include/by_id_handler.hpp
+    include/browser_probe_handler.hpp
     include/disallow_and_purge_handler.hpp
     include/denylist_check_handler.hpp
     include/docs_handler.hpp
@@ -79,6 +80,7 @@ set(${PROJECT_NAME}_headers
     include/crud.hpp
 	include/crawler/runner.hpp
 	include/crawler/artifacts.hpp
+	include/crawler/browser_session.hpp
 	include/crawler/browser_sandbox.hpp
 	include/crawler/limits.hpp
 	include/crawler/launch_policy.hpp
@@ -107,6 +109,7 @@ add_library(
   src/job_handler.cpp
   src/by_prefix_handler.cpp
   src/by_id_handler.cpp
+  src/browser_probe_handler.cpp
   src/disallow_and_purge_handler.cpp
   src/denylist_check_handler.cpp
   src/docs_handler.cpp
@@ -116,6 +119,7 @@ add_library(
   src/url.cpp
   src/crawler/runner.cpp
   src/crawler/artifacts.cpp
+  src/crawler/browser_session.cpp
   src/crawler/browser_sandbox.cpp
   src/crawler/cdp_client.cpp
   src/crawler/egress_proxy.cpp
@@ -246,7 +250,7 @@ userver_embed_file(
 set(_webshot_browser_sandbox_embed_hpp
     "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox.sh.hpp")
 set_source_files_properties(
-  src/crawler/runner.cpp PROPERTIES OBJECT_DEPENDS
+  src/crawler/runner.cpp src/crawler/browser_session.cpp src/browser_probe_handler.cpp PROPERTIES OBJECT_DEPENDS
                                    "${_webshot_browser_sandbox_embed_hpp}")
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE webshotd_browser_sandbox_sh)
 target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_sh)
@@ -321,6 +325,7 @@ if(USE_SANITIZERS)
 endif()
 
 set(SCHEMAS
+    ${WEBSHOT_REPO_ROOT}/schema/browser_probe.yaml
     ${WEBSHOT_REPO_ROOT}/schema/cdp.yaml
     ${WEBSHOT_REPO_ROOT}/schema/browsertrix_pages.yaml
     ${WEBSHOT_REPO_ROOT}/schema/wacz.yaml

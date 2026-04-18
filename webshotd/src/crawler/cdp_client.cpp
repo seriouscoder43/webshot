@@ -23,11 +23,12 @@
 #include <userver/crypto/base64.hpp>
 #include <userver/crypto/hash.hpp>
 #include <userver/crypto/random.hpp>
+#include <userver/engine/async.hpp>
 #include <userver/engine/deadline.hpp>
 #include <userver/engine/exception.hpp>
 #include <userver/engine/io/sockaddr.hpp>
 #include <userver/engine/io/socket.hpp>
-#include <userver/engine/sleep.hpp>
+#include <userver/engine/task/cancel.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/logging/log.hpp>
@@ -211,23 +212,108 @@ validateHandshakeResponse(const HandshakeResponse &response, std::string_view se
 
 } // namespace
 
+String describeCdpFailure(const String &action, const CdpFailure &failure)
+{
+    auto message = action;
+    if (failure.detail)
+        message = text::format("{}: {}", message, *failure.detail);
+    return message;
+}
+
+struct CdpSessionState final {
+    struct Data final {
+        us::engine::ConditionVariable cv;
+        std::deque<CdpEvent> events;
+        std::optional<CdpFailure> failure;
+        bool closed{false};
+    };
+
+    us::concurrent::Variable<Data> data;
+};
+
+struct CdpClient::PendingCommandWaiter final {
+    struct Data final {
+        us::engine::ConditionVariable cv;
+        std::optional<json::Value> result;
+        std::optional<CdpFailure> failure;
+        bool done{false};
+    };
+
+    us::concurrent::Variable<Data> data;
+};
+
+namespace {
+
+[[nodiscard]] String parsePrintableText(std::string_view value)
+{
+    return String::fromBytes(value).expect();
+}
+
+[[nodiscard]] CdpFailure makeTimeoutFailure(const String &timeoutMessage)
+{
+    return {
+        .code = CdpError::kTimeout,
+        .detail = std::optional<String>{timeoutMessage},
+    };
+}
+
+[[nodiscard]] CdpFailure makeSocketClosedFailure(const String &detail)
+{
+    return {
+        .code = CdpError::kSocketClosed,
+        .detail = std::optional<String>{detail},
+    };
+}
+
+[[nodiscard]] std::optional<String>
+extractRoutingSessionId(const dto::CdpEventMessage &eventMessage)
+{
+    if (eventMessage.sessionId) {
+        return String::fromBytes(*eventMessage.sessionId).expect();
+    }
+    if (!eventMessage.params)
+        return {};
+    const auto sessionIdValue = eventMessage.params->extra["sessionId"];
+    if (sessionIdValue.IsMissing())
+        return {};
+    const auto sessionId = String::fromBytes(sessionIdValue.As<std::string>());
+    if (!sessionId)
+        return {};
+    return *sessionId;
+}
+
+[[nodiscard]] std::optional<String> extractRoutingTargetId(const dto::CdpEventMessage &eventMessage)
+{
+    if (!eventMessage.params)
+        return {};
+    const auto targetIdValue = eventMessage.params->extra["targetId"];
+    if (targetIdValue.IsMissing())
+        return {};
+    const auto targetId = String::fromBytes(targetIdValue.As<std::string>());
+    if (!targetId)
+        return {};
+    return *targetId;
+}
+
+} // namespace
+
 CdpClient::CdpClient(
     std::string socketPath, String websocketPath,
     std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string tracePath,
     us::fs::blocking::FileDescriptor traceFile, us::engine::Deadline overallDeadline,
-    chrono::seconds commandTimeout, chrono::milliseconds waitPollInterval
+    chrono::milliseconds commandTimeout
 )
     : socketPath(std::move(socketPath)), websocketPath(std::move(websocketPath)),
       connection(std::move(connection)), tracePath(std::move(tracePath)),
       traceFile(std::move(traceFile)), overallDeadline(overallDeadline),
-      commandTimeout(commandTimeout), waitPollInterval(waitPollInterval)
+      commandTimeout(commandTimeout)
 {
 }
 
 Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
     std::string socketPath, String websocketPath, std::string tracePath,
-    us::engine::Deadline overallDeadline, chrono::seconds handshakeTimeout,
-    chrono::seconds commandTimeout, chrono::milliseconds waitPollInterval, i64 maxRemotePayloadBytes
+    us::engine::Deadline overallDeadline, chrono::milliseconds handshakeTimeout,
+    chrono::milliseconds commandTimeout, i64 maxRemotePayloadBytes
 )
 {
     using enum CdpError;
@@ -311,192 +397,173 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
         return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
     }
 
-    return std::unique_ptr<CdpClient>(new CdpClient(
+    auto client = std::unique_ptr<CdpClient>(new CdpClient(
         std::move(socketPath), std::move(websocketPath), std::move(ws), std::move(tracePath),
-        std::move(traceFd), overallDeadline, commandTimeout, waitPollInterval
+        std::move(traceFd), overallDeadline, commandTimeout
     ));
+    client->startReaderTask();
+    return client;
 }
 
 CdpClient::~CdpClient() noexcept { closeQuietly(); }
 
+void CdpClient::startReaderTask()
+{
+    readerTask = std::move(us::engine::CriticalAsyncNoSpan([this]() { readerLoop(); })).AsTask();
+}
+
 Expected<json::Value, CdpFailure> CdpClient::sendRaw(
-    std::string_view method, const json::Value &params, const std::optional<String> &sessionId
+    const String &method, const json::Value &params, const std::optional<String> &sessionId
 )
 {
     using enum CdpError;
-    if (closed)
-        return std::unexpected(CdpFailure{.code = kSocketClosed, .detail = {}});
+    auto waiter = std::make_shared<PendingCommandWaiter>();
+    i64 id{0_i64};
 
-    const auto id = nextRequestId++;
+    {
+        auto state = sharedState.Lock();
+        if (state->terminalFailure)
+            return std::unexpected(*state->terminalFailure);
+        if (state->closing || state->closed)
+            return std::unexpected(makeSocketClosedFailure("cdp socket is closed"_t));
+        id = state->nextRequestId++;
+        state->pendingRequests.insertWaiting(id, method, sessionId);
+        state->pendingWaiters.emplace(id, waiter);
+    }
+
     dto::CdpCommandRequest request;
     request.id = raw(id);
-    request.method = std::string(method);
+    request.method = std::string(method.view());
     if (!params.IsMissing())
         request.params = dto::CdpCommandRequest::Params{params};
     if (sessionId)
         request.sessionId = std::string(sessionId->view());
-    pendingRequests.insertWaiting(id, std::string{method}, sessionId);
     traceCommand(id, method, sessionId);
     try {
+        const auto sendLock = sendState.Lock();
+        static_cast<void>(sendLock);
         connection->SendText(json::ToString(json::ValueBuilder(request).ExtractValue()));
     } catch (const us::utils::TracefulException &e) {
-        pendingRequests.erase(id);
-        traceTransportError("send", e.what());
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+        traceTransportError("send"_t, parsePrintableText(e.what()));
+        auto failure = CdpFailure{.code = kTransport, .detail = {}};
+        failTerminal(failure);
+        return std::unexpected(failure);
     }
 
     const auto deadline = pickEarlierReachableDeadline(
         overallDeadline, us::engine::Deadline::FromDuration(commandTimeout)
     );
-    auto waited = waitUntil(
-        [this, id]() { return pendingResults.contains(id); }, deadline,
-        "timed out waiting for cdp response"
-    );
-    if (!waited) {
-        if (waited.error().code == kTimeout)
-            pendingRequests.markIgnoreResponse(id);
-        else
-            pendingRequests.erase(id);
-        return std::unexpected(waited.error());
-    }
-
-    auto it = pendingResults.find(id);
-    UINVARIANT(
-        it != std::end(pendingResults), std::format("missing cdp response for request id {}", id)
-    );
-    auto result = it->second;
-    pendingResults.erase(it);
-    return result;
-}
-
-Expected<void, CdpFailure> CdpClient::sendRawNoWait(
-    std::string_view method, const json::Value &params, const std::optional<String> &sessionId
-)
-{
-    using enum CdpError;
-    if (closed)
-        return std::unexpected(CdpFailure{.code = kSocketClosed, .detail = {}});
-
-    const auto id = nextRequestId++;
-    dto::CdpCommandRequest request;
-    request.id = raw(id);
-    request.method = std::string(method);
-    if (!params.IsMissing())
-        request.params = dto::CdpCommandRequest::Params{params};
-    if (sessionId)
-        request.sessionId = std::string(sessionId->view());
-    pendingRequests.insertIgnored(id, std::string{method}, sessionId);
-    traceCommand(id, method, sessionId);
-    try {
-        connection->SendText(json::ToString(json::ValueBuilder(request).ExtractValue()));
-    } catch (const us::utils::TracefulException &e) {
-        pendingRequests.erase(id);
-        traceTransportError("send", e.what());
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
-    }
-    return {};
-}
-
-CdpClient::ListenerId CdpClient::addListener(EventListener listener)
-{
-    const auto id = nextListenerId++;
-    listeners.emplace(id, std::move(listener));
-    return id;
-}
-
-void CdpClient::removeListener(ListenerId id) { listeners.erase(id); }
-
-Expected<bool, CdpFailure> CdpClient::tryPumpOnce()
-{
-    using enum CdpError;
-    if (closed)
-        return false;
-
-    us::websocket::Message message;
-    try {
-        if (!connection->TryRecv(message))
-            return false;
-    } catch (const us::utils::TracefulException &e) {
-        traceTransportError("try_recv", e.what());
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
-    }
-    if (message.close_status) {
-        closed = true;
-        traceClose("in", us::utils::UnderlyingValue(*message.close_status));
-        return std::unexpected(
-            CdpFailure{
-                .code = kSocketClosed,
-                .detail = text::format(
-                    "websocket close status {}", us::utils::UnderlyingValue(*message.close_status)
-                ),
+    auto waiterState = waiter->data.UniqueLock();
+    const auto ready = [&waiterState]() { return waiterState->done; };
+    if (!ready() && !waiterState->cv.WaitUntil(waiterState.GetLock(), deadline, ready)) {
+        waiterState.GetLock().unlock();
+        {
+            auto state = sharedState.Lock();
+            if (auto *requestInFlight = state->pendingRequests.find(id);
+                requestInFlight != nullptr) {
+                requestInFlight->ignoreResponse = true;
+                state->pendingWaiters.erase(id);
+                return std::unexpected(makeTimeoutFailure("timed out waiting for cdp response"_t));
             }
-        );
+        }
+        waiterState.GetLock().lock();
     }
-    auto ok = handleMessage(message.data);
-    if (!ok)
-        return std::unexpected(ok.error());
-    return true;
+    if (!waiterState->done)
+        return std::unexpected(makeTimeoutFailure("timed out waiting for cdp response"_t));
+    if (waiterState->failure)
+        return std::unexpected(*waiterState->failure);
+    UINVARIANT(waiterState->result.has_value(), "cdp waiter completed without result");
+    return *waiterState->result;
 }
 
 Expected<void, CdpFailure> CdpClient::close()
 {
-    using enum CdpError;
-    if (closed)
-        return {};
-    traceClose("out", numericCast<int>(us::websocket::CloseStatus::kNormal));
-    closed = true;
+    {
+        auto state = sharedState.Lock();
+        if (state->closed || state->terminalFailure)
+            return {};
+        state->closing = true;
+    }
+
+    traceClose("out"_t, numericCast<int>(us::websocket::CloseStatus::kNormal));
     try {
+        const auto sendLock = sendState.Lock();
+        static_cast<void>(sendLock);
         if (connection)
             connection->Close(us::websocket::CloseStatus::kNormal);
     } catch (const us::utils::TracefulException &e) {
-        traceTransportError("close", e.what());
+        traceTransportError("close"_t, parsePrintableText(e.what()));
+        auto failure = CdpFailure{.code = CdpError::kTransport, .detail = {}};
+        failTerminal(failure);
         connection.reset();
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+        return std::unexpected(failure);
+    }
+
+    if (readerTask.IsValid()) {
+        readerTask.RequestCancel();
+        const us::engine::TaskCancellationBlocker blocker;
+        static_cast<void>(readerTask.WaitNothrow());
     }
     connection.reset();
     return {};
 }
 
-Expected<void, CdpFailure> CdpClient::pumpOne()
+Expected<std::unique_ptr<CdpSession>, CdpFailure>
+CdpClient::createSession(String sessionId, String targetId)
 {
-    using enum CdpError;
-    us::websocket::Message message;
-    try {
-        connection->Recv(message);
-    } catch (const us::utils::TracefulException &e) {
-        traceTransportError("recv", e.what());
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+    auto sessionState = std::make_shared<CdpSessionState>();
+    {
+        auto state = sharedState.Lock();
+        if (state->terminalFailure)
+            return std::unexpected(*state->terminalFailure);
+        if (state->closing || state->closed)
+            return std::unexpected(makeSocketClosedFailure("cdp socket is closed"_t));
+        state->sessionsById.emplace(sessionId, sessionState);
+        state->sessionsByTargetId.emplace(targetId, sessionState);
     }
-    if (message.close_status) {
-        closed = true;
-        traceClose("in", us::utils::UnderlyingValue(*message.close_status));
-        return std::unexpected(
-            CdpFailure{
-                .code = kSocketClosed,
-                .detail = text::format(
-                    "websocket close status {}", us::utils::UnderlyingValue(*message.close_status)
-                ),
-            }
-        );
-    }
-    return handleMessage(message.data);
+    return std::unique_ptr<CdpSession>(
+        new CdpSession(*this, std::move(sessionId), std::move(targetId), std::move(sessionState))
+    );
 }
 
-void CdpClient::closeQuietly() noexcept
+void CdpClient::readerLoop()
 {
-    closed = true;
-    connection.reset();
+    while (true) {
+        us::websocket::Message message;
+        try {
+            connection->Recv(message);
+        } catch (const us::engine::WaitInterruptedException &) {
+            failTerminal(makeSocketClosedFailure("websocket close requested"_t));
+            return;
+        } catch (const us::utils::TracefulException &e) {
+            traceTransportError("recv"_t, parsePrintableText(e.what()));
+            failTerminal(CdpFailure{.code = CdpError::kTransport, .detail = {}});
+            return;
+        }
+        if (message.close_status) {
+            const auto closeCode = us::utils::UnderlyingValue(*message.close_status);
+            traceClose("in"_t, closeCode);
+            failTerminal(
+                CdpFailure{
+                    .code = CdpError::kSocketClosed,
+                    .detail = text::format("websocket close status {}", closeCode),
+                }
+            );
+            return;
+        }
+        auto ok = handleMessage(message.data);
+        if (!ok) {
+            failTerminal(ok.error());
+            return;
+        }
+    }
 }
 
-void CdpClient::dispatchEvent(CdpEvent event)
+CdpSession::~CdpSession()
 {
-    std::vector<EventListener> listenerSnapshot;
-    listenerSnapshot.reserve(listeners.size());
-    for (const auto &entry : listeners)
-        listenerSnapshot.push_back(entry.second);
-
-    for (const auto &listener : listenerSnapshot)
-        listener(event);
+    if (client == nullptr || sessionState == nullptr)
+        return;
+    client->unregisterSession(sessionIdValue, targetIdValue, sessionState);
 }
 
 Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
@@ -511,28 +578,48 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
     const auto idValue = value["id"];
     if (!idValue.IsMissing()) {
         const auto id = i64(idValue.As<int64_t>());
-        auto *request = pendingRequests.find(id);
-        UINVARIANT(request != nullptr, std::format("cdp response for unknown request id {}", id));
-        const auto errorValue = value["error"];
-        if (!errorValue.IsMissing()) {
-            auto errorMessage = getErrorMessage(errorValue);
-            if (!errorMessage)
-                return std::unexpected(errorMessage.error());
-            traceResponse(id, request, *errorMessage);
+        std::shared_ptr<PendingCommandWaiter> waiter;
+        std::optional<String> errorMessage;
+        CdpPendingRequest requestCopy;
+        {
+            auto state = sharedState.Lock();
+            auto *request = state->pendingRequests.find(id);
+            UINVARIANT(
+                request != nullptr, std::format("cdp response for unknown request id {}", id)
+            );
+            requestCopy = *request;
+            const auto errorValue = value["error"];
+            if (!errorValue.IsMissing()) {
+                auto parsed = getErrorMessage(errorValue);
+                if (!parsed)
+                    return std::unexpected(parsed.error());
+                errorMessage = *parsed;
+            }
             if (request->ignoreResponse) {
-                pendingRequests.erase(id);
+                state->pendingRequests.erase(id);
+                state->pendingWaiters.erase(id);
+                traceResponse(id, &requestCopy, errorMessage);
                 return {};
             }
-            pendingRequests.erase(id);
-            return std::unexpected(CdpFailure{.code = kCommandFailed, .detail = *errorMessage});
+            const auto waiterIt = state->pendingWaiters.find(id);
+            UINVARIANT(
+                waiterIt != std::end(state->pendingWaiters),
+                std::format("missing cdp waiter for request id {}", id)
+            );
+            waiter = waiterIt->second;
+            state->pendingWaiters.erase(waiterIt);
+            state->pendingRequests.erase(id);
         }
-        traceResponse(id, request, {});
-        if (request->ignoreResponse) {
-            pendingRequests.erase(id);
-            return {};
+        const auto errorValue = value["error"];
+        traceResponse(id, &requestCopy, errorMessage);
+        auto waiterState = waiter->data.Lock();
+        if (errorValue.IsMissing()) {
+            waiterState->result = value["result"];
+        } else {
+            waiterState->failure = CdpFailure{.code = kCommandFailed, .detail = *errorMessage};
         }
-        pendingResults.emplace(id, value["result"]);
-        pendingRequests.erase(id);
+        waiterState->done = true;
+        waiterState->cv.NotifyOne();
         return {};
     }
 
@@ -547,25 +634,160 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
     const auto sessionId = eventMessage.sessionId.transform([](const auto &s) {
         return String::fromBytes(s).expect();
     });
-    traceEvent(eventMessage.method, sessionId);
-    dispatchEvent(
-        CdpEvent{
-            .method = String::fromBytes(eventMessage.method).expect(),
-            .params = std::move(eventMessage.params),
-            .sessionId = sessionId,
+    const auto method = String::fromBytes(eventMessage.method).expect();
+    const auto routingSessionId = extractRoutingSessionId(eventMessage);
+    const auto routingTargetId = extractRoutingTargetId(eventMessage);
+    traceEvent(method, sessionId);
+
+    auto event = CdpEvent{
+        .method = method,
+        .params = std::move(eventMessage.params),
+        .sessionId = sessionId,
+    };
+
+    std::shared_ptr<CdpSessionState> sessionState;
+    {
+        auto state = sharedState.Lock();
+        if (routingSessionId) {
+            if (const auto it = state->sessionsById.find(*routingSessionId);
+                it != std::end(state->sessionsById)) {
+                sessionState = it->second;
+            }
         }
-    );
+        if (!sessionState) {
+            if (routingTargetId) {
+                if (const auto it = state->sessionsByTargetId.find(*routingTargetId);
+                    it != std::end(state->sessionsByTargetId)) {
+                    sessionState = it->second;
+                }
+            }
+        }
+    }
+    if (!sessionState)
+        return {};
+
+    auto sessionData = sessionState->data.Lock();
+    if (sessionData->closed || sessionData->failure)
+        return {};
+    sessionData->events.push_back(std::move(event));
+    sessionData->cv.NotifyOne();
     return {};
 }
 
-std::string CdpClient::makeEndpointPath() const
+Expected<CdpEvent, CdpFailure> CdpClient::waitForSessionEvent(
+    const std::shared_ptr<CdpSessionState> &sessionState, us::engine::Deadline deadline,
+    const String &timeoutMessage
+)
 {
-    if (websocketPath.empty())
-        return "/";
-    const auto path = websocketPath.view();
-    if (websocketPath.startsWith('/'))
-        return std::string{path};
-    return "/" + std::string{path};
+    auto sessionData = sessionState->data.UniqueLock();
+    const auto ready = [&sessionData]() {
+        return !sessionData->events.empty() || sessionData->failure.has_value() ||
+               sessionData->closed;
+    };
+    if (!ready() && !sessionData->cv.WaitUntil(sessionData.GetLock(), deadline, ready))
+        return std::unexpected(makeTimeoutFailure(timeoutMessage));
+    if (sessionData->failure)
+        return std::unexpected(*sessionData->failure);
+    if (sessionData->closed)
+        return std::unexpected(makeSocketClosedFailure("cdp session is closed"_t));
+    UINVARIANT(!sessionData->events.empty(), "cdp session woke without queued event");
+    auto event = std::move(sessionData->events.front());
+    sessionData->events.pop_front();
+    return event;
+}
+
+std::vector<CdpEvent>
+CdpClient::drainSessionEvents(const std::shared_ptr<CdpSessionState> &sessionState)
+{
+    std::vector<CdpEvent> events;
+    auto sessionData = sessionState->data.Lock();
+    events.reserve(sessionData->events.size());
+    while (!sessionData->events.empty()) {
+        events.push_back(std::move(sessionData->events.front()));
+        sessionData->events.pop_front();
+    }
+    return events;
+}
+
+void CdpClient::unregisterSession(
+    const String &sessionId, const String &targetId,
+    const std::shared_ptr<CdpSessionState> &sessionState
+) noexcept
+{
+    {
+        auto state = sharedState.Lock();
+        if (const auto it = state->sessionsById.find(sessionId);
+            it != std::end(state->sessionsById) && it->second == sessionState) {
+            state->sessionsById.erase(it);
+        }
+        if (const auto it = state->sessionsByTargetId.find(targetId);
+            it != std::end(state->sessionsByTargetId) && it->second == sessionState) {
+            state->sessionsByTargetId.erase(it);
+        }
+    }
+    auto sessionData = sessionState->data.Lock();
+    sessionData->closed = true;
+    if (!sessionData->failure)
+        sessionData->failure = makeSocketClosedFailure("cdp session is closed"_t);
+    sessionData->cv.NotifyAll();
+}
+
+void CdpClient::closeQuietly() noexcept
+{
+    auto state = sharedState.Lock();
+    state->closing = true;
+    state->closed = true;
+    if (readerTask.IsValid())
+        readerTask.RequestCancel();
+}
+
+void CdpClient::failTerminal(CdpFailure failure)
+{
+    std::vector<std::shared_ptr<PendingCommandWaiter>> waiters;
+    std::vector<std::shared_ptr<CdpSessionState>> sessions;
+    {
+        auto state = sharedState.Lock();
+        if (state->terminalFailure)
+            return;
+        state->terminalFailure = failure;
+        state->closed = true;
+        for (auto &[_, waiter] : state->pendingWaiters)
+            waiters.push_back(waiter);
+        state->pendingWaiters.clear();
+        state->pendingRequests.clear();
+        for (auto &[_, sessionState] : state->sessionsById)
+            sessions.push_back(sessionState);
+        state->sessionsById.clear();
+        state->sessionsByTargetId.clear();
+    }
+
+    for (const auto &waiter : waiters) {
+        auto waiterState = waiter->data.Lock();
+        waiterState->failure = failure;
+        waiterState->done = true;
+        waiterState->cv.NotifyOne();
+    }
+    for (const auto &sessionState : sessions) {
+        auto sessionData = sessionState->data.Lock();
+        sessionData->failure = failure;
+        sessionData->closed = true;
+        sessionData->cv.NotifyAll();
+    }
+}
+
+Expected<CdpEvent, CdpFailure>
+CdpSession::waitEvent(us::engine::Deadline deadline, const String &timeoutMessage)
+{
+    UINVARIANT(client != nullptr, "cdp session is not attached");
+    UINVARIANT(sessionState != nullptr, "cdp session state is missing");
+    return client->waitForSessionEvent(sessionState, deadline, timeoutMessage);
+}
+
+std::vector<CdpEvent> CdpSession::drainAvailableEvents()
+{
+    UINVARIANT(client != nullptr, "cdp session is not attached");
+    UINVARIANT(sessionState != nullptr, "cdp session state is missing");
+    return client->drainSessionEvents(sessionState);
 }
 
 Expected<void, CdpFailure> CdpClient::writeTraceLine(const json::Value &value)
@@ -581,16 +803,14 @@ Expected<void, CdpFailure> CdpClient::writeTraceLine(const json::Value &value)
     return {};
 }
 
-void CdpClient::traceCommand(
-    i64 id, std::string_view method, const std::optional<String> &sessionId
-)
+void CdpClient::traceCommand(i64 id, const String &method, const std::optional<String> &sessionId)
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["direction"] = "out";
     entry["kind"] = "command";
     entry["id"] = raw(id);
-    entry["method"] = std::string(method);
+    entry["method"] = std::string(method.view());
     if (sessionId)
         entry["sessionId"] = std::string(sessionId->view());
     writeTraceLine(entry.ExtractValue()).expect();
@@ -606,7 +826,7 @@ void CdpClient::traceResponse(
     entry["kind"] = error ? "error" : "response";
     entry["id"] = raw(id);
     if (request) {
-        entry["method"] = request->method;
+        entry["method"] = std::string(request->method.view());
         if (request->sessionId)
             entry["sessionId"] = std::string(request->sessionId->view());
     }
@@ -615,35 +835,35 @@ void CdpClient::traceResponse(
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
-void CdpClient::traceEvent(std::string_view method, const std::optional<String> &sessionId)
+void CdpClient::traceEvent(const String &method, const std::optional<String> &sessionId)
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["direction"] = "in";
     entry["kind"] = "event";
-    entry["method"] = std::string(method);
+    entry["method"] = std::string(method.view());
     if (sessionId)
         entry["sessionId"] = std::string(sessionId->view());
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
-void CdpClient::traceClose(std::string_view direction, int closeCode)
+void CdpClient::traceClose(const String &direction, int closeCode)
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
-    entry["direction"] = std::string(direction);
+    entry["direction"] = std::string(direction.view());
     entry["kind"] = "close";
     entry["closeCode"] = closeCode;
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
-void CdpClient::traceTransportError(std::string_view operation, std::string_view error)
+void CdpClient::traceTransportError(const String &operation, const String &error)
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["kind"] = "transport_error";
-    entry["operation"] = std::string(operation);
-    entry["error"] = std::string(error);
+    entry["operation"] = std::string(operation.view());
+    entry["error"] = std::string(error.view());
     writeTraceLine(entry.ExtractValue()).expect();
 }
 

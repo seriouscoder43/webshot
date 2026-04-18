@@ -14,14 +14,14 @@
 namespace v1::crawler {
 
 struct [[nodiscard]] CdpPendingRequest final {
-    std::string method;
+    String method;
     std::optional<String> sessionId;
     bool ignoreResponse{false};
 };
 
 class [[nodiscard]] CdpRequestTracker final {
 public:
-    void insertWaiting(i64 id, std::string method, std::optional<String> sessionId)
+    void insertWaiting(i64 id, String method, std::optional<String> sessionId)
     {
         insert(
             id, CdpPendingRequest{
@@ -32,7 +32,7 @@ public:
         );
     }
 
-    void insertIgnored(i64 id, std::string method, std::optional<String> sessionId)
+    void insertIgnored(i64 id, String method, std::optional<String> sessionId)
     {
         insert(
             id, CdpPendingRequest{
@@ -67,6 +67,8 @@ public:
     }
 
     void erase(i64 id) noexcept { requests.erase(id); }
+
+    void clear() noexcept { requests.clear(); }
 
     [[nodiscard]] size_t size() const noexcept { return requests.size(); }
 

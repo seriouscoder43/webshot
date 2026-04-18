@@ -30,7 +30,6 @@ struct [[nodiscard]] CrawlerTunables {
     std::chrono::seconds cdpHandshakeTimeout;
     std::chrono::seconds cdpCommandTimeout;
     std::chrono::milliseconds devtoolsPollInterval;
-    std::chrono::milliseconds cdpWaitPollInterval;
     std::chrono::milliseconds browserStopTimeout;
     std::chrono::milliseconds proxyStopTimeout;
     bool enableLocalFixtureRewrite;

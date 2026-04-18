@@ -35,6 +35,7 @@ Use these rules whenever making C++ changes in this repository.
 - Never use `return ReturnType(...)`; when constructing a value to return, prefer `return {...};` wherever it compiles.
 - Never use `std::*stream*`; use `fmt` or userver I/O functionality.
 - Never use `static_cast<IntType>`; use `numericCast` instead.
+- Printable text MUST use `text::String` in APIs and data structures. Use `std::string` only for raw owned byte buffers, serialization/transport boundaries, or third-party interfaces that require it. Use `std::string_view` only for non-text byte views or raw protocol parsing, not for printable text APIs.
 
 ## [[nodiscard]] usage
 - Do not annotate destructors, move operations, or obvious mutators.

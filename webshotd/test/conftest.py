@@ -8,7 +8,6 @@ import psycopg2
 import psycopg2.extras
 import pytest
 import yaml
-from helper.wacz_validator import ReplayWaczValidator
 from pytest_userver import chaos
 from testsuite.databases.pgsql import discover
 
@@ -17,9 +16,7 @@ from s6.s3_bucket import ensure_s3_bucket_exists
 _S3_GATE_HOST = "localhost"
 _SERVICE_PORT = 8080
 _MONITOR_PORT = 8081
-_DEV_STATE_DIR = pathlib.Path("/tmp/webshot/dev")
-_DEV_WEBSHOTD_STATE_DIR = _DEV_STATE_DIR / "webshotd"
-_DEV_TRUSTED_NSSDB_DIR = _DEV_WEBSHOTD_STATE_DIR / "test_pki" / "chromium_nssdb"
+_DEV_WEBSHOTD_TEST_PKI_DIR = pathlib.Path("/tmp/webshot/dev/webshotd/test_pki")
 _TESTSUITE_STATE_ROOT = pathlib.Path("/tmp/webshot/testsuite")
 
 pytest_plugins = [
@@ -59,16 +56,19 @@ def _require_service_binary_path(pytestconfig) -> pathlib.Path:
     return pathlib.Path(binary).resolve()
 
 
-def _prepare_testsuite_webshotd_state_dir() -> pathlib.Path:
-    if not _DEV_TRUSTED_NSSDB_DIR.is_dir():
-        raise RuntimeError(f"missing runtime-generated Chromium NSS DB: {_DEV_TRUSTED_NSSDB_DIR}")
+def _prepare_testsuite_webshotd_state_dir(
+    service_binary: pathlib.Path, service_source_dir: pathlib.Path
+) -> pathlib.Path:
+    del service_binary
+    del service_source_dir
+
+    if not _DEV_WEBSHOTD_TEST_PKI_DIR.is_dir():
+        raise RuntimeError(f"missing runtime-generated test PKI: {_DEV_WEBSHOTD_TEST_PKI_DIR}")
 
     _TESTSUITE_STATE_ROOT.mkdir(parents=True, exist_ok=True)
     state_dir = pathlib.Path(tempfile.mkdtemp(prefix="ws-", dir=_TESTSUITE_STATE_ROOT))
-
-    trusted_nssdb_dir = state_dir / "test_pki" / "chromium_nssdb"
-    trusted_nssdb_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(_DEV_TRUSTED_NSSDB_DIR, trusted_nssdb_dir)
+    target_test_pki_dir = state_dir / "test_pki"
+    shutil.copytree(_DEV_WEBSHOTD_TEST_PKI_DIR, target_test_pki_dir)
     return state_dir
 
 
@@ -85,6 +85,13 @@ def monitor_port() -> int:
 @pytest.fixture(scope="session")
 def service_binary(pytestconfig) -> pathlib.Path:
     return _require_service_binary_path(pytestconfig)
+
+
+@pytest.fixture(scope="session")
+def testsuite_webshotd_state_dir(
+    service_binary: pathlib.Path, service_source_dir: pathlib.Path
+) -> pathlib.Path:
+    return _prepare_testsuite_webshotd_state_dir(service_binary, service_source_dir)
 
 
 @pytest.fixture(scope="session")
@@ -198,12 +205,6 @@ def service_env(service_source_dir: pathlib.Path):
 
 
 @pytest.fixture(scope="session")
-async def wacz_validator(service_binary: pathlib.Path):
-    async with ReplayWaczValidator(service_binary) as validator:
-        yield validator
-
-
-@pytest.fixture(scope="session")
 def allowed_url_prefixes_extra(s3_gate_port):
     # Permit S3 uploads through the local chaos gate and Chromium devtools
     # loopback URLs reached over the Unix socket transport in tests.
@@ -231,9 +232,9 @@ def service_config_path_temp(
     _service_config_hooked,
     service_binary: pathlib.Path,
     service_source_dir: pathlib.Path,
+    testsuite_webshotd_state_dir: pathlib.Path,
 ) -> pathlib.Path:
     dst_path = service_tmpdir / "config.yaml"
-    state_dir = _prepare_testsuite_webshotd_state_dir()
     config_yaml = dict(_service_config_hooked.config_yaml)
     config_vars = dict(_service_config_hooked.config_vars)
     cmake_cache_path = service_binary.parent / "CMakeCache.txt"
@@ -244,7 +245,7 @@ def service_config_path_temp(
     config_vars["openapi_admin_dir"] = str(service_source_dir.parent / "schema" / "admin_openapi")
     config_vars["web_ui_dir"] = str(service_binary.parent.parent / "web_ui")
     config_vars["web_ui_vendor_dir"] = str(service_binary.parent.parent / "web_ui" / "vendor")
-    config_vars["state_dir"] = str(state_dir)
+    config_vars["state_dir"] = str(testsuite_webshotd_state_dir)
 
     components = config_yaml["components_manager"]["components"]
     http_client_core = components["http-client-core"]
@@ -266,6 +267,32 @@ def service_config_path_temp(
 @pytest.fixture
 def extra_client_deps(pg_gate_ready, s3_gate_ready):
     return [pg_gate_ready, s3_gate_ready]
+
+
+@pytest.fixture
+def browser_probe(monitor_client):
+    async def _probe(
+        url: str,
+        *,
+        wait_expression: str,
+        frame_expression: str | None = None,
+        timeout_ms: int = 15_000,
+    ) -> dict:
+        payload = {
+            "url": url,
+            "wait_expression": wait_expression,
+            "timeout_ms": timeout_ms,
+        }
+        if frame_expression is not None:
+            payload["frame_expression"] = frame_expression
+        resp = await monitor_client.post(
+            "/tests/browser-probe",
+            json=payload,
+        )
+        assert resp.status == 200, resp.text
+        return resp.json()
+
+    return _probe
 
 
 USERVER_CONFIG_HOOKS = ["patch_s3_config"]

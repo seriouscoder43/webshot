@@ -188,6 +188,22 @@
       ${ctx.drv.testSan}/bin/test_san
     '';
 
+  mkFailFastTestTask = mode: let
+    up = mkRuntime "up" mode "test_infra";
+    down = mkRuntime "down" mode null;
+  in
+    mkTask ''
+      set -euo pipefail
+      ${mkBuild mode}
+      cleanup() {
+        ${down}
+      }
+      trap cleanup EXIT
+      ${up}
+      ${ctx.drv.testSan}/bin/test_san --stop-on-failure -E '^testsuite-testsuite-tests(-fail-fast)?$'
+      ${ctx.drv.testSan}/bin/test_san --stop-on-failure -R '^testsuite-testsuite-tests-fail-fast$'
+    '';
+
   mkPgmigrate = mode: cmd: let
     cfg = modes.${mode};
   in
@@ -216,6 +232,7 @@ in {
   tasks."proj:devStatus" = (mkRuntimeTask "status" "dev") // {showOutput = true;};
   tasks."proj:devLogs" = (mkRuntimeTask "logs" "dev") // {showOutput = true;};
   tasks."proj:devTest" = mkTestTask "dev";
+  tasks."proj:devTestFailFast" = mkFailFastTestTask "dev";
   tasks."proj:devDbMigrate" = mkPgmigrate "dev" "migrate";
   tasks."proj:devDbBaseline" = mkPgmigrate "dev" "baseline";
 

@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Detailed repository rules live in local Codex skills under `.codex/skills/`.
+Detailed repository rules live in local skills under `.agents/skills/`.
 
 Reminder:
 - Use `webshot-general` for any code changes.

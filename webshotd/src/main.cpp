@@ -2,6 +2,7 @@
  * @file
  * @brief Service entry point wiring userver components and HTTP handlers.
  */
+#include "browser_probe_handler.hpp"
 #include "by_id_handler.hpp"
 #include "by_prefix_handler.hpp"
 #include "config.hpp"
@@ -57,6 +58,7 @@ int main(int argc, char *argv[])
                              .Append<v1::ById>()
                              .Append<v1::DocsHandler>()
                              .Append<v1::DocsHandler>("docs_admin")
+                             .Append<v1::BrowserProbeHandler>()
                              .Append<v1::UiReplayHandler>()
                              .Append<us::components::FsCache>("rapidoc_assets_cache")
                              .Append<us::components::FsCache>("openapi_cache")
