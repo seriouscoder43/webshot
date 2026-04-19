@@ -22,7 +22,7 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/datetime/from_string_saturating.hpp>
-namespace http = userver::http;
+namespace http = us::http;
 
 namespace v1::crawler {
 using namespace text::literals;
@@ -36,17 +36,17 @@ constexpr std::string_view kIndexPath = "indexes/index.cdx";
 
 [[nodiscard]] std::string sha256Bytes(std::string_view data)
 {
-    return userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kBinary);
+    return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kBinary);
 }
 
 [[nodiscard]] std::string sha256Bytes(std::initializer_list<std::string_view> data)
 {
-    return userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kBinary);
+    return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kBinary);
 }
 
 [[nodiscard]] std::string sha256Hex(std::string_view data)
 {
-    return userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kHex);
+    return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kHex);
 }
 
 [[nodiscard]] std::string sha256PrefixedHex(std::string_view data, std::string_view prefix)

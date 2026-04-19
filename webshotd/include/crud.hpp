@@ -28,7 +28,7 @@ struct [[nodiscard]] ClientIpCooldown final {
 
 struct [[nodiscard]] CaptureRecord final {
     Uuid uuid;
-    us::utils::datetime::TimePointTz createdAt;
+    datetime::TimePointTz createdAt;
     String link;
     Url replayUrl;
 };

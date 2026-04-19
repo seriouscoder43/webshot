@@ -28,7 +28,7 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/text_light.hpp>
 
-namespace s3 = userver::s3api;
+namespace s3 = us::s3api;
 using namespace text::literals;
 
 namespace v1::s3v4 {
@@ -75,9 +75,9 @@ std::string S3V4Client::PutObject(
     const auto pathText = String::fromBytes(std::string(path)).expect();
     const auto built = makePathStyleUrl(pathText, {});
     httpc::Headers headers;
-    headers[userver::http::headers::kContentType] = std::string(contentType);
+    headers[us::http::headers::kContentType] = std::string(contentType);
     if (contentDisposition)
-        headers[userver::http::headers::kContentDisposition] = *contentDisposition;
+        headers[us::http::headers::kContentDisposition] = *contentDisposition;
     if (meta) {
         for (const auto &kv : *meta)
             headers["x-amz-meta-" + kv.first] = kv.second;
@@ -213,41 +213,41 @@ void S3V4Client::UpdateConfig(s3::ConnectionCfg &&) {}
 std::string_view S3V4Client::GetBucketName() const { return bucketName.view(); }
 
 // Multipart upload API stubs (not used by this service)
-userver::s3api::multipart_upload::InitiateMultipartUploadResult S3V4Client::CreateMultipartUpload(
-    const userver::s3api::multipart_upload::CreateMultipartUploadRequest &
+us::s3api::multipart_upload::InitiateMultipartUploadResult S3V4Client::CreateMultipartUpload(
+    const us::s3api::multipart_upload::CreateMultipartUploadRequest &
 ) const
 {
     us::utils::AbortWithStacktrace("CreateMultipartUpload not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::UploadPartResult
-S3V4Client::UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &) const
+us::s3api::multipart_upload::UploadPartResult
+S3V4Client::UploadPart(const us::s3api::multipart_upload::UploadPartRequest &) const
 {
     us::utils::AbortWithStacktrace("UploadPart not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::CompleteMultipartUpload(
-    const userver::s3api::multipart_upload::CompleteMultipartUploadRequest &
+us::s3api::multipart_upload::CompleteMultipartUploadResult S3V4Client::CompleteMultipartUpload(
+    const us::s3api::multipart_upload::CompleteMultipartUploadRequest &
 ) const
 {
     us::utils::AbortWithStacktrace("CompleteMultipartUpload not implemented in SigV4 client");
 }
 
 void S3V4Client::AbortMultipartUpload(
-    const userver::s3api::multipart_upload::AbortMultipartUploadRequest &
+    const us::s3api::multipart_upload::AbortMultipartUploadRequest &
 ) const
 {
     us::utils::AbortWithStacktrace("AbortMultipartUpload not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::ListPartsResult
-S3V4Client::ListParts(const userver::s3api::multipart_upload::ListPartsRequest &) const
+us::s3api::multipart_upload::ListPartsResult
+S3V4Client::ListParts(const us::s3api::multipart_upload::ListPartsRequest &) const
 {
     us::utils::AbortWithStacktrace("ListParts not implemented in SigV4 client");
 }
 
-userver::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMultipartUploads(
-    const userver::s3api::multipart_upload::ListMultipartUploadsRequest &
+us::s3api::multipart_upload::ListMultipartUploadsResult S3V4Client::ListMultipartUploads(
+    const us::s3api::multipart_upload::ListMultipartUploadsRequest &
 ) const
 {
     us::utils::AbortWithStacktrace("ListMultipartUploads not implemented in SigV4 client");
@@ -284,7 +284,7 @@ std::string S3V4Client::GenerateUploadUrlVirtualHostAddressing(
 {
     UINVARIANT(!bucketName.empty(), "presign requires non-empty bucket");
     httpc::Headers hdrs;
-    hdrs[userver::http::headers::kContentType] = std::string(contentType);
+    hdrs[us::http::headers::kContentType] = std::string(contentType);
     // we use UNSIGNED-PAYLOAD for presign
     static_cast<void>(data);
     auto method = "PUT"_t;
@@ -324,7 +324,7 @@ void S3V4Client::signRequest(
     const String &payloadHash
 ) const
 {
-    const auto now = userver::utils::datetime::Now();
+    const auto now = datetime::Now();
     const auto params = makeSigV4Params(now);
     auto prepared = prepareSignedHeaders(std::string(host.view()), headers);
 
@@ -417,7 +417,7 @@ String S3V4Client::presignVirtualHost(
     String protocol, std::optional<httpc::Headers> extraHeaders
 ) const
 {
-    const auto now = userver::utils::datetime::Now();
+    const auto now = datetime::Now();
     const auto built = makeVirtualHostUrl(std::move(path), std::move(protocol));
 
     const SigV4Params params = makeSigV4Params(now);
@@ -441,7 +441,7 @@ String S3V4Client::presignPathStyle(
     String protocol
 ) const
 {
-    auto now = userver::utils::datetime::Now();
+    auto now = datetime::Now();
     auto built = makePathStyleUrl(std::move(path), std::move(protocol));
     SigV4Params params = makeSigV4Params(now);
     auto prepared = prepareSignedHeaders(std::string(built.host.view()), httpc::Headers{});

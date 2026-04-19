@@ -1,5 +1,7 @@
 #pragma once
 
+#include "userver_namespaces.hpp"
+
 #include <array>
 #include <concepts>
 #include <cstdio>
@@ -27,7 +29,7 @@ concept SameUncvref = std::same_as<RemoveCvref<U>, T>;
 
 [[noreturn]] inline void abortExpected(std::string_view message) noexcept
 {
-    userver::utils::AbortWithStacktrace(message);
+    us::utils::AbortWithStacktrace(message);
 }
 
 template <size_t N>
@@ -41,7 +43,7 @@ template <size_t N>
     if (written > 0) {
         const size_t len = static_cast<size_t>(written) < buf.size() ? static_cast<size_t>(written)
                                                                      : (buf.size() - 1);
-        userver::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
+        us::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
     }
 
     abortExpected(suffix);

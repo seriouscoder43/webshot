@@ -1,5 +1,7 @@
 #include <string>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/utils/boost_uuid4.hpp>
 
 #include <userver/utest/utest.hpp>
@@ -18,7 +20,7 @@ UTEST(Pagination, CursorRoundTrip)
 {
     Cursor cursor{
         Clock::time_point(std::chrono::microseconds(987654321)),
-        userver::utils::generators::GenerateBoostUuid(),
+        us::utils::generators::GenerateBoostUuid(),
     };
 
     const auto token = encodeCursor(cursor);

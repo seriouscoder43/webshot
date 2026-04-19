@@ -43,8 +43,8 @@ struct [[nodiscard]] BrowserSessionConfig final {
 class [[nodiscard]] BrowserSession final {
 public:
     BrowserSession(
-        us::clients::dns::Resolver &dnsResolver,
-        us::engine::subprocess::ProcessStarter &processStarter, BrowserSessionConfig config
+        us::clients::dns::Resolver &dnsResolver, eng::subprocess::ProcessStarter &processStarter,
+        BrowserSessionConfig config
     );
     ~BrowserSession();
 
@@ -55,7 +55,7 @@ public:
 
     [[nodiscard]] Expected<void, String> launch();
     [[nodiscard]] Expected<std::unique_ptr<CdpClient>, String>
-    connectCdp(us::engine::Deadline overallDeadline) const;
+    connectCdp(eng::Deadline overallDeadline) const;
     [[nodiscard]] std::pair<std::string, std::string> drainBrowserLogs() const;
     void markPhase(std::string_view phase) const;
     [[nodiscard]] std::string currentLaunchLogs() const;

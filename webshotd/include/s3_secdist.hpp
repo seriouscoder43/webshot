@@ -1,6 +1,7 @@
 #pragma once
 
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <optional>
 #include <string>
@@ -24,7 +25,7 @@ struct S3CredentialsSecdist {
     std::optional<s3v4::SecretAccessKey> secretAccessKey;
     std::optional<s3v4::SessionToken> sessionToken;
 
-    explicit S3CredentialsSecdist(const userver::formats::json::Value &secdistDoc)
+    explicit S3CredentialsSecdist(const json::Value &secdistDoc)
     {
         const auto creds = secdistDoc["s3_credentials"];
         if (!creds.IsMissing()) {

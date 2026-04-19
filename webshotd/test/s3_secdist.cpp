@@ -1,6 +1,8 @@
 #include <optional>
 #include <string>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/formats/json/value.hpp>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/utest/utest.hpp>
@@ -13,7 +15,7 @@ using namespace text::literals;
 
 UTEST(S3Secdist, ParsesAllFields)
 {
-    userver::formats::json::ValueBuilder builder;
+    json::ValueBuilder builder;
     auto creds = builder["s3_credentials"];
     creds["access_key_id"] = "ACCESS";
     creds["secret_access_key"] = "SECRET";
@@ -32,7 +34,7 @@ UTEST(S3Secdist, ParsesAllFields)
 
 UTEST(S3Secdist, MissingObjectYieldsNullopts)
 {
-    userver::formats::json::ValueBuilder builder; // empty root
+    json::ValueBuilder builder; // empty root
     const S3CredentialsSecdist parsed(builder.ExtractValue());
     EXPECT_FALSE(parsed.accessKeyId);
     EXPECT_FALSE(parsed.secretAccessKey);
@@ -41,7 +43,7 @@ UTEST(S3Secdist, MissingObjectYieldsNullopts)
 
 UTEST(S3Secdist, PartialCredentials)
 {
-    userver::formats::json::ValueBuilder builder;
+    json::ValueBuilder builder;
     auto creds = builder["s3_credentials"];
     creds["access_key_id"] = "ACCESS_ONLY";
 

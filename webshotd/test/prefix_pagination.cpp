@@ -1,5 +1,7 @@
 #include <string>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/utils/boost_uuid4.hpp>
 
 #include <userver/utest/utest.hpp>
@@ -47,7 +49,7 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
     const std::string prefix = "example.com/p/";
     const std::string link = "example.com/p/resource";
     const auto tp = Clock::time_point(std::chrono::microseconds(4242424242));
-    const auto id = userver::utils::generators::GenerateBoostUuid();
+    const auto id = us::utils::generators::GenerateBoostUuid();
     const auto prefixText = String::fromBytes(prefix).expect();
     const auto linkText = String::fromBytes(link).expect();
 

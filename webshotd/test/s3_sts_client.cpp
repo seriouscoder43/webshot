@@ -1,6 +1,8 @@
 #include <chrono>
 #include <string>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/clients/http/response.hpp>
 #include <userver/utest/utest.hpp>
 
@@ -85,11 +87,11 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
 {
     std::string capturedUrl;
     std::string capturedBody;
-    userver::clients::http::Headers capturedHeaders;
+    httpc::Headers capturedHeaders;
     auto capturedTimeout = 0ms;
 
     v1::detail::StsExecutor exec = [&](const String &url, const String &body,
-                                       const userver::clients::http::Headers &headers,
+                                       const httpc::Headers &headers,
                                        std::chrono::milliseconds timeout) {
         capturedUrl = std::string(url.view());
         capturedBody = std::string(body.view());

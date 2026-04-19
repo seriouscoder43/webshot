@@ -66,7 +66,7 @@ class [[nodiscard]] CdpClient final {
 public:
     [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpFailure> connect(
         std::string socketPath, String websocketPath, std::string tracePath,
-        us::engine::Deadline overallDeadline, std::chrono::milliseconds handshakeTimeout,
+        eng::Deadline overallDeadline, std::chrono::milliseconds handshakeTimeout,
         std::chrono::milliseconds commandTimeout, i64 maxRemotePayloadBytes
     );
 
@@ -79,12 +79,12 @@ public:
 
     template <typename T> [[nodiscard]] Expected<T, CdpFailure> send(const String &method)
     {
-        auto value = sendRaw(method, us::formats::json::Value{}, {});
+        auto value = sendRaw(method, json::Value{}, {});
         if (!value)
             return std::unexpected(value.error());
         try {
             return (*value).As<T>();
-        } catch (const us::formats::json::Exception &) {
+        } catch (const json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
     }
@@ -105,12 +105,12 @@ public:
     [[nodiscard]] Expected<T, CdpFailure>
     send(const String &method, const std::optional<String> &sessionId)
     {
-        auto value = sendRaw(method, us::formats::json::Value{}, sessionId);
+        auto value = sendRaw(method, json::Value{}, sessionId);
         if (!value)
             return std::unexpected(value.error());
         try {
             return (*value).As<T>();
-        } catch (const us::formats::json::Exception &) {
+        } catch (const json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
     }
@@ -119,14 +119,12 @@ public:
     [[nodiscard]] Expected<T, CdpFailure>
     send(const String &method, const Params &params, const std::optional<String> &sessionId)
     {
-        auto value = sendRaw(
-            method, us::formats::json::ValueBuilder(params).ExtractValue(), sessionId
-        );
+        auto value = sendRaw(method, json::ValueBuilder(params).ExtractValue(), sessionId);
         if (!value)
             return std::unexpected(value.error());
         try {
             return (*value).As<T>();
-        } catch (const us::formats::json::Exception &) {
+        } catch (const json::Exception &) {
             return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
         }
     }
@@ -153,21 +151,20 @@ private:
     CdpClient(
         std::string socketPath, String websocketPath,
         std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string tracePath,
-        us::fs::blocking::FileDescriptor traceFile, us::engine::Deadline overallDeadline,
+        us::fs::blocking::FileDescriptor traceFile, eng::Deadline overallDeadline,
         std::chrono::milliseconds commandTimeout
     );
 
     friend class CdpSession;
 
     void startReaderTask();
-    [[nodiscard]] Expected<us::formats::json::Value, CdpFailure> sendRaw(
-        const String &method, const us::formats::json::Value &params,
-        const std::optional<String> &sessionId
+    [[nodiscard]] Expected<json::Value, CdpFailure> sendRaw(
+        const String &method, const json::Value &params, const std::optional<String> &sessionId
     );
     void readerLoop();
     Expected<void, CdpFailure> handleMessage(const std::string &payload);
     [[nodiscard]] Expected<CdpEvent, CdpFailure> waitForSessionEvent(
-        const std::shared_ptr<CdpSessionState> &sessionState, us::engine::Deadline deadline,
+        const std::shared_ptr<CdpSessionState> &sessionState, eng::Deadline deadline,
         const String &timeoutMessage
     );
     [[nodiscard]] std::vector<CdpEvent>
@@ -177,7 +174,7 @@ private:
         const std::shared_ptr<CdpSessionState> &sessionState
     ) noexcept;
     void closeQuietly() noexcept;
-    Expected<void, CdpFailure> writeTraceLine(const us::formats::json::Value &value);
+    Expected<void, CdpFailure> writeTraceLine(const json::Value &value);
     void traceCommand(i64 id, const String &method, const std::optional<String> &sessionId);
     void
     traceResponse(i64 id, const CdpPendingRequest *request, const std::optional<String> &error);
@@ -193,9 +190,9 @@ private:
     us::concurrent::Variable<SendState> sendState;
     std::string tracePath;
     us::fs::blocking::FileDescriptor traceFile;
-    us::engine::Deadline overallDeadline;
+    eng::Deadline overallDeadline;
     std::chrono::milliseconds commandTimeout;
-    us::engine::Task readerTask;
+    eng::Task readerTask;
 };
 
 class [[nodiscard]] CdpSession final {
@@ -240,7 +237,7 @@ public:
     }
 
     [[nodiscard]] Expected<CdpEvent, CdpFailure>
-    waitEvent(us::engine::Deadline deadline, const String &timeoutMessage);
+    waitEvent(eng::Deadline deadline, const String &timeoutMessage);
     [[nodiscard]] std::vector<CdpEvent> drainAvailableEvents();
     [[nodiscard]] const String &sessionId() const noexcept { return sessionIdValue; }
     [[nodiscard]] const String &targetId() const noexcept { return targetIdValue; }

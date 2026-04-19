@@ -50,7 +50,6 @@ using namespace text::literals;
 namespace concurrent = us::concurrent;
 namespace crypto = us::crypto;
 namespace dns = us::clients::dns;
-namespace engine = eng;
 namespace utils = us::utils;
 
 namespace {
@@ -225,7 +224,7 @@ struct [[nodiscard]] Authority final {
 };
 
 struct [[nodiscard]] ResolvedTcpAddress final {
-    engine::io::Sockaddr sockaddr;
+    eng::io::Sockaddr sockaddr;
     std::string label;
 };
 
@@ -275,17 +274,17 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     return Authority{.host = host, .port = *port};
 }
 
-[[nodiscard]] engine::io::Sockaddr sockaddrFromIpv4(std::string_view host, u16 port)
+[[nodiscard]] eng::io::Sockaddr sockaddrFromIpv4(std::string_view host, u16 port)
 {
     sockaddr_in addr4{};
     addr4.sin_family = AF_INET;
     addr4.sin_port = htons(raw(port));
     const auto hostText = std::string(host);
     UINVARIANT(inet_pton(AF_INET, hostText.c_str(), &addr4.sin_addr) == 1, "invalid ipv4 addr");
-    return engine::io::Sockaddr(&addr4);
+    return eng::io::Sockaddr(&addr4);
 }
 
-[[nodiscard]] engine::io::Sockaddr sockaddrFromIpv6(std::string_view host, u16 port)
+[[nodiscard]] eng::io::Sockaddr sockaddrFromIpv6(std::string_view host, u16 port)
 {
     auto candidate = host;
     if (!candidate.empty() && candidate.front() == '[' && candidate.back() == ']')
@@ -295,20 +294,20 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     addr6.sin6_port = htons(raw(port));
     const auto hostText = std::string(candidate);
     UINVARIANT(inet_pton(AF_INET6, hostText.c_str(), &addr6.sin6_addr) == 1, "invalid ipv6 addr");
-    return engine::io::Sockaddr(&addr6);
+    return eng::io::Sockaddr(&addr6);
 }
 
-[[nodiscard]] std::string describeSockaddr(const engine::io::Sockaddr &addr)
+[[nodiscard]] std::string describeSockaddr(const eng::io::Sockaddr &addr)
 {
     if (!addr.HasPort())
         return addr.PrimaryAddressString();
-    if (addr.Domain() == engine::io::AddrDomain::kInet6)
+    if (addr.Domain() == eng::io::AddrDomain::kInet6)
         return std::format("[{}]:{}", addr.PrimaryAddressString(), addr.Port());
     return std::format("{}:{}", addr.PrimaryAddressString(), addr.Port());
 }
 
 [[nodiscard]] Expected<std::vector<ResolvedTcpAddress>, String>
-resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, engine::Deadline deadline)
+resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadline deadline)
 {
     const auto hostText = std::string(host);
     if (isIpv4Address(hostText)) {
@@ -507,9 +506,9 @@ struct EgressProxy::Impl final {
     std::atomic<int64_t> downBytes{};
     std::atomic<bool> closed{false};
     concurrent::Variable<std::optional<String>> failure;
-    engine::io::Socket listener;
-    std::optional<engine::TaskWithResult<void>> acceptTask;
-    concurrent::Variable<std::vector<engine::TaskWithResult<void>>> clientTasks;
+    eng::io::Socket listener;
+    std::optional<eng::TaskWithResult<void>> acceptTask;
+    concurrent::Variable<std::vector<eng::TaskWithResult<void>>> clientTasks;
 
     [[nodiscard]] bool isClosed() const noexcept { return closed.load(std::memory_order_relaxed); }
 
@@ -548,7 +547,7 @@ struct EgressProxy::Impl final {
     }
 
     [[nodiscard]] usize
-    sendBudgeted(engine::io::Socket &sock, std::span<const char> bytes, engine::Deadline deadline)
+    sendBudgeted(eng::io::Socket &sock, std::span<const char> bytes, eng::Deadline deadline)
     {
         if (isClosed() || bytes.empty())
             return 0_uz;
@@ -575,9 +574,8 @@ struct EgressProxy::Impl final {
         }
     }
 
-    [[nodiscard]] bool sendAll(
-        engine::io::Socket &sock, std::span<const char> bytes, engine::Deadline deadline
-    ) noexcept
+    [[nodiscard]] bool
+    sendAll(eng::io::Socket &sock, std::span<const char> bytes, eng::Deadline deadline) noexcept
     {
         if (bytes.empty())
             return true;
@@ -590,24 +588,24 @@ struct EgressProxy::Impl final {
         }
     }
 
-    void send407(engine::io::Socket &client, engine::Deadline deadline)
+    void send407(eng::io::Socket &client, eng::Deadline deadline)
     {
         static_cast<void>(sendBudgeted(client, kProxyAuthRequiredResponse, deadline));
     }
 
-    void send400(engine::io::Socket &client, std::string_view message, engine::Deadline deadline)
+    void send400(eng::io::Socket &client, std::string_view message, eng::Deadline deadline)
     {
         const auto response = make400Response(message);
         static_cast<void>(sendBudgeted(client, response, deadline));
     }
 
-    void send502(engine::io::Socket &client, std::string_view message, engine::Deadline deadline)
+    void send502(eng::io::Socket &client, std::string_view message, eng::Deadline deadline)
     {
         const auto response = make502Response(message);
         static_cast<void>(sendBudgeted(client, response, deadline));
     }
 
-    void closeSocketsQuietly(engine::io::Socket &a, engine::io::Socket &b) noexcept
+    void closeSocketsQuietly(eng::io::Socket &a, eng::io::Socket &b) noexcept
     {
         try {
             a.Close();
@@ -619,15 +617,15 @@ struct EgressProxy::Impl final {
         }
     }
 
-    void shutdownWriteQuietly(engine::io::Socket &sock) noexcept
+    void shutdownWriteQuietly(eng::io::Socket &sock) noexcept
     {
         if (!sock.IsValid())
             return;
         static_cast<void>(::shutdown(sock.Fd(), SHUT_WR));
     }
 
-    [[nodiscard]] Expected<engine::io::Socket, String> connectUpstream(
-        dns::Resolver &resolver, std::string_view host, u16 port, engine::Deadline deadline
+    [[nodiscard]] Expected<eng::io::Socket, String> connectUpstream(
+        dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadline deadline
     )
     {
         const auto upstream = rewriteLocalFixtureIfNeeded(config, host, port);
@@ -638,9 +636,7 @@ struct EgressProxy::Impl final {
         auto errors = std::vector<std::string>{};
         errors.reserve(addrs->size());
         for (const auto &addr : *addrs) {
-            auto socket = engine::io::Socket{
-                addr.sockaddr.Domain(), engine::io::SocketType::kStream
-            };
+            auto socket = eng::io::Socket{addr.sockaddr.Domain(), eng::io::SocketType::kStream};
             try {
                 socket.Connect(addr.sockaddr, deadline);
                 return socket;
@@ -664,7 +660,7 @@ struct EgressProxy::Impl final {
     }
 
     void copyClientToUpstream(
-        engine::io::Socket &client, engine::io::Socket &upstream, engine::Deadline deadline
+        eng::io::Socket &client, eng::io::Socket &upstream, eng::Deadline deadline
     ) noexcept
     {
         std::array<char, kIoBufferBytes> storage{};
@@ -690,7 +686,7 @@ struct EgressProxy::Impl final {
     }
 
     void copyUpstreamToClientBudgeted(
-        engine::io::Socket &upstream, engine::io::Socket &client, engine::Deadline deadline
+        eng::io::Socket &upstream, eng::io::Socket &client, eng::Deadline deadline
     )
     {
         std::array<char, kIoBufferBytes> storage{};
@@ -718,21 +714,17 @@ struct EgressProxy::Impl final {
         }
     }
 
-    void relayConnect(
-        engine::io::Socket &client, engine::io::Socket &upstream, engine::Deadline deadline
-    )
+    void relayConnect(eng::io::Socket &client, eng::io::Socket &upstream, eng::Deadline deadline)
     {
-        auto clientToUpstream = engine::AsyncNoSpan([&]() {
+        auto clientToUpstream = eng::AsyncNoSpan([&]() {
             copyClientToUpstream(client, upstream, deadline);
         });
-        auto upstreamToClient = engine::AsyncNoSpan([&]() {
+        auto upstreamToClient = eng::AsyncNoSpan([&]() {
             copyUpstreamToClientBudgeted(upstream, client, deadline);
         });
 
-        const auto status = engine::WaitAllCheckedUntil(
-            deadline, clientToUpstream, upstreamToClient
-        );
-        if (status != engine::FutureStatus::kReady) {
+        const auto status = eng::WaitAllCheckedUntil(deadline, clientToUpstream, upstreamToClient);
+        if (status != eng::FutureStatus::kReady) {
             clientToUpstream.RequestCancel();
             upstreamToClient.RequestCancel();
         }
@@ -741,8 +733,8 @@ struct EgressProxy::Impl final {
     }
 
     void forwardHttpRequestBody(
-        engine::io::Socket &client, engine::io::Socket &upstream, std::string_view bufferedBody,
-        i64 remainingBody, engine::Deadline deadline
+        eng::io::Socket &client, eng::io::Socket &upstream, std::string_view bufferedBody,
+        i64 remainingBody, eng::Deadline deadline
     )
     {
         const auto alreadyBuffered = bufferedBody.substr(
@@ -771,8 +763,8 @@ struct EgressProxy::Impl final {
     }
 
     void handleConnect(
-        dns::Resolver &resolver, engine::io::Socket &client, const ParsedRequest &req,
-        engine::Deadline deadline
+        dns::Resolver &resolver, eng::io::Socket &client, const ParsedRequest &req,
+        eng::Deadline deadline
     )
     {
         const auto authority = parseAuthority(req.target, 0_u16, PortMode::kRequired);
@@ -800,8 +792,8 @@ struct EgressProxy::Impl final {
     }
 
     void handleHttp(
-        dns::Resolver &resolver, engine::io::Socket &client, const ParsedRequest &req,
-        std::string_view headerBytes, engine::Deadline deadline
+        dns::Resolver &resolver, eng::io::Socket &client, const ParsedRequest &req,
+        std::string_view headerBytes, eng::Deadline deadline
     )
     {
         auto target = parseHttpRequestTarget(req);
@@ -844,7 +836,7 @@ struct EgressProxy::Impl final {
         closeSocketsQuietly(client, upstreamSocket);
     }
 
-    void handleClient(dns::Resolver &resolver, engine::io::Socket client, engine::Deadline deadline)
+    void handleClient(dns::Resolver &resolver, eng::io::Socket client, eng::Deadline deadline)
     {
         if (isClosed())
             return;
@@ -898,10 +890,10 @@ struct EgressProxy::Impl final {
         handleHttp(resolver, client, *parsed, header, deadline);
     }
 
-    void acceptLoop(dns::Resolver &resolver, engine::Deadline deadline)
+    void acceptLoop(dns::Resolver &resolver, eng::Deadline deadline)
     {
         while (!isClosed()) {
-            engine::io::Socket client;
+            eng::io::Socket client;
             try {
                 client = listener.Accept(deadline);
             } catch (const utils::TracefulException &) {
@@ -909,8 +901,8 @@ struct EgressProxy::Impl final {
             }
             if (isClosed())
                 return;
-            auto task = engine::AsyncNoSpan([this, &resolver, deadline,
-                                             sock = std::move(client)]() mutable {
+            auto task = eng::AsyncNoSpan([this, &resolver, deadline,
+                                          sock = std::move(client)]() mutable {
                 handleClient(resolver, std::move(sock), deadline);
             });
             auto lock = clientTasks.Lock();
@@ -926,7 +918,7 @@ struct EgressProxy::Impl final {
             static_cast<void>(acceptTask->WaitNothrow());
             acceptTask.reset();
         }
-        std::vector<engine::TaskWithResult<void>> tasks;
+        std::vector<eng::TaskWithResult<void>> tasks;
         {
             auto lock = clientTasks.Lock();
             tasks = std::move(*lock);
@@ -954,24 +946,22 @@ EgressProxy::EgressProxy(EgressProxyConfig config) : impl{std::make_unique<Impl>
 
 EgressProxy::~EgressProxy() noexcept { close(); }
 
-Expected<void, String> EgressProxy::start(dns::Resolver &resolver, engine::Deadline deadline)
+Expected<void, String> EgressProxy::start(dns::Resolver &resolver, eng::Deadline deadline)
 {
     UINVARIANT(deadline.IsReachable(), "proxy start deadline must be reachable");
     if (impl->acceptTask)
         return std::unexpected("proxy already started"_t);
 
-    impl->listener = engine::io::Socket(
-        engine::io::AddrDomain::kUnix, engine::io::SocketType::kStream
-    );
+    impl->listener = eng::io::Socket(eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream);
     try {
-        auto addr = engine::io::Sockaddr::MakeUnixSocketAddress(impl->config.socketPath);
+        auto addr = eng::io::Sockaddr::MakeUnixSocketAddress(impl->config.socketPath);
         impl->listener.Bind(addr);
         impl->listener.Listen();
     } catch (const utils::TracefulException &e) {
         return std::unexpected(text::format("proxy bind then listen failed: {}", e.what()));
     }
 
-    impl->acceptTask = engine::AsyncNoSpan([this, &resolver, deadline]() {
+    impl->acceptTask = eng::AsyncNoSpan([this, &resolver, deadline]() {
         impl->acceptLoop(resolver, deadline);
     });
     return {};

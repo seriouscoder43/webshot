@@ -3,6 +3,7 @@
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
 #include "url.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <optional>
@@ -60,11 +61,10 @@ struct [[nodiscard]] S3Credentials {
  * added interface methods that are not used by this service are provided as
  * stubs that abort if called.
  */
-class [[nodiscard]] S3V4Client final : public userver::s3api::Client {
+class [[nodiscard]] S3V4Client final : public us::s3api::Client {
 public:
     S3V4Client(
-        userver::clients::http::Client &httpClient, S3V4Config config, S3Credentials creds,
-        String bucketName
+        httpc::Client &httpClient, S3V4Config config, S3Credentials creds, String bucketName
     );
 
     std::string PutObject(
@@ -101,29 +101,28 @@ public:
     CopyObject(std::string_view, std::string_view, const std::optional<Meta> &) override;
     std::optional<std::string>
     ListBucketContents(std::string_view, int, std::string, std::string) const override;
-    std::vector<userver::s3api::ObjectMeta>
-        ListBucketContentsParsed(std::string_view) const override;
+    std::vector<us::s3api::ObjectMeta> ListBucketContentsParsed(std::string_view) const override;
     std::vector<std::string> ListBucketDirectories(std::string_view) const override;
-    void UpdateConfig(userver::s3api::ConnectionCfg &&) override;
+    void UpdateConfig(us::s3api::ConnectionCfg &&) override;
     std::string_view GetBucketName() const override;
 
     // Multipart upload APIs are not used by this service; they are implemented
-    // as stubs to satisfy the userver::s3api::Client interface.
-    userver::s3api::multipart_upload::InitiateMultipartUploadResult CreateMultipartUpload(
-        const userver::s3api::multipart_upload::CreateMultipartUploadRequest &request
+    // as stubs to satisfy the us::s3api::Client interface.
+    us::s3api::multipart_upload::InitiateMultipartUploadResult CreateMultipartUpload(
+        const us::s3api::multipart_upload::CreateMultipartUploadRequest &request
     ) const override;
-    userver::s3api::multipart_upload::UploadPartResult
-    UploadPart(const userver::s3api::multipart_upload::UploadPartRequest &request) const override;
-    userver::s3api::multipart_upload::CompleteMultipartUploadResult CompleteMultipartUpload(
-        const userver::s3api::multipart_upload::CompleteMultipartUploadRequest &request
+    us::s3api::multipart_upload::UploadPartResult
+    UploadPart(const us::s3api::multipart_upload::UploadPartRequest &request) const override;
+    us::s3api::multipart_upload::CompleteMultipartUploadResult CompleteMultipartUpload(
+        const us::s3api::multipart_upload::CompleteMultipartUploadRequest &request
     ) const override;
     void AbortMultipartUpload(
-        const userver::s3api::multipart_upload::AbortMultipartUploadRequest &request
+        const us::s3api::multipart_upload::AbortMultipartUploadRequest &request
     ) const override;
-    userver::s3api::multipart_upload::ListPartsResult
-    ListParts(const userver::s3api::multipart_upload::ListPartsRequest &request) const override;
-    userver::s3api::multipart_upload::ListMultipartUploadsResult ListMultipartUploads(
-        const userver::s3api::multipart_upload::ListMultipartUploadsRequest &request
+    us::s3api::multipart_upload::ListPartsResult
+    ListParts(const us::s3api::multipart_upload::ListPartsRequest &request) const override;
+    us::s3api::multipart_upload::ListMultipartUploadsResult ListMultipartUploads(
+        const us::s3api::multipart_upload::ListMultipartUploadsRequest &request
     ) const override;
 
     std::string
@@ -150,7 +149,7 @@ private:
     [[nodiscard]] SigV4Params
     makeSigV4Params(const std::chrono::system_clock::time_point &now) const;
     void signRequest(
-        String method, String canonicalUri, String host, userver::clients::http::Headers &headers,
+        String method, String canonicalUri, String host, httpc::Headers &headers,
         const String &payloadHash
     ) const;
     [[nodiscard]] detail::BuiltUrl
@@ -159,7 +158,7 @@ private:
     [[nodiscard]] String buildRawPath(String path, IncludeBucket includeBucket) const;
     String presignVirtualHost(
         String method, String path, const std::chrono::system_clock::time_point &expiresAt,
-        String protocol, std::optional<userver::clients::http::Headers> extraHeaders
+        String protocol, std::optional<httpc::Headers> extraHeaders
     ) const;
     String presignPathStyle(
         String method, String path, const std::chrono::system_clock::time_point &expiresAt,
@@ -172,7 +171,7 @@ private:
         const std::vector<std::pair<String, String>> &headers
     ) const;
 
-    userver::clients::http::Client &httpClient;
+    httpc::Client &httpClient;
     S3V4Config config;
     S3Credentials creds;
     String bucketName;

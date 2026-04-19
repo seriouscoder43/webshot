@@ -3,6 +3,7 @@
 #include "expected.hpp"
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <functional>
@@ -41,7 +42,7 @@ struct [[nodiscard]] StsCredentials {
  * The endpoint must use https. A prebuilt policy JSON is passed verbatim.
  */
 [[nodiscard]] Expected<StsCredentials, StsError> fetchStsCredentials(
-    userver::clients::http::Client &httpClient, const String &stsEndpoint,
+    httpc::Client &httpClient, const String &stsEndpoint,
     const s3v4::AccessKeyId &staticAccessKeyId, const s3v4::SecretAccessKey &staticSecretAccessKey,
     const String &region, const String &roleArn, const String &roleSessionName,
     const String &policyJson, std::chrono::seconds duration, std::chrono::milliseconds timeout
@@ -50,7 +51,7 @@ struct [[nodiscard]] StsCredentials {
 namespace detail {
 
 using StsExecutor = std::function<Expected<std::string, StsError>(
-    const String &url, const String &body, const userver::clients::http::Headers &headers,
+    const String &url, const String &body, const httpc::Headers &headers,
     std::chrono::milliseconds timeout
 )>;
 

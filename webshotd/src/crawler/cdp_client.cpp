@@ -48,8 +48,7 @@ namespace {
 constexpr auto kMaxHandshakeResponseBytes = 16_i64 * 1024_i64;
 constexpr std::string_view kWebsocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-[[nodiscard]] us::engine::Deadline
-pickEarlierReachableDeadline(us::engine::Deadline a, us::engine::Deadline b)
+[[nodiscard]] eng::Deadline pickEarlierReachableDeadline(eng::Deadline a, eng::Deadline b)
 {
     UINVARIANT(a.IsReachable(), "deadline must be reachable");
     UINVARIANT(b.IsReachable(), "deadline must be reachable");
@@ -58,9 +57,7 @@ pickEarlierReachableDeadline(us::engine::Deadline a, us::engine::Deadline b)
 
 [[nodiscard]] std::string currentTraceTimestamp()
 {
-    return us::utils::datetime::UtcTimestring(
-        us::utils::datetime::Now(), us::utils::datetime::kRfc3339Format
-    );
+    return datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format);
 }
 
 struct HandshakeResponse final {
@@ -105,7 +102,7 @@ struct HandshakeResponse final {
 }
 
 [[nodiscard]] Expected<std::string, CdpFailure>
-readHandshakeResponse(us::engine::io::Socket &socket, us::engine::Deadline deadline)
+readHandshakeResponse(eng::io::Socket &socket, eng::Deadline deadline)
 {
     using enum CdpError;
     std::string response;
@@ -222,7 +219,7 @@ String describeCdpFailure(const String &action, const CdpFailure &failure)
 
 struct CdpSessionState final {
     struct Data final {
-        us::engine::ConditionVariable cv;
+        eng::ConditionVariable cv;
         std::deque<CdpEvent> events;
         std::optional<CdpFailure> failure;
         bool closed{false};
@@ -233,7 +230,7 @@ struct CdpSessionState final {
 
 struct CdpClient::PendingCommandWaiter final {
     struct Data final {
-        us::engine::ConditionVariable cv;
+        eng::ConditionVariable cv;
         std::optional<json::Value> result;
         std::optional<CdpFailure> failure;
         bool done{false};
@@ -300,7 +297,7 @@ extractRoutingSessionId(const dto::CdpEventMessage &eventMessage)
 CdpClient::CdpClient(
     std::string socketPath, String websocketPath,
     std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string tracePath,
-    us::fs::blocking::FileDescriptor traceFile, us::engine::Deadline overallDeadline,
+    us::fs::blocking::FileDescriptor traceFile, eng::Deadline overallDeadline,
     chrono::milliseconds commandTimeout
 )
     : socketPath(std::move(socketPath)), websocketPath(std::move(websocketPath)),
@@ -312,7 +309,7 @@ CdpClient::CdpClient(
 
 Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
     std::string socketPath, String websocketPath, std::string tracePath,
-    us::engine::Deadline overallDeadline, chrono::milliseconds handshakeTimeout,
+    eng::Deadline overallDeadline, chrono::milliseconds handshakeTimeout,
     chrono::milliseconds commandTimeout, i64 maxRemotePayloadBytes
 )
 {
@@ -334,13 +331,11 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
         return std::unexpected(CdpFailure{.code = kTraceFileOpenFailed, .detail = {}});
     }
 
-    auto socket = us::engine::io::Socket{
-        us::engine::io::AddrDomain::kUnix, us::engine::io::SocketType::kStream
-    };
+    auto socket = eng::io::Socket{eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream};
     const auto handshakeDeadline = pickEarlierReachableDeadline(
-        overallDeadline, us::engine::Deadline::FromDuration(handshakeTimeout)
+        overallDeadline, eng::Deadline::FromDuration(handshakeTimeout)
     );
-    auto address = us::engine::io::Sockaddr::MakeUnixSocketAddress(socketPath);
+    auto address = eng::io::Sockaddr::MakeUnixSocketAddress(socketPath);
     try {
         socket.Connect(address, handshakeDeadline);
     } catch (const us::utils::TracefulException &) {
@@ -385,7 +380,7 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
 
     std::shared_ptr<us::websocket::WebSocketConnection> ws;
     try {
-        auto connectionSocket = std::make_unique<us::engine::io::Socket>(std::move(socket));
+        auto connectionSocket = std::make_unique<eng::io::Socket>(std::move(socket));
         us::websocket::Config wsConfig;
         wsConfig.max_remote_payload = numericCast<decltype(wsConfig.max_remote_payload)>(
             maxRemotePayloadBytes
@@ -409,7 +404,7 @@ CdpClient::~CdpClient() noexcept { closeQuietly(); }
 
 void CdpClient::startReaderTask()
 {
-    readerTask = std::move(us::engine::CriticalAsyncNoSpan([this]() { readerLoop(); })).AsTask();
+    readerTask = std::move(eng::CriticalAsyncNoSpan([this]() { readerLoop(); })).AsTask();
 }
 
 Expected<json::Value, CdpFailure> CdpClient::sendRaw(
@@ -451,7 +446,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
     }
 
     const auto deadline = pickEarlierReachableDeadline(
-        overallDeadline, us::engine::Deadline::FromDuration(commandTimeout)
+        overallDeadline, eng::Deadline::FromDuration(commandTimeout)
     );
     auto waiterState = waiter->data.UniqueLock();
     const auto ready = [&waiterState]() { return waiterState->done; };
@@ -472,7 +467,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
         return std::unexpected(makeTimeoutFailure("timed out waiting for cdp response"_t));
     if (waiterState->failure)
         return std::unexpected(*waiterState->failure);
-    UINVARIANT(waiterState->result.has_value(), "cdp waiter completed without result");
+    UINVARIANT(waiterState->result, "cdp waiter completed without result");
     return *waiterState->result;
 }
 
@@ -501,7 +496,7 @@ Expected<void, CdpFailure> CdpClient::close()
 
     if (readerTask.IsValid()) {
         readerTask.RequestCancel();
-        const us::engine::TaskCancellationBlocker blocker;
+        const eng::TaskCancellationBlocker blocker;
         static_cast<void>(readerTask.WaitNothrow());
     }
     connection.reset();
@@ -532,7 +527,7 @@ void CdpClient::readerLoop()
         us::websocket::Message message;
         try {
             connection->Recv(message);
-        } catch (const us::engine::WaitInterruptedException &) {
+        } catch (const eng::WaitInterruptedException &) {
             failTerminal(makeSocketClosedFailure("websocket close requested"_t));
             return;
         } catch (const us::utils::TracefulException &e) {
@@ -675,14 +670,13 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
 }
 
 Expected<CdpEvent, CdpFailure> CdpClient::waitForSessionEvent(
-    const std::shared_ptr<CdpSessionState> &sessionState, us::engine::Deadline deadline,
+    const std::shared_ptr<CdpSessionState> &sessionState, eng::Deadline deadline,
     const String &timeoutMessage
 )
 {
     auto sessionData = sessionState->data.UniqueLock();
     const auto ready = [&sessionData]() {
-        return !sessionData->events.empty() || sessionData->failure.has_value() ||
-               sessionData->closed;
+        return !sessionData->events.empty() || sessionData->failure || sessionData->closed;
     };
     if (!ready() && !sessionData->cv.WaitUntil(sessionData.GetLock(), deadline, ready))
         return std::unexpected(makeTimeoutFailure(timeoutMessage));
@@ -776,7 +770,7 @@ void CdpClient::failTerminal(CdpFailure failure)
 }
 
 Expected<CdpEvent, CdpFailure>
-CdpSession::waitEvent(us::engine::Deadline deadline, const String &timeoutMessage)
+CdpSession::waitEvent(eng::Deadline deadline, const String &timeoutMessage)
 {
     UINVARIANT(client != nullptr, "cdp session is not attached");
     UINVARIANT(sessionState != nullptr, "cdp session state is missing");

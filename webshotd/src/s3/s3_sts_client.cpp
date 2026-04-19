@@ -53,8 +53,8 @@ parseExpiration(const String &expiration)
 {
     std::chrono::system_clock::time_point expiresAt;
     if (!cctz::parse(
-            userver::utils::datetime::kRfc3339Format, std::string(expiration.view()),
-            cctz::utc_time_zone(), &expiresAt
+            datetime::kRfc3339Format, std::string(expiration.view()), cctz::utc_time_zone(),
+            &expiresAt
         )) {
         return std::unexpected(StsError::kInvalidExpiration);
     }
@@ -137,7 +137,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
 
     const String payloadHash = s3v4::sha256Hex(body.view());
 
-    const auto now = userver::utils::datetime::Now();
+    const auto now = datetime::Now();
     s3v4::SigV4Params params(
         std::string(region.view()), "sts", staticAccessKeyId, staticSecretAccessKey, {}, now
     );
@@ -150,8 +150,8 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
         params, "POST"_t, path, query, headersToSign, payloadHash
     );
     httpc::Headers headers;
-    headers[userver::http::headers::kHost] = std::string(host.view());
-    headers[userver::http::headers::kContentType] = std::string(kUrlEncoded.view());
+    headers[us::http::headers::kHost] = std::string(host.view());
+    headers[us::http::headers::kContentType] = std::string(kUrlEncoded.view());
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
     const auto response = exec(stsLink.httpsUrl(), body, headers, timeout);

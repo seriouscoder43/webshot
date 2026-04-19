@@ -50,9 +50,7 @@ namespace {
     body.retry_after_sec = retryAfterSecondsCount;
     body.error = dto::CaptureJobCooldownResponse::Error{"client IP in cooldown"};
 
-    response.SetHeader(
-        userver::http::headers::kRetryAfter, std::format("{}", retryAfterSecondsCount)
-    );
+    response.SetHeader(us::http::headers::kRetryAfter, std::format("{}", retryAfterSecondsCount));
     return httpu::respondJson(response, kTooManyRequests, body);
 }
 

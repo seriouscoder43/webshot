@@ -1,6 +1,7 @@
 #pragma once
 
 #include "expected.hpp"
+#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -17,8 +18,7 @@ enum class DeadlineError {
     kTimeout,
 };
 
-[[nodiscard]] inline userver::engine::Deadline
-pickEarlierDeadline(userver::engine::Deadline a, userver::engine::Deadline b)
+[[nodiscard]] inline eng::Deadline pickEarlierDeadline(eng::Deadline a, eng::Deadline b)
 {
     const bool aReachable = a.IsReachable();
     const bool bReachable = b.IsReachable();
@@ -35,20 +35,19 @@ pickEarlierDeadline(userver::engine::Deadline a, userver::engine::Deadline b)
     return b;
 }
 
-[[nodiscard]] inline userver::engine::Deadline computeHandlerDeadline(
-    const userver::server::http::HttpRequest &request, std::chrono::milliseconds handlerTimeout
+[[nodiscard]] inline eng::Deadline computeHandlerDeadline(
+    const server::http::HttpRequest &request, std::chrono::milliseconds handlerTimeout
 )
 {
-    using userver::engine::Deadline;
+    using eng::Deadline;
 
     const auto configDeadline = Deadline::FromTimePoint(request.GetStartTime() + handlerTimeout);
-    const auto inheritedDeadline = userver::server::request::GetTaskInheritedDeadline();
+    const auto inheritedDeadline = server::request::GetTaskInheritedDeadline();
 
     return pickEarlierDeadline(configDeadline, inheritedDeadline);
 }
 
-[[nodiscard]] inline std::chrono::milliseconds
-timeLeftOrZeroMs(userver::engine::Deadline deadline) noexcept
+[[nodiscard]] inline std::chrono::milliseconds timeLeftOrZeroMs(eng::Deadline deadline) noexcept
 {
     using namespace std::chrono_literals;
     using Ms = std::chrono::milliseconds;
@@ -67,7 +66,7 @@ timeLeftOrZeroMs(userver::engine::Deadline deadline) noexcept
 }
 
 [[nodiscard]] inline Expected<std::chrono::milliseconds, DeadlineError>
-timeLeftMs(userver::engine::Deadline deadline) noexcept
+timeLeftMs(eng::Deadline deadline) noexcept
 {
     if (deadline.IsReachable() && deadline.IsReached())
         return std::unexpected(DeadlineError::kTimeout);
@@ -75,7 +74,7 @@ timeLeftMs(userver::engine::Deadline deadline) noexcept
 }
 
 [[nodiscard]] inline Expected<void, DeadlineError>
-sleepWithinDeadline(userver::engine::Deadline deadline, std::chrono::milliseconds delay)
+sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 {
     using namespace std::chrono_literals;
 
@@ -87,15 +86,14 @@ sleepWithinDeadline(userver::engine::Deadline deadline, std::chrono::millisecond
         return std::unexpected(remaining.error());
 
     const auto sleepFor = std::min(delay, *remaining);
-    userver::engine::SleepFor(sleepFor);
+    eng::SleepFor(sleepFor);
     if (sleepFor != delay)
         return std::unexpected(DeadlineError::kTimeout);
 
     return {};
 }
 
-[[nodiscard]] inline Expected<void, DeadlineError>
-sleepUntilDeadline(userver::engine::Deadline deadline)
+[[nodiscard]] inline Expected<void, DeadlineError> sleepUntilDeadline(eng::Deadline deadline)
 {
     using namespace std::chrono_literals;
 
@@ -107,7 +105,7 @@ sleepUntilDeadline(userver::engine::Deadline deadline)
     if (*remaining <= 0ms)
         return std::unexpected(DeadlineError::kTimeout);
 
-    userver::engine::SleepFor(*remaining);
+    eng::SleepFor(*remaining);
     return {};
 }
 

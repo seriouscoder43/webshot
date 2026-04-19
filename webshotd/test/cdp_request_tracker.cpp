@@ -16,7 +16,7 @@ UTEST(CdpRequestTracker, WaitingRequestStartsDeliverable)
     const auto *request = tracker.find(17_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Network.getResponseBody"_t);
-    ASSERT_TRUE(request->sessionId.has_value());
+    ASSERT_TRUE(request->sessionId);
     EXPECT_EQ(*request->sessionId, "session-1"_t);
     EXPECT_FALSE(request->ignoreResponse);
 }
@@ -30,7 +30,7 @@ UTEST(CdpRequestTracker, IgnoredRequestStartsIgnored)
     const auto *request = tracker.find(23_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Fetch.continueRequest"_t);
-    EXPECT_FALSE(request->sessionId.has_value());
+    EXPECT_FALSE(request->sessionId);
     EXPECT_TRUE(request->ignoreResponse);
 }
 
@@ -44,7 +44,7 @@ UTEST(CdpRequestTracker, MarkIgnoreResponsePreservesTraceContext)
     const auto *request = tracker.find(31_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Network.getResponseBody"_t);
-    ASSERT_TRUE(request->sessionId.has_value());
+    ASSERT_TRUE(request->sessionId);
     EXPECT_EQ(*request->sessionId, "session-2"_t);
     EXPECT_TRUE(request->ignoreResponse);
 }

@@ -89,11 +89,7 @@ constexpr std::array kLocalFixtureHosts = {
 
 [[nodiscard]] String currentTimestamp()
 {
-    return String::fromBytes(
-               us::utils::datetime::UtcTimestring(
-                   us::utils::datetime::Now(), us::utils::datetime::kRfc3339Format
-               )
-    )
+    return String::fromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format))
         .expect();
 }
 
@@ -509,15 +505,15 @@ public:
     [[nodiscard]] bool isLoadedOrFailed() const
     {
         const auto state = data.Lock();
-        return state->loaded || state->mainRequestFailure.has_value();
+        return state->loaded || state->mainRequestFailure;
     }
 
     [[nodiscard]] bool hasMainDocumentOrFailure() const
     {
         const auto state = data.Lock();
         const auto *request = activeMainRequest(*state);
-        return state->mainRequestFailure.has_value() ||
-               (state->completedMainRequest.has_value() && state->completedMainRequest->loaded &&
+        return state->mainRequestFailure ||
+               (state->completedMainRequest && state->completedMainRequest->loaded &&
                 hasResponse(*state->completedMainRequest)) ||
                (request != nullptr && hasResponse(*request) && request->loaded);
     }
@@ -525,12 +521,10 @@ public:
     [[nodiscard]] bool isIdleFor(chrono::seconds idle) const
     {
         const auto state = data.Lock();
-        return state->inflight.empty() &&
-               us::utils::datetime::SteadyNow() - state->lastNetworkAt >= idle;
+        return state->inflight.empty() && datetime::SteadyNow() - state->lastNetworkAt >= idle;
     }
 
-    [[nodiscard]] us::utils::datetime::SteadyClock::time_point
-    idleDeadline(chrono::seconds idle) const
+    [[nodiscard]] datetime::SteadyClock::time_point idleDeadline(chrono::seconds idle) const
     {
         const auto state = data.Lock();
         return state->lastNetworkAt + idle;
@@ -736,7 +730,7 @@ private:
         bool loaded{false};
         bool seedNavigationStarted{false};
         std::optional<String> mainRequestFailure;
-        chrono::steady_clock::time_point lastNetworkAt{us::utils::datetime::SteadyNow()};
+        chrono::steady_clock::time_point lastNetworkAt{datetime::SteadyNow()};
     };
 
     static void applyMainResponse(
@@ -854,7 +848,7 @@ private:
         const auto requestMethod = String::fromBytes(requestWillBeSent.request.method).expect();
 
         state.inflight.insert(requestIdText);
-        state.lastNetworkAt = us::utils::datetime::SteadyNow();
+        state.lastNetworkAt = datetime::SteadyNow();
 
         auto isTrackedMainDocument = false;
         if (isMainFrameDocumentRequest(state, requestWillBeSent)) {
@@ -961,7 +955,7 @@ private:
     {
         const auto requestIdText = String::fromBytes(loadingFinished.requestId).expect();
         state.inflight.erase(requestIdText);
-        state.lastNetworkAt = us::utils::datetime::SteadyNow();
+        state.lastNetworkAt = datetime::SteadyNow();
         if (const auto it = state.activeRequests.find(requestIdText);
             it != std::end(state.activeRequests)) {
             it->second.loaded = true;
@@ -983,7 +977,7 @@ private:
     {
         const auto requestIdText = String::fromBytes(loadingFailed.requestId).expect();
         state.inflight.erase(requestIdText);
-        state.lastNetworkAt = us::utils::datetime::SteadyNow();
+        state.lastNetworkAt = datetime::SteadyNow();
 
         const auto requestIt = state.activeRequests.find(requestIdText);
         if (requestIt == std::end(state.activeRequests)) {
@@ -1133,8 +1127,7 @@ struct [[nodiscard]] DomState {
     };
 }
 
-Expected<void, String>
-runSiteBehavior(crawler::CdpSession &cdpSession, us::engine::Deadline deadline)
+Expected<void, String> runSiteBehavior(crawler::CdpSession &cdpSession, eng::Deadline deadline)
 {
     UINVARIANT(deadline.IsReachable(), "site behavior deadline must be reachable");
     auto budgetExpected = timeLeftMs(deadline);
@@ -1166,10 +1159,10 @@ class [[nodiscard]] CaptureSession final {
 public:
     CaptureSession(
         Denylist &denylist, const Config &config, dns::Resolver &dnsResolver, usize urlBytesMax,
-        i64 proxyDownBytesMax, us::engine::subprocess::ProcessStarter &processStarter,
+        i64 proxyDownBytesMax, eng::subprocess::ProcessStarter &processStarter,
         std::string browserRunsRootIn, std::string cgroupRootPathIn,
         std::optional<crawler::CgroupLimits> cgroupLimitsIn, crawler::CaptureTimings timings,
-        crawler::CrawlerTunables tunablesIn, i64 maxArchiveBytesIn, us::engine::Deadline deadline,
+        crawler::CrawlerTunables tunablesIn, i64 maxArchiveBytesIn, eng::Deadline deadline,
         crawler::RunRequest run
     )
         : denylist(denylist), config(config), timings(std::move(timings)), run(std::move(run)),
@@ -1310,7 +1303,7 @@ private:
                 return std::unexpected(*failure);
             auto progress = eventProgress.UniqueLock();
             const auto version = progress->version;
-            const auto idleDeadline = us::engine::Deadline::FromTimePoint(
+            const auto idleDeadline = eng::Deadline::FromTimePoint(
                 pageTracker().idleDeadline(idle)
             );
             const auto waitDeadline = pickEarlierDeadline(deadline, idleDeadline);
@@ -1362,9 +1355,7 @@ private:
     void startEventLoop()
     {
         stoppingEventLoop.store(false);
-        eventTask = std::move(us::engine::CriticalAsyncNoSpan([this]() {
-                        runEventLoop();
-                    })).AsTask();
+        eventTask = std::move(eng::CriticalAsyncNoSpan([this]() { runEventLoop(); })).AsTask();
     }
 
     void stopEventLoop()
@@ -1373,7 +1364,7 @@ private:
         if (!eventTask.IsValid())
             return;
         eventTask.RequestCancel();
-        const us::engine::TaskCancellationBlocker blocker;
+        const eng::TaskCancellationBlocker blocker;
         static_cast<void>(eventTask.WaitNothrow());
         eventTask = {};
     }
@@ -1485,7 +1476,7 @@ private:
         if (timings.postLoadDelay > chrono::seconds::zero()) {
             browser.markPhase("post_load_delay");
             const auto phaseDeadline = pickEarlierDeadline(
-                deadline, us::engine::Deadline::FromDuration(timings.postLoadDelay)
+                deadline, eng::Deadline::FromDuration(timings.postLoadDelay)
             );
             const auto ok = sleepUntilDeadline(phaseDeadline);
             if (!ok)
@@ -1496,7 +1487,7 @@ private:
             browser.markPhase("run_site_behavior");
             browser.markPhase("run_site_behavior_runtime_evaluate");
             const auto behaviorDeadline = pickEarlierDeadline(
-                deadline, us::engine::Deadline::FromDuration(timings.behaviorTimeout)
+                deadline, eng::Deadline::FromDuration(timings.behaviorTimeout)
             );
             auto ranSiteBehavior = runSiteBehavior(cdpSession(), behaviorDeadline);
             if (!ranSiteBehavior)
@@ -1514,7 +1505,7 @@ private:
         if (timings.pageExtraDelay > chrono::seconds::zero()) {
             browser.markPhase("page_extra_delay");
             const auto phaseDeadline = pickEarlierDeadline(
-                deadline, us::engine::Deadline::FromDuration(timings.pageExtraDelay)
+                deadline, eng::Deadline::FromDuration(timings.pageExtraDelay)
             );
             const auto ok = sleepUntilDeadline(phaseDeadline);
             if (!ok)
@@ -1729,7 +1720,7 @@ private:
     }
 
     struct EventProgressState final {
-        us::engine::ConditionVariable cv;
+        eng::ConditionVariable cv;
         i64 version{0_i64};
     };
 
@@ -1737,24 +1728,24 @@ private:
     const Config &config;
     crawler::CaptureTimings timings;
     crawler::RunRequest run;
-    us::engine::Deadline deadline;
+    eng::Deadline deadline;
     i64 maxArchiveBytes;
     crawler::BrowserSession browser;
     std::unique_ptr<crawler::CdpClient> cdp;
     std::unique_ptr<PageTracker> tracker;
     std::unique_ptr<crawler::BrowserPageSession> pageSession;
     us::concurrent::Variable<EventProgressState> eventProgress;
-    us::engine::Task eventTask;
+    eng::Task eventTask;
     std::atomic<bool> stoppingEventLoop{false};
     us::concurrent::Variable<std::optional<String>> interceptionFailure;
 };
 
 [[nodiscard]] Expected<CaptureWithNetwork, CaptureFailure> captureViaProxy(
     Denylist &denylist, const Config &config, dns::Resolver &dnsResolver, usize urlBytesMax,
-    i64 proxyDownBytesMax, us::engine::subprocess::ProcessStarter &processStarter,
+    i64 proxyDownBytesMax, eng::subprocess::ProcessStarter &processStarter,
     const std::string &browserRunsRoot, const std::string &cgroupRootPath,
     std::optional<crawler::CgroupLimits> cgroupLimits, crawler::CaptureTimings timings,
-    const crawler::CrawlerTunables &tunables, i64 maxArchiveBytes, us::engine::Deadline deadline,
+    const crawler::CrawlerTunables &tunables, i64 maxArchiveBytes, eng::Deadline deadline,
     const crawler::RunRequest &run
 )
 {
@@ -1769,10 +1760,10 @@ private:
 
 [[nodiscard]] CrawlerRunArtifacts executeRun(
     Denylist &denylist, const Config &config, dns::Resolver &dnsResolver,
-    us::engine::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
+    eng::subprocess::ProcessStarter &processStarter, const std::string &browserRunsRoot,
     const std::string &cgroupRootPath, std::optional<crawler::CgroupLimits> cgroupLimits,
     const crawler::CaptureTimings &timings, const crawler::CrawlerTunables &tunables,
-    i64 maxArchiveBytes, i64 networkDownBytesRatioMax, us::engine::Deadline deadline,
+    i64 maxArchiveBytes, i64 networkDownBytesRatioMax, eng::Deadline deadline,
     const crawler::RunRequest &run
 )
 {
@@ -1981,7 +1972,7 @@ private:
 
 CrawlerRunner::CrawlerRunner(
     Denylist &denylist, const Config &config, dns::Resolver &dnsResolver,
-    us::engine::subprocess::ProcessStarter &processStarter, chrono::seconds runTimeout,
+    eng::subprocess::ProcessStarter &processStarter, chrono::seconds runTimeout,
     std::string stateDir, std::optional<crawler::CgroupLimits> limits, i64 maxArchiveBytes,
     crawler::CaptureTimings timings, crawler::CrawlerTunables tunables, i64 networkDownBytesRatioMax
 )
@@ -1996,7 +1987,7 @@ CrawlerRunner::CrawlerRunner(
 
 CrawlerRunArtifacts CrawlerRunner::run(const String &seedUrl) const
 {
-    const auto deadline = us::engine::Deadline::FromDuration(runTimeout);
+    const auto deadline = eng::Deadline::FromDuration(runTimeout);
     return executeRun(
         denylist, config, dnsResolver, processStarter, browserRunsRoot, cgroupRootPath,
         cgroupLimits, timings, tunables, maxArchiveBytes, networkDownBytesRatioMax, deadline,

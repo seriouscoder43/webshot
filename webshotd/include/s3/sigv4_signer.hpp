@@ -1,5 +1,7 @@
 #pragma once
 
+#include "userver_namespaces.hpp"
+
 #include <chrono>
 #include <optional>
 #include <string>
@@ -68,7 +70,7 @@ canonicalizeQuery(const std::vector<std::pair<std::string, std::string>> &decode
 
 /** Lowercase, insert host, and sort headers to be signed. */
 [[nodiscard]] std::vector<std::pair<std::string, std::string>>
-prepareSignedHeaders(std::string host, const userver::clients::http::Headers &extra);
+prepareSignedHeaders(std::string host, const httpc::Headers &extra);
 
 /** Join header names (already lowercase/sorted) with semicolons. */
 [[nodiscard]] std::string buildSignedHeaders(

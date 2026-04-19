@@ -133,11 +133,7 @@ constexpr auto kManagedCgroupServiceSubgroup = std::string_view{"/service"};
 
 [[nodiscard]] String currentTimestamp()
 {
-    return String::fromBytes(
-               us::utils::datetime::UtcTimestring(
-                   us::utils::datetime::Now(), us::utils::datetime::kRfc3339Format
-               )
-    )
+    return String::fromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format))
         .expect();
 }
 
@@ -358,21 +354,21 @@ void removeBrowserRunDir(const std::string &path) noexcept
     return grabValueOf(parsed);
 }
 
-[[nodiscard]] us::engine::subprocess::ChildProcess spawnProcess(
-    us::engine::subprocess::ProcessStarter &processStarter, const std::string &executablePath,
+[[nodiscard]] eng::subprocess::ChildProcess spawnProcess(
+    eng::subprocess::ProcessStarter &processStarter, const std::string &executablePath,
     const std::vector<std::string> &args, const std::string &stdoutPath,
     const std::string &stderrPath
 )
 {
-    us::engine::subprocess::ExecOptions options;
+    eng::subprocess::ExecOptions options;
     options.use_path = true;
     options.stdout_file = stdoutPath;
     options.stderr_file = stderrPath;
     return processStarter.Exec(executablePath, args, std::move(options));
 }
 
-[[nodiscard]] us::engine::subprocess::ChildProcess spawnSandboxedBrowser(
-    us::engine::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths,
+[[nodiscard]] eng::subprocess::ChildProcess spawnSandboxedBrowser(
+    eng::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths,
     std::string_view cgroupRootPath, const std::optional<CgroupLimits> &cgroupLimits,
     std::string_view cgroupNamePrefix
 )
@@ -477,7 +473,7 @@ template <typename Process> void stopProcess(Process &process, chrono::milliseco
 struct BrowserSession::Impl final {
     Impl(
         us::clients::dns::Resolver &dnsResolverIn,
-        us::engine::subprocess::ProcessStarter &processStarterIn, BrowserSessionConfig configIn
+        eng::subprocess::ProcessStarter &processStarterIn, BrowserSessionConfig configIn
     )
         : dnsResolver(dnsResolverIn), processStarter(processStarterIn), config(std::move(configIn))
     {
@@ -499,9 +495,7 @@ struct BrowserSession::Impl final {
         }
 
         markPhase("launch_browser");
-        const auto devtoolsDeadline = us::engine::Deadline::FromDuration(
-            config.devtoolsStartupTimeout
-        );
+        const auto devtoolsDeadline = eng::Deadline::FromDuration(config.devtoolsStartupTimeout);
         proxy = std::make_unique<EgressProxy>(EgressProxyConfig{
             paths.proxySocketPath,
             paths.runId,
@@ -526,7 +520,7 @@ struct BrowserSession::Impl final {
     }
 
     [[nodiscard]] Expected<std::unique_ptr<CdpClient>, String>
-    connectCdp(us::engine::Deadline overallDeadline) const
+    connectCdp(eng::Deadline overallDeadline) const
     {
         auto cdp = CdpClient::connect(
             paths.cdpSocketPath, websocketPath, paths.cdpTracePath, overallDeadline,
@@ -625,7 +619,7 @@ struct BrowserSession::Impl final {
         return proxy->failureReason();
     }
 
-    [[nodiscard]] Expected<String, String> waitForDevtoolsPath(us::engine::Deadline deadline)
+    [[nodiscard]] Expected<String, String> waitForDevtoolsPath(eng::Deadline deadline)
     {
         UINVARIANT(deadline.IsReachable(), "devtools deadline must be reachable");
         auto sawCdpSocket = false;
@@ -644,7 +638,7 @@ struct BrowserSession::Impl final {
             auto websocketPathFromFile = readWebsocketPathFile(paths.websocketPathFilePath);
             if (sawCdpSocket && websocketPathFromFile)
                 return grabValueOf(websocketPathFromFile);
-            us::engine::SleepFor(config.devtoolsPollInterval);
+            eng::SleepFor(config.devtoolsPollInterval);
         }
         if (process && process->WaitFor(0ms)) {
             return std::unexpected(
@@ -664,17 +658,17 @@ struct BrowserSession::Impl final {
     }
 
     us::clients::dns::Resolver &dnsResolver;
-    us::engine::subprocess::ProcessStarter &processStarter;
+    eng::subprocess::ProcessStarter &processStarter;
     BrowserSessionConfig config;
     BrowserPaths paths;
     std::unique_ptr<EgressProxy> proxy;
-    std::optional<us::engine::subprocess::ChildProcess> process;
+    std::optional<eng::subprocess::ChildProcess> process;
     String websocketPath;
     bool closed{false};
 };
 
 BrowserSession::BrowserSession(
-    us::clients::dns::Resolver &dnsResolver, us::engine::subprocess::ProcessStarter &processStarter,
+    us::clients::dns::Resolver &dnsResolver, eng::subprocess::ProcessStarter &processStarter,
     BrowserSessionConfig config
 )
     : impl(std::make_unique<Impl>(dnsResolver, processStarter, std::move(config)))
@@ -686,7 +680,7 @@ BrowserSession::~BrowserSession() = default;
 Expected<void, String> BrowserSession::launch() { return impl->launch(); }
 
 Expected<std::unique_ptr<CdpClient>, String>
-BrowserSession::connectCdp(us::engine::Deadline overallDeadline) const
+BrowserSession::connectCdp(eng::Deadline overallDeadline) const
 {
     return impl->connectCdp(overallDeadline);
 }

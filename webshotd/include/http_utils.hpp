@@ -34,7 +34,7 @@ template <typename T>
 respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, const T &body)
 {
     resp.SetStatus(status);
-    resp.SetContentType(userver::http::content_type::kApplicationJson);
+    resp.SetContentType(us::http::content_type::kApplicationJson);
     return json::ToString(json::ValueBuilder(body).ExtractValue());
 }
 
@@ -45,7 +45,7 @@ respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, c
 respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, json::Value body)
 {
     resp.SetStatus(status);
-    resp.SetContentType(userver::http::content_type::kApplicationJson);
+    resp.SetContentType(us::http::content_type::kApplicationJson);
     return json::ToString(std::move(body));
 }
 
@@ -72,9 +72,7 @@ respondClientIpCooldown(server::http::HttpResponse &resp, std::chrono::milliseco
     using namespace text::literals;
 
     const auto retryAfterSeconds = std::chrono::ceil<std::chrono::seconds>(retryAfter);
-    resp.SetHeader(
-        userver::http::headers::kRetryAfter, std::format("{}", retryAfterSeconds.count())
-    );
+    resp.SetHeader(us::http::headers::kRetryAfter, std::format("{}", retryAfterSeconds.count()));
     return respondError(
         resp, server::http::HttpStatus::kTooManyRequests, "client IP in cooldown"_t
     );

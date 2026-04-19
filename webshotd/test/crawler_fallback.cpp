@@ -50,7 +50,7 @@ UTEST(CrawlerFallback, HttpsSuccessDoesNotAttemptHttp)
     );
 
     EXPECT_EQ(result.outcome, RunOutcome::kSucceeded);
-    EXPECT_FALSE(result.httpAttempt.has_value());
+    EXPECT_FALSE(result.httpAttempt);
     ASSERT_EQ(called.size(), 1);
     EXPECT_EQ(called[0], httpsSeedUrl);
 }
@@ -73,7 +73,7 @@ UTEST(CrawlerFallback, HttpsNoResponseFallsBackToHttpSuccess)
     );
 
     EXPECT_EQ(result.outcome, RunOutcome::kSucceeded);
-    ASSERT_TRUE(result.httpAttempt.has_value());
+    ASSERT_TRUE(result.httpAttempt);
     ASSERT_EQ(called.size(), 2);
     EXPECT_EQ(called[0], httpsSeedUrl);
     EXPECT_EQ(called[1], httpSeedUrl);
@@ -97,7 +97,7 @@ UTEST(CrawlerFallback, HttpsNoResponseFallsBackToHttpFailure)
     );
 
     EXPECT_EQ(result.outcome, RunOutcome::kFailed);
-    ASSERT_TRUE(result.httpAttempt.has_value());
+    ASSERT_TRUE(result.httpAttempt);
     ASSERT_EQ(called.size(), 2);
     EXPECT_EQ(called[0], httpsSeedUrl);
     EXPECT_EQ(called[1], httpSeedUrl);

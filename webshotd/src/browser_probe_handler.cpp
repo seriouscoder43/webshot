@@ -39,7 +39,6 @@ using namespace text::literals;
 using namespace std::chrono_literals;
 
 namespace chrono = std::chrono;
-namespace json = us::formats::json;
 
 namespace v1 {
 namespace {
@@ -49,7 +48,7 @@ using crawler::describeCdpFailure;
 struct [[nodiscard]] ProbeConfig final {
     const Config &svcConfig;
     us::clients::dns::Resolver &dnsResolver;
-    us::engine::subprocess::ProcessStarter &processStarter;
+    eng::subprocess::ProcessStarter &processStarter;
     chrono::milliseconds requestTimeout;
     chrono::milliseconds devtoolsStartupTimeout;
     chrono::milliseconds cdpHandshakeTimeout;
@@ -172,7 +171,7 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
 }
 
 [[nodiscard]] Expected<void, String> waitForExpression(
-    crawler::CdpSession &cdpSession, const String &expression, us::engine::Deadline deadline,
+    crawler::CdpSession &cdpSession, const String &expression, eng::Deadline deadline,
     chrono::milliseconds recheckInterval, std::vector<std::string> &console,
     std::vector<std::string> &pageErrors
 )
@@ -205,7 +204,7 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
             return std::unexpected(matched.error());
         }
 
-        const auto eventDeadline = us::engine::Deadline::FromDuration(
+        const auto eventDeadline = eng::Deadline::FromDuration(
             std::min(
                 chrono::duration_cast<chrono::milliseconds>(deadline.TimeLeft()), recheckInterval
             )
@@ -229,14 +228,13 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
 }
 
 [[nodiscard]] Expected<void, String> settleProbeEvents(
-    crawler::CdpSession &cdpSession, us::engine::Deadline deadline,
-    chrono::milliseconds recheckInterval, std::vector<std::string> &console,
-    std::vector<std::string> &pageErrors
+    crawler::CdpSession &cdpSession, eng::Deadline deadline, chrono::milliseconds recheckInterval,
+    std::vector<std::string> &console, std::vector<std::string> &pageErrors
 )
 {
     const auto settleWindow = std::max(recheckInterval * 2, 250ms);
     const auto settleDeadline = pickEarlierDeadline(
-        deadline, us::engine::Deadline::FromDuration(settleWindow)
+        deadline, eng::Deadline::FromDuration(settleWindow)
     );
 
     while (!settleDeadline.IsReached()) {
@@ -244,7 +242,7 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
             return std::unexpected(drained.error());
         }
 
-        const auto eventDeadline = us::engine::Deadline::FromDuration(
+        const auto eventDeadline = eng::Deadline::FromDuration(
             std::min(
                 chrono::duration_cast<chrono::milliseconds>(settleDeadline.TimeLeft()),
                 recheckInterval
@@ -267,7 +265,7 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
 }
 
 [[nodiscard]] Expected<dto::BrowserProbeFrameState, String> waitForFrameExpression(
-    crawler::CdpSession &cdpSession, const String &expression, us::engine::Deadline deadline,
+    crawler::CdpSession &cdpSession, const String &expression, eng::Deadline deadline,
     chrono::milliseconds recheckInterval, std::vector<std::string> &console,
     std::vector<std::string> &pageErrors
 )
@@ -301,7 +299,7 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
             return std::unexpected(frame.error());
         }
 
-        const auto eventDeadline = us::engine::Deadline::FromDuration(
+        const auto eventDeadline = eng::Deadline::FromDuration(
             std::min(
                 chrono::duration_cast<chrono::milliseconds>(deadline.TimeLeft()), recheckInterval
             )
@@ -329,10 +327,8 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
     return std::unexpected("timed out waiting for frame expression"_t);
 }
 
-[[nodiscard]] Expected<dto::BrowserProbeResponse, String> runProbe(
-    const dto::BrowserProbeRequest &request, const ProbeConfig &config,
-    us::engine::Deadline deadline
-)
+[[nodiscard]] Expected<dto::BrowserProbeResponse, String>
+runProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng::Deadline deadline)
 {
     auto browser = crawler::BrowserSession{
         config.dnsResolver, config.processStarter,

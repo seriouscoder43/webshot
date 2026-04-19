@@ -80,7 +80,6 @@
 #include <userver/yaml_config/yaml_config.hpp>
 
 namespace pg = us::storages::postgres;
-namespace engine = us::engine;
 namespace concurrent = us::concurrent;
 namespace rcu = us::rcu;
 namespace chrono = std::chrono;
@@ -101,7 +100,7 @@ Url v1::buildCaptureDownloadUrl(Uuid uuid, const Config &config)
 }
 
 namespace {
-constexpr i64 kCrawlerSeedAttemptsMax = 2_i64;
+constexpr auto kCrawlerSeedAttemptsMax = 2;
 constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;
 constexpr i64 kCpuMaxPeriodUs = 100000_i64;
 
@@ -145,9 +144,8 @@ struct [[nodiscard]] ClientIpCooldownRow final {
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
 }
 
-[[nodiscard]] dto::CaptureJob makePendingCaptureJob(
-    Uuid uuid, const String &link, const us::utils::datetime::TimePointTz &createdAt
-)
+[[nodiscard]] dto::CaptureJob
+makePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz &createdAt)
 {
     return dto::CaptureJob{
         .uuid = uuid,
@@ -170,15 +168,13 @@ struct [[nodiscard]] ClientIpCooldownRow final {
         job.status = dto::CaptureJob::Status::kSucceeded;
     else
         job.status = dto::CaptureJob::Status::kFailed;
-    job.created_at = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying());
+    job.created_at = datetime::TimePointTz(row.createdAt.GetUnderlying());
     if (row.startedAt)
-        job.started_at = us::utils::datetime::TimePointTz(row.startedAt->GetUnderlying());
+        job.started_at = datetime::TimePointTz(row.startedAt->GetUnderlying());
     if (row.finishedAt)
-        job.finished_at = us::utils::datetime::TimePointTz(row.finishedAt->GetUnderlying());
+        job.finished_at = datetime::TimePointTz(row.finishedAt->GetUnderlying());
     if (row.resultCreatedAt) {
-        job.result_created_at = us::utils::datetime::TimePointTz(
-            row.resultCreatedAt->GetUnderlying()
-        );
+        job.result_created_at = datetime::TimePointTz(row.resultCreatedAt->GetUnderlying());
     }
     if (job.status == dto::CaptureJob::Status::kFailed) {
         // Never expose internal diagnostics (crawler details, exception text, etc) to API clients.
@@ -383,9 +379,9 @@ public:
     Metrics &metrics;
     pg::ClusterPtr cluster;
     pg::ClusterPtr sharedCluster;
-    us::clients::http::Client &httpClient;
+    httpc::Client &httpClient;
     us::clients::dns::Resolver &dnsResolver;
-    us::engine::subprocess::ProcessStarter &processStarter;
+    eng::subprocess::ProcessStarter &processStarter;
     Denylist &denylist;
     CrawlerRunner crawlerRunner;
     struct [[nodiscard]] S3ClientState {
@@ -396,10 +392,10 @@ public:
     rcu::Variable<S3ClientState> s3State;
     s3v4::AccessKeyId staticAccessKeyId;
     s3v4::SecretAccessKey staticSecretAccessKey;
-    engine::TaskProcessor &mainTaskProcessor;
-    engine::CancellableSemaphore crawlSlots;
-    engine::TaskProcessor &purgeTaskProcessor;
-    engine::TaskProcessor &credsRefreshTaskProcessor;
+    eng::TaskProcessor &mainTaskProcessor;
+    eng::CancellableSemaphore crawlSlots;
+    eng::TaskProcessor &purgeTaskProcessor;
+    eng::TaskProcessor &credsRefreshTaskProcessor;
     // must die first
     us::utils::PeriodicTask s3RefreshTask;
     us::utils::PeriodicTask crawlJobCleanupTask;
@@ -408,8 +404,7 @@ public:
 
     [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure>
     runCrawlJob(Uuid id, Link link);
-    [[nodiscard]] Expected<us::utils::datetime::TimePointTz, PgError>
-    insertJob(Uuid id, String link);
+    [[nodiscard]] Expected<datetime::TimePointTz, PgError> insertJob(Uuid id, String link);
     [[nodiscard]] Expected<std::optional<ClientIpCooldown>, PgError>
     acquireClientIpCooldownLocked(const String &clientIp);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError>
@@ -417,9 +412,8 @@ public:
     [[nodiscard]] Expected<CreateCaptureJobResult, PgError>
     getOrCreateCaptureJobLocked(const String &normalizedLink);
     [[nodiscard]] Expected<void, PgError> markJobRunning(Uuid id);
-    [[nodiscard]] Expected<chrono::milliseconds, PgError> markJobSucceeded(
-        Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
-    );
+    [[nodiscard]] Expected<chrono::milliseconds, PgError>
+    markJobSucceeded(Uuid id, Uuid resultCaptureId, const datetime::TimePointTz &createdAt);
     [[nodiscard]] Expected<chrono::milliseconds, PgError>
     markJobFailed(Uuid id, const String &errorCategory, const String &errorMessage);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError> loadJob(Uuid id);
@@ -504,7 +498,7 @@ public:
               crawlerNetworkDownBytesRatioMax
           ),
           mainTaskProcessor(ctx.GetTaskProcessor("main-task-processor")),
-          crawlSlots(engine::GetWorkerCount(mainTaskProcessor)),
+          crawlSlots(eng::GetWorkerCount(mainTaskProcessor)),
           purgeTaskProcessor(ctx.GetTaskProcessor("purge_task_processor")),
           credsRefreshTaskProcessor(ctx.GetTaskProcessor("creds_refresh_task_processor")),
           s3RefreshTask(), crawlJobCleanupTask(), purgeBackground(purgeTaskProcessor),
@@ -631,7 +625,7 @@ struct [[nodiscard]] CrawlContext {
 
 struct [[nodiscard]] StoredCapture {
     Uuid id;
-    us::utils::datetime::TimePointTz createdAt;
+    datetime::TimePointTz createdAt;
 };
 
 [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure>
@@ -641,9 +635,9 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
 
     const auto totalCrawlTimeLimit = crawlerJobOverheadTimeout +
                                      crawlerRunTimeout * kCrawlerSeedAttemptsMax;
-    engine::current_task::SetDeadline(engine::Deadline::FromDuration(totalCrawlTimeLimit));
+    eng::current_task::SetDeadline(eng::Deadline::FromDuration(totalCrawlTimeLimit));
 
-    std::shared_lock<engine::CancellableSemaphore> slotLock(crawlSlots);
+    std::shared_lock<eng::CancellableSemaphore> slotLock(crawlSlots);
 
     CrawlContext ctx(id, std::move(link), svcCfg);
 
@@ -671,7 +665,7 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
     };
 }
 
-Expected<us::utils::datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid id, String link)
+Expected<datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid id, String link)
 {
     struct Row {
         pg::TimePointTz createdAt;
@@ -682,7 +676,7 @@ Expected<us::utils::datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid i
     );
     if (!row)
         return std::unexpected(std::move(row).error());
-    return us::utils::datetime::TimePointTz(row->createdAt.GetUnderlying());
+    return datetime::TimePointTz(row->createdAt.GetUnderlying());
 }
 
 Expected<std::optional<ClientIpCooldown>, PgError>
@@ -695,7 +689,7 @@ Crud::Impl::acquireClientIpCooldownLocked(const String &clientIp)
         auto trx = sharedCluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW);
         trx.Execute(sql::kLockClientIpCooldown, text::format("client_ip_cooldown:{}", clientIp));
 
-        const auto now = us::utils::datetime::Now();
+        const auto now = datetime::Now();
         auto rowOpt = trx.Execute(sql::kSelectClientIpCooldown, clientIp)
                           .template AsOptionalSingleRow<ClientIpCooldownRow>(pg::kRowTag);
         if (rowOpt) {
@@ -724,9 +718,8 @@ Expected<void, PgError> Crud::Impl::markJobRunning(Uuid id)
     return sharedReadwrite([](auto &) {}, sql::kUpdateCrawlJobRunning, id);
 }
 
-Expected<chrono::milliseconds, PgError> Crud::Impl::markJobSucceeded(
-    Uuid id, Uuid resultCaptureId, const us::utils::datetime::TimePointTz &createdAt
-)
+Expected<chrono::milliseconds, PgError>
+Crud::Impl::markJobSucceeded(Uuid id, Uuid resultCaptureId, const datetime::TimePointTz &createdAt)
 {
     struct Row {
         Uuid id;
@@ -837,7 +830,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
                                        .template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
             if (latestJobRowOpt) {
                 auto job = makeCaptureJob(grabValueOf(std::move(latestJobRowOpt)));
-                const auto now = us::utils::datetime::Now();
+                const auto now = datetime::Now();
                 const auto lastCreated = job.created_at.GetTimePoint();
                 const auto deadline = lastCreated + linkCooldown;
                 if (now < deadline) {
@@ -855,7 +848,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
         metrics.accountCaptureJobCreated();
         return CreateCaptureJobResult{
             .job = makePendingCaptureJob(
-                id, normalizedLink, us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying())
+                id, normalizedLink, datetime::TimePointTz(row.createdAt.GetUnderlying())
             ),
             .created = true,
         };
@@ -868,7 +861,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
 void Crud::Impl::startS3RefreshTask()
 {
     auto snapshot = s3State.Read();
-    const auto now = us::utils::datetime::Now();
+    const auto now = datetime::Now();
     auto delay = s3refresh::computeRefreshDelay(
         now, snapshot->expiresAt, s3CredentialsRefreshMargin
     );
@@ -886,13 +879,13 @@ void Crud::Impl::startS3RefreshTask()
 void Crud::Impl::refreshS3CredentialsTask()
 {
     for (;;) {
-        if (engine::current_task::ShouldCancel())
+        if (eng::current_task::ShouldCancel())
             return;
         try {
             const auto newState = fetchS3ClientStateFromSts();
             s3State.Assign(newState);
 
-            const auto now = us::utils::datetime::Now();
+            const auto now = datetime::Now();
             auto nextDelay = s3refresh::computeRefreshDelay(
                 now, newState.expiresAt, s3CredentialsRefreshMargin
             );
@@ -906,7 +899,7 @@ void Crud::Impl::refreshS3CredentialsTask()
         } catch (const us::utils::TracefulException &e) {
             metrics.accountError(Metrics::Error::kStsRefresh);
             LOG_ERROR() << std::format("Failed to refresh S3 credentials from STS: {}", e.what());
-            engine::SleepFor(s3CredentialsRefreshRetry);
+            eng::SleepFor(s3CredentialsRefreshRetry);
         }
     }
 }
@@ -922,7 +915,7 @@ void Crud::Impl::startCrawlJobCleanupTask()
 
 void Crud::Impl::cleanupOldJobs()
 {
-    const auto now = us::utils::datetime::Now();
+    const auto now = datetime::Now();
     const auto cutoff = now - crawlJobRetention;
     const auto deleted = sharedReadwrite(
         [](auto &) {}, sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)
@@ -969,7 +962,7 @@ CrawlerRunArtifacts Crud::Impl::runCrawlerAttempt(const String &seedUrl)
 Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlContext &ctx)
 {
     using enum errors::CrawlError;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     const auto httpsSeedUrl = ctx.link.httpsUrl();
     const auto httpSeedUrl = ctx.link.httpUrl();
@@ -1150,7 +1143,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         auto row = grabValueOf(grabValueOf(existing));
         return StoredCapture{
             .id = row.id,
-            .createdAt = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying()),
+            .createdAt = datetime::TimePointTz(row.createdAt.GetUnderlying()),
         };
     }
 
@@ -1187,7 +1180,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     }
     return StoredCapture{
         .id = ctx.id,
-        .createdAt = us::utils::datetime::TimePointTz(row->createdAt.GetUnderlying()),
+        .createdAt = datetime::TimePointTz(row->createdAt.GetUnderlying()),
     };
 }
 
@@ -1294,12 +1287,12 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
         const auto markFailed = [&](const String &errorCategory, const String &errorMessage) {
             // Persist terminal job state even if the crawl deadline has already cancelled this
             // task.
-            const engine::TaskCancellationBlocker blocker;
+            const eng::TaskCancellationBlocker blocker;
             return implPtr->markJobFailed(id, errorCategory, errorMessage);
         };
         const auto markSucceeded = [&](Uuid resultCaptureId,
-                                       const us::utils::datetime::TimePointTz &createdAtValue) {
-            const engine::TaskCancellationBlocker blocker;
+                                       const datetime::TimePointTz &createdAtValue) {
+            const eng::TaskCancellationBlocker blocker;
             return implPtr->markJobSucceeded(id, resultCaptureId, createdAtValue);
         };
         auto markInternalError = [&](std::string_view what) {
@@ -1417,7 +1410,7 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::findCapture(Uuid
         return std::unexpected(kCorruptData);
     return {CaptureRecord{
         .uuid = uuid,
-        .createdAt = us::utils::datetime::TimePointTz(row.createdAt.GetUnderlying()),
+        .createdAt = datetime::TimePointTz(row.createdAt.GetUnderlying()),
         .link = *linkText,
         .replayUrl = *replayUrl,
     }};
@@ -1458,9 +1451,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         std::vector<dto::UuidWithTime> items;
         items.reserve(dbRows.size());
         for (const auto &row : dbRows) {
-            items.emplace_back(
-                row.uuid, us::utils::datetime::TimePointTz(row.timepoint.GetUnderlying())
-            );
+            items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
         }
         if (ssize(items) == impl->pageMax && !items.empty()) {
             const auto &last = items.back();
@@ -1491,9 +1482,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         std::vector<dto::UuidWithTime> items;
         items.reserve(dbRows.size());
         for (const auto &row : dbRows) {
-            items.emplace_back(
-                row.uuid, us::utils::datetime::TimePointTz(row.timepoint.GetUnderlying())
-            );
+            items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
         }
         if (ssize(items) == impl->pageMax && !items.empty()) {
             const auto &last = items.back();
@@ -1607,8 +1596,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         }
         for (auto &&r : *rows) {
             items.emplace_back(
-                r.uuid, us::utils::datetime::TimePointTz(r.tp.GetUnderlying()),
-                std::string(link.view())
+                r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), std::string(link.view())
             );
         }
         if (!rows->empty()) {
@@ -1650,9 +1638,7 @@ Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noe
 
     impl->purgeBackground.AsyncDetach("purge_prefix_lambda", [implPtr = impl.get(), prefixKey]() {
         try {
-            engine::current_task::SetDeadline(
-                engine::Deadline::FromDuration(implPtr->purgeJobTimeout)
-            );
+            eng::current_task::SetDeadline(eng::Deadline::FromDuration(implPtr->purgeJobTimeout));
             LOG_INFO() << std::format("Starting purge for denylisted prefix: {}", prefixKey);
             auto purged = implPtr->purgePrefix(prefixKey);
             if (!purged) {

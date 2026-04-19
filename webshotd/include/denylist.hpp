@@ -2,6 +2,7 @@
 
 #include "expected.hpp"
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <memory>
 
@@ -20,13 +21,13 @@ enum class DenylistError {
  * Provides host checks used by the ingestion path and an administrative purge
  * that deletes all captures for a host and its subhosts.
  */
-class [[nodiscard]] Denylist : public userver::components::ComponentBase {
+class [[nodiscard]] Denylist : public us::components::ComponentBase {
 public:
     static constexpr std::string_view kName = "denylist";
 
     explicit Denylist(
-        const userver::components::ComponentConfig &config,
-        const userver::components::ComponentContext &context
+        const us::components::ComponentConfig &config,
+        const us::components::ComponentContext &context
     );
 
     ~Denylist() override;
@@ -36,7 +37,7 @@ public:
     /** @brief Insert a prefix key into the denylist (noop if already present). */
     [[nodiscard]] Expected<void, DenylistError>
     insertPrefix(const String &prefixKey, const String &reason);
-    static userver::yaml_config::Schema GetStaticConfigSchema();
+    static us::yaml_config::Schema GetStaticConfigSchema();
 
 private:
     struct Impl;

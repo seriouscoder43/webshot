@@ -115,8 +115,8 @@ std::string buildScope(const SigV4Params &params)
 
 std::string computeSignature(const SigV4Params &params, std::string_view stringToSign)
 {
-    using userver::crypto::hash::HmacSha256;
-    using userver::crypto::hash::OutputEncoding;
+    using us::crypto::hash::HmacSha256;
+    using us::crypto::hash::OutputEncoding;
     auto kSecret = std::format("AWS4{}", params.secretAccessKey.GetUnderlying());
     auto kDate = HmacSha256(kSecret, params.date, OutputEncoding::kBinary);
     auto kRegion = HmacSha256(kDate, params.region, OutputEncoding::kBinary);
@@ -137,9 +137,7 @@ std::string toDateStampUtc(std::chrono::system_clock::time_point tp)
 
 String sha256Hex(std::string_view data)
 {
-    return String::fromBytes(
-               userver::crypto::hash::Sha256(data, userver::crypto::hash::OutputEncoding::kHex)
-    )
+    return String::fromBytes(us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kHex))
         .expect();
 }
 
@@ -186,7 +184,7 @@ std::string canonicalizeQuery(const std::vector<std::pair<std::string, std::stri
 }
 
 std::vector<std::pair<std::string, std::string>>
-prepareSignedHeaders(std::string host, const userver::clients::http::Headers &extra)
+prepareSignedHeaders(std::string host, const httpc::Headers &extra)
 {
     std::vector<std::pair<std::string, std::string>> v;
     v.reserve(numericCast<size_t>(ssize(extra) + 1_i64));

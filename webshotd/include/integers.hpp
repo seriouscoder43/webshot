@@ -1,5 +1,7 @@
 #pragma once
 
+#include "userver_namespaces.hpp"
+
 #include <boost/safe_numerics/checked_default.hpp>
 #include <boost/safe_numerics/checked_result_operations.hpp>
 #include <boost/safe_numerics/exception_policies.hpp>
@@ -37,12 +39,12 @@ struct SafeIntegerAbort {
         );
 
         if (written <= 0) {
-            userver::utils::AbortWithStacktrace("safe integer operation failed");
+            us::utils::AbortWithStacktrace("safe integer operation failed");
         }
 
         const size_t len = static_cast<size_t>(written) < buf.size() ? static_cast<size_t>(written)
                                                                      : (buf.size() - 1);
-        userver::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
+        us::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
     }
 };
 

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/utest/http_client.hpp>
 #include <userver/utest/utest.hpp>
 #include <userver/utils/datetime.hpp>
@@ -156,12 +158,12 @@ S3Credentials makeCreds()
 
 UTEST(S3SigV4Client, PresignPathStyleClampsShortTtl)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
-    const auto expired = userver::utils::datetime::Now() - 1h;
+    const auto expired = datetime::Now() - 1h;
     const std::string url = client->GenerateDownloadUrl(
         "test.txt", std::chrono::system_clock::to_time_t(expired), true
     );
@@ -174,12 +176,12 @@ UTEST(S3SigV4Client, PresignPathStyleClampsShortTtl)
 
 UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
-    const auto farFuture = userver::utils::datetime::Now() + 14 * 24h;
+    const auto farFuture = datetime::Now() + 14 * 24h;
     const std::string url = client->GenerateDownloadUrl(
         "test.txt", std::chrono::system_clock::to_time_t(farFuture), true
     );
@@ -192,12 +194,12 @@ UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
 
 UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
 
-    const auto soon = userver::utils::datetime::Now() + 120s;
+    const auto soon = datetime::Now() + 120s;
     const std::string url = client->GenerateDownloadUrl(
         "folder/file with space.txt", std::chrono::system_clock::to_time_t(soon), true
     );
@@ -226,13 +228,13 @@ UTEST(S3SigV4Client, VirtualHostRequiresBucket)
 
 UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     cfg.endpoint = "s3.example.com"_t;
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
-    const auto expiresAt = userver::utils::datetime::Now() + 60s;
+    const auto expiresAt = datetime::Now() + 60s;
     const std::string url = client->GenerateDownloadUrlVirtualHostAddressing(
         "path/object", expiresAt, "https"
     );
@@ -249,25 +251,25 @@ UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)
 
 UTEST(S3SigV4Client, UnsupportedOperationsThrow)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
-    userver::s3api::ConnectionCfg newCfg{50ms};
+    us::s3api::ConnectionCfg newCfg{50ms};
     EXPECT_NO_THROW(client->UpdateConfig(std::move(newCfg)));
     EXPECT_EQ(client->GetBucketName(), std::string_view{"bucket-name"});
 }
 
 UTEST(S3SigV4Client, UploadPresignIncludesContentType)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
+    auto httpClient = us::utest::CreateHttpClient();
     auto cfg = makeConfig();
     cfg.endpoint = "s3.internal"_t;
     auto creds = makeCreds();
     auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
 
-    const auto expiresAt = userver::utils::datetime::Now() + 120s;
+    const auto expiresAt = datetime::Now() + 120s;
     const std::string url = client->GenerateUploadUrlVirtualHostAddressing(
         "ignored-body", "text/plain", "path/file.txt", expiresAt, "http"
     );

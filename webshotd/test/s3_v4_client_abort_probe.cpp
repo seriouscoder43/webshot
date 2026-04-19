@@ -3,6 +3,8 @@
 #include <memory>
 #include <string_view>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/engine/run_standalone.hpp>
 #include <userver/utest/http_client.hpp>
 #include <userver/utils/datetime.hpp>
@@ -49,12 +51,12 @@ int main(int argc, char **argv)
 
     const auto scenario = std::string_view{argv[1]};
     if (scenario == "virtual-host-requires-bucket") {
-        userver::engine::RunStandalone([] {
-            auto httpClient = userver::utest::CreateHttpClient();
+        eng::RunStandalone([] {
+            auto httpClient = us::utest::CreateHttpClient();
             auto client = std::make_shared<S3V4Client>(
                 *httpClient, makeConfig(), makeCreds(), String{}
             );
-            const auto expiresAt = userver::utils::datetime::Now() + 60s;
+            const auto expiresAt = datetime::Now() + 60s;
             static_cast<void>(
                 client->GenerateDownloadUrlVirtualHostAddressing("obj", expiresAt, "https")
             );

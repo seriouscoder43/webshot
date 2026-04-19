@@ -1,11 +1,13 @@
 #include <chrono>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/engine/deadline.hpp>
 #include <userver/utest/utest.hpp>
 
 #include "deadline_utils.hpp"
 
-using userver::engine::Deadline;
+using eng::Deadline;
 using namespace std::chrono_literals;
 
 UTEST(DeadlineUtils, TimeLeftOrZeroExpiredIsZero)

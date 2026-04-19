@@ -1,4 +1,5 @@
 #include "prefix_utils.hpp"
+#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <string>
@@ -22,7 +23,7 @@ void appendEncodedSegment(std::string &out, std::string_view bytes)
         const auto chunk = bytes.substr(pos, std::min(kMaxBytesPerLabel, bytes.size() - pos));
         out.push_back('.');
         out.push_back('x');
-        out.append(userver::utils::encoding::ToHex(chunk));
+        out.append(us::utils::encoding::ToHex(chunk));
     }
 }
 

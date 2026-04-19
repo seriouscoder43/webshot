@@ -1,5 +1,7 @@
 #include <string>
 
+#include "userver_namespaces.hpp"
+
 #include <userver/utils/boost_uuid4.hpp>
 
 #include <userver/utest/utest.hpp>
@@ -27,7 +29,7 @@ UTEST(Cursor, EncodeDecodePaginationCursor)
 {
     const auto tp = Clock::time_point(std::chrono::microseconds(123456789));
     const auto micros = timePointToMicros(tp);
-    const auto id = userver::utils::generators::GenerateBoostUuid();
+    const auto id = us::utils::generators::GenerateBoostUuid();
 
     dto::PaginationCursor cur(micros, id);
     const auto token = encodeToken(cur);

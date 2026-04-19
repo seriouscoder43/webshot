@@ -1,6 +1,7 @@
 #pragma once
 
 #include "text.hpp"
+#include "userver_namespaces.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -75,7 +76,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
 [[nodiscard]] inline bool isNonRetryableCrawlerExitCode(int code) noexcept
 {
     using enum CrawlerExitCode;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     switch (code) {
     case UnderlyingValue(kOutOfSpace):
@@ -99,7 +100,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
 {
     using enum CrawlerExitCode;
     using text::literals::operator""_t;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     switch (code) {
     case UnderlyingValue(kSizeLimit):
@@ -126,7 +127,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
 [[nodiscard]] inline bool isAttemptSuccess(const AttemptSummary &attempt) noexcept
 {
     using enum CrawlerExitCode;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     return attempt.exited && attempt.exitCode == UnderlyingValue(kSuccess) && attempt.waczExists;
 }
@@ -134,7 +135,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
 [[nodiscard]] inline bool shouldAttemptHttpFallback(const AttemptSummary &httpsAttempt) noexcept
 {
     using enum CrawlerExitCode;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     if (!httpsAttempt.exited)
         return false;
@@ -151,7 +152,7 @@ template <typename AttemptFn>
 )
 {
     using enum CrawlerExitCode;
-    using userver::utils::UnderlyingValue;
+    using us::utils::UnderlyingValue;
 
     auto httpsAttempt = attempt(httpsSeedUrl);
     if (isAttemptSuccess(httpsAttempt))
