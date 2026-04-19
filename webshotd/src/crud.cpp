@@ -562,7 +562,7 @@ public:
             }
         } catch (const pg::Error &e) {
             metrics.accountError(ErrorMetric);
-            return Out{std::unexpected(PgError{.what = std::string(e.what())})};
+            return Out{Unex(PgError{.what = std::string(e.what())})};
         }
     }
 
@@ -648,7 +648,7 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
         const auto ran = runCrawlerForContext(ctx);
         if (!ran) {
             metrics.accountError(Metrics::Error::kCrawlerRun);
-            return std::unexpected(ran.error());
+            return Unex(ran.error());
         }
     }
     LOG_INFO() << std::format(
@@ -658,7 +658,7 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
     LOG_INFO() << std::format("Persisting metadata for job {} ({})", id, ctx.link.normalized());
     auto stored = persistMetadataForContext(ctx);
     if (!stored)
-        return std::unexpected(errors::CrawlFailure{.code = kPersistMetadataFailed, .detail = {}});
+        return Unex(errors::CrawlFailure{.code = kPersistMetadataFailed, .detail = {}});
     LOG_INFO() << std::format("Persisted metadata for job {} ({})", id, ctx.link.normalized());
     return dto::UuidWithTimeLink{
         stored->id, stored->createdAt, std::string(ctx.link.normalized().view())
@@ -675,7 +675,7 @@ Expected<datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid id, String l
         id, link
     );
     if (!row)
-        return std::unexpected(std::move(row).error());
+        return Unex(std::move(row).error());
     return datetime::TimePointTz(row->createdAt.GetUnderlying());
 }
 
@@ -731,7 +731,7 @@ Crud::Impl::markJobSucceeded(Uuid id, Uuid resultCaptureId, const datetime::Time
         resultCaptureId
     );
     if (!row)
-        return std::unexpected(std::move(row).error());
+        return Unex(std::move(row).error());
     return row->durationMs * 1ms;
 }
 
@@ -747,7 +747,7 @@ Crud::Impl::markJobFailed(Uuid id, const String &errorCategory, const String &er
         sql::kUpdateCrawlJobFailed, id, errorCategory, errorMessage
     );
     if (!row)
-        return std::unexpected(std::move(row).error());
+        return Unex(std::move(row).error());
     return row->durationMs * 1ms;
 }
 
@@ -758,7 +758,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
         sql::kSelectCrawlJob, id
     );
     if (!rowOpt)
-        return std::unexpected(std::move(rowOpt).error());
+        return Unex(std::move(rowOpt).error());
     if (!*rowOpt)
         return {};
     return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
@@ -806,7 +806,7 @@ Crud::Impl::findLatestJobForLink(const String &link)
         sql::kSelectLatestCrawlJobByLink, link
     );
     if (!rowOpt)
-        return std::unexpected(std::move(rowOpt).error());
+        return Unex(std::move(rowOpt).error());
     if (!*rowOpt)
         return {};
     return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
@@ -854,7 +854,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
         };
     } catch (const pg::Error &e) {
         metrics.accountError(Metrics::Error::kDbSharedStateWrite);
-        return std::unexpected(PgError{.what = std::string(e.what())});
+        return Unex(PgError{.what = std::string(e.what())});
     }
 }
 
@@ -998,7 +998,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
             )
                 .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+        return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
     if (httpsRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSizeLimit)) {
         ctx.failureMessage = String::fromBytes(
@@ -1009,7 +1009,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         )
                                  .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
+        return Unex(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
     }
     if (httpsRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSuccess) &&
         !httpsRun.attempt.waczExists) {
@@ -1023,7 +1023,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         )
                                  .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+        return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
     if (!crawler::shouldAttemptHttpFallback(httpsRun.attempt)) {
         ctx.failureMessage = String::fromBytes(
@@ -1034,7 +1034,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         )
                                  .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+        return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
 
     if (httpsRun.attempt.seedProbe) {
@@ -1061,7 +1061,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
             )
                 .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+        return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
     if (httpRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSizeLimit)) {
         ctx.failureMessage = String::fromBytes(
@@ -1072,7 +1072,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         )
                                  .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
+        return Unex(errors::CrawlFailure{.code = kSizeLimit, .detail = {}});
     }
     if (httpRun.attempt.exitCode == UnderlyingValue(crawler::CrawlerExitCode::kSuccess) &&
         !httpRun.attempt.waczExists) {
@@ -1086,7 +1086,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
         )
                                  .expect();
         LOG_INFO() << ctx.failureMessage->view();
-        return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+        return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
     }
 
     ctx.failureMessage = String::fromBytes(
@@ -1098,7 +1098,7 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
     )
                              .expect();
     LOG_INFO() << ctx.failureMessage->view();
-    return std::unexpected(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
+    return Unex(errors::CrawlFailure{.code = kFailed, .detail = ctx.failureMessage});
 }
 
 std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext &ctx)
@@ -1204,7 +1204,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
             LOG_ERROR() << std::format(
                 "denylist purge failed for {}: {}", prefixKey, ids.error().what
             );
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         if (ids->empty())
             break;
@@ -1221,7 +1221,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
                 LOG_ERROR() << std::format(
                     "S3 delete failed for key {} (prefix={}): {}", key, prefixKey, e.what()
                 );
-                return std::unexpected(kDbFailure);
+                return Unex(kDbFailure);
             }
 
             single.clear();
@@ -1231,7 +1231,7 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
                 LOG_ERROR() << std::format(
                     "denylist purge failed for {}: {}", prefixKey, deleted.error().what
                 );
-                return std::unexpected(kDbFailure);
+                return Unex(kDbFailure);
             }
         }
     }
@@ -1264,7 +1264,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 "Failed to create or reuse crawl job for {}: {}", normalizedLink,
                 decision.error().what
             );
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         auto result = grabValueOf(decision);
         job = std::move(result.job);
@@ -1278,7 +1278,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
             LOG_ERROR() << std::format(
                 "Failed to create crawl job for {}: {}", normalizedLink, createdAt.error().what
             );
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         implPtr->metrics.accountCaptureJobCreated();
         job = makePendingCaptureJob(id, normalizedLink, grabValueOf(createdAt));
@@ -1391,7 +1391,7 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::findCapture(Uuid
         LOG_ERROR() << std::format(
             "DB select capture failed for {}: {}", uuid, capture.error().what
         );
-        return std::unexpected(kDbFailure);
+        return Unex(kDbFailure);
     }
     auto captureOpt = grabValueOf(capture);
     if (!captureOpt) {
@@ -1401,13 +1401,13 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::findCapture(Uuid
     auto row = grabValueOf(captureOpt);
     auto linkText = String::fromBytes(row.link);
     if (!linkText)
-        return std::unexpected(kCorruptData);
+        return Unex(kCorruptData);
     auto replayUrlText = String::fromBytes(row.replayUrl);
     if (!replayUrlText)
-        return std::unexpected(kCorruptData);
+        return Unex(kCorruptData);
     auto replayUrl = Url::fromText(*replayUrlText);
     if (!replayUrl)
-        return std::unexpected(kCorruptData);
+        return Unex(kCorruptData);
     return {CaptureRecord{
         .uuid = uuid,
         .createdAt = datetime::TimePointTz(row.createdAt.GetUnderlying()),
@@ -1423,7 +1423,7 @@ Expected<std::optional<dto::CaptureJob>, errors::CrudError> Crud::findCaptureJob
     auto job = impl->loadJob(uuid);
     if (!job) {
         LOG_ERROR() << std::format("DB select job failed for {}: {}", uuid, job.error().what);
-        return std::unexpected(kDbFailure);
+        return Unex(kDbFailure);
     }
     return *job;
 }
@@ -1445,7 +1445,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         );
         if (!rows) {
             LOG_ERROR() << std::format("DB select captures page failed: {}", rows.error().what);
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         auto dbRows = grabValueOf(rows);
         std::vector<dto::UuidWithTime> items;
@@ -1468,7 +1468,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
     } else {
         auto cur = crud::decodeCursor(pageToken);
         if (!cur)
-            return std::unexpected(kInvalidPageToken);
+            return Unex(kInvalidPageToken);
         auto rows = impl->readonly(
             [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
             sql::kSelectCaptureByLinkNext, link.normalized(), raw(impl->pageMax),
@@ -1476,7 +1476,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         );
         if (!rows) {
             LOG_ERROR() << std::format("DB select captures page failed: {}", rows.error().what);
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         auto dbRows = grabValueOf(rows);
         std::vector<dto::UuidWithTime> items;
@@ -1509,9 +1509,9 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
     if (!pageToken.empty()) {
         cur = crud::decodePrefixCursor(pageToken);
         if (!cur)
-            return std::unexpected(kInvalidPageToken);
+            return Unex(kInvalidPageToken);
         if (cur->prefix != normalizedPrefix)
-            return std::unexpected(kMismatchedPageToken);
+            return Unex(kMismatchedPageToken);
     }
     const std::string upper = crud::upperExclusiveBound(normalizedPrefix);
     const auto linksPerPage = impl->linksPerPageMax;
@@ -1541,7 +1541,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
                     LOG_ERROR() << std::format(
                         "DB select prefix links failed: {}", more.error().what
                     );
-                    return std::unexpected(kDbFailure);
+                    return Unex(kDbFailure);
                 }
                 links.insert(std::end(links), std::begin(*more), std::end(*more));
             }
@@ -1549,7 +1549,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             auto more = selectLinksNext(cursorLink, linksPerPage);
             if (!more) {
                 LOG_ERROR() << std::format("DB select prefix links failed: {}", more.error().what);
-                return std::unexpected(kDbFailure);
+                return Unex(kDbFailure);
             }
             links.insert(std::end(links), std::begin(*more), std::end(*more));
         }
@@ -1557,7 +1557,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         auto first = selectLinksFirst(linksPerPage);
         if (!first) {
             LOG_ERROR() << std::format("DB select prefix links failed: {}", first.error().what);
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         links.insert(std::end(links), std::begin(*first), std::end(*first));
     }
@@ -1592,7 +1592,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
         auto rows = selectRowsForLink(link, idx);
         if (!rows) {
             LOG_ERROR() << std::format("DB select prefix captures failed: {}", rows.error().what);
-            return std::unexpected(kDbFailure);
+            return Unex(kDbFailure);
         }
         for (auto &&r : *rows) {
             items.emplace_back(
@@ -1631,7 +1631,7 @@ Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noe
     auto inserted = impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t);
     if (!inserted) {
         impl->metrics.accountError(Metrics::Error::kDenylistCheck);
-        return std::unexpected(inserted.error());
+        return Unex(inserted.error());
     }
 
     LOG_INFO() << std::format("enqueued for prefix {}", prefixKey);

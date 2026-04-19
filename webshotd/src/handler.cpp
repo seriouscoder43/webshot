@@ -16,6 +16,7 @@
 #include "schema/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
+#include "userver_expected.hpp"
 
 #include <chrono>
 #include <string>
@@ -80,14 +81,14 @@ std::string Handler::HandleRequestThrow(
         const auto body = String::fromBytes(request.RequestBody());
         if (!body)
             return httpu::respondError(response, kBadRequest, "invalid request body"_t);
-        dto::CreateCaptureRequest req;
-        try {
-            req = json::FromString(body->view()).As<dto::CreateCaptureRequest>();
-        } catch (const json::Exception &) {
+        const auto req = exu::json::parse<dto::CreateCaptureRequest>(
+            body->view(), "invalid request body"_t
+        );
+        if (!req) {
             return httpu::respondError(response, kBadRequest, "invalid request body"_t);
         }
 
-        const auto linkText = String::fromBytes(req.link);
+        const auto linkText = String::fromBytes(req->link);
         if (!linkText)
             return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
         auto parsed = Link::fromText(

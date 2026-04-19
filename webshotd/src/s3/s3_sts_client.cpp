@@ -37,14 +37,14 @@ namespace {
     close.append(tagBytes.data(), tagBytes.size()).push_back('>');
     const auto startPos = xmlBytes.find(open);
     if (startPos == std::string::npos)
-        return std::unexpected(StsError::kXmlMissingTag);
+        return Unex(StsError::kXmlMissingTag);
     const auto valuePos = startPos + open.size();
     const auto endPos = xmlBytes.find(close, valuePos);
     if (endPos == std::string::npos)
-        return std::unexpected(StsError::kXmlMissingClosingTag);
+        return Unex(StsError::kXmlMissingClosingTag);
     const auto extracted = String::fromBytes(xmlBytes.substr(valuePos, endPos - valuePos));
     if (!extracted)
-        return std::unexpected(StsError::kInvalidUtf8);
+        return Unex(StsError::kInvalidUtf8);
     return *extracted;
 }
 
@@ -56,7 +56,7 @@ parseExpiration(const String &expiration)
             datetime::kRfc3339Format, std::string(expiration.view()), cctz::utc_time_zone(),
             &expiresAt
         )) {
-        return std::unexpected(StsError::kInvalidExpiration);
+        return Unex(StsError::kInvalidExpiration);
     }
     return expiresAt;
 }
@@ -67,19 +67,19 @@ Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml)
 {
     auto accessKeyId = extractXmlTag(xml, "AccessKeyId"_t);
     if (!accessKeyId)
-        return std::unexpected(accessKeyId.error());
+        return Unex(accessKeyId.error());
     auto secretAccessKey = extractXmlTag(xml, "SecretAccessKey"_t);
     if (!secretAccessKey)
-        return std::unexpected(secretAccessKey.error());
+        return Unex(secretAccessKey.error());
     auto sessionToken = extractXmlTag(xml, "SessionToken"_t);
     if (!sessionToken)
-        return std::unexpected(sessionToken.error());
+        return Unex(sessionToken.error());
     auto expiration = extractXmlTag(xml, "Expiration"_t);
     if (!expiration)
-        return std::unexpected(expiration.error());
+        return Unex(expiration.error());
     auto expiresAt = parseExpiration(*expiration);
     if (!expiresAt)
-        return std::unexpected(expiresAt.error());
+        return Unex(expiresAt.error());
 
     StsCredentials creds{
         s3v4::AccessKeyId(std::move(*accessKeyId)),
@@ -117,7 +117,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
         const auto search = stsLink.url.search();
         auto decoded = s3v4::decodeQueryString(search);
         if (!decoded)
-            return std::unexpected(StsError::kInvalidQuery);
+            return Unex(StsError::kInvalidQuery);
         query = std::move(*decoded);
     }
     String body;
@@ -156,11 +156,11 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
         headers[kv.first] = kv.second;
     const auto response = exec(stsLink.httpsUrl(), body, headers, timeout);
     if (!response)
-        return std::unexpected(response.error());
+        return Unex(response.error());
 
     const auto responseXml = String::fromBytes(*response);
     if (!responseXml)
-        return std::unexpected(StsError::kInvalidUtf8);
+        return Unex(StsError::kInvalidUtf8);
     return StsCredentials::fromXml(*responseXml);
 }
 
@@ -186,7 +186,7 @@ Expected<StsCredentials, StsError> fetchStsCredentials(
         const auto status = numericCast<int>(resp->status_code());
         if (status >= 300) {
             LOG_ERROR() << std::format("STS request failed: url={}, status={}", urlBytes, status);
-            return std::unexpected(StsError::kHttpFailure);
+            return Unex(StsError::kHttpFailure);
         }
         return resp->body();
     };

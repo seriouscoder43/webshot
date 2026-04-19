@@ -141,7 +141,7 @@ constexpr auto kManagedCgroupServiceSubgroup = std::string_view{"/service"};
 copyFileContents(const std::string &sourcePath, const std::string &destinationPath)
 {
     if (!us::fs::blocking::FileExists(sourcePath))
-        return std::unexpected(text::format("source file does not exist: {}", sourcePath));
+        return Unex(text::format("source file does not exist: {}", sourcePath));
     us::fs::blocking::RewriteFileContents(
         destinationPath, us::fs::blocking::ReadFileContents(sourcePath)
     );
@@ -487,7 +487,7 @@ struct BrowserSession::Impl final {
                 paths, config.localFixtureTrustDbSourcePath
             );
             if (!trustDbStaged)
-                return std::unexpected(
+                return Unex(
                     text::format(
                         "failed to stage local fixture trust db: {}", trustDbStaged.error()
                     )
@@ -506,7 +506,7 @@ struct BrowserSession::Impl final {
         });
         auto proxyStarted = proxy->start(dnsResolver, devtoolsDeadline);
         if (!proxyStarted)
-            return std::unexpected(text::format("proxy failed to start: {}", proxyStarted.error()));
+            return Unex(text::format("proxy failed to start: {}", proxyStarted.error()));
 
         process.emplace(spawnSandboxedBrowser(
             processStarter, paths, config.cgroupRootPath, config.cgroupLimits,
@@ -514,7 +514,7 @@ struct BrowserSession::Impl final {
         ));
         auto ready = waitForDevtoolsPath(devtoolsDeadline);
         if (!ready)
-            return std::unexpected(buildFailureDetail(ready.error()));
+            return Unex(buildFailureDetail(ready.error()));
         websocketPath = grabValueOf(ready);
         return {};
     }
@@ -528,7 +528,7 @@ struct BrowserSession::Impl final {
         );
         if (!cdp) {
             auto detail = describeCdpFailure("devtools websocket handshake failed"_t, cdp.error());
-            return std::unexpected(text::format("{} ({})", detail, currentLaunchLogs()));
+            return Unex(text::format("{} ({})", detail, currentLaunchLogs()));
         }
         return grabValueOf(cdp);
     }
@@ -629,7 +629,7 @@ struct BrowserSession::Impl final {
             sawWebsocketPath = sawWebsocketPath ||
                                us::fs::blocking::FileExists(paths.websocketPathFilePath);
             if (process && process->WaitFor(0ms)) {
-                return std::unexpected(
+                return Unex(
                     text::format(
                         "chromium exited before exposing devtools ({})", currentLaunchLogs()
                     )
@@ -641,11 +641,11 @@ struct BrowserSession::Impl final {
             eng::SleepFor(config.devtoolsPollInterval);
         }
         if (process && process->WaitFor(0ms)) {
-            return std::unexpected(
+            return Unex(
                 text::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
             );
         }
-        return std::unexpected(
+        return Unex(
             text::format(
                 "{} ({})",
                 !sawWebsocketPath ? "devtools websocket path was never written"
@@ -718,9 +718,7 @@ sendCdp(CdpClient &cdpClient, const String &method, Args &&...args)
 {
     auto result = cdpClient.send<T>(method, std::forward<Args>(args)...);
     if (!result)
-        return std::unexpected(
-            describeCdpFailure(text::format("{} failed", method), result.error())
-        );
+        return Unex(describeCdpFailure(text::format("{} failed", method), result.error()));
     return grabValueOf(result);
 }
 
@@ -732,7 +730,7 @@ sendCdpVoid(CdpClient &cdpClient, const String &method, Args &&...args)
         cdpClient, method, std::forward<Args>(args)...
     );
     if (!result)
-        return std::unexpected(result.error());
+        return Unex(result.error());
     return {};
 }
 
@@ -746,7 +744,7 @@ Expected<void, String> BrowserPageSession::createBrowserContext()
         cdpClient, "Target.createBrowserContext"_t
     );
     if (!browserContext)
-        return std::unexpected(browserContext.error());
+        return Unex(browserContext.error());
     browserContextIdValue = String::fromBytes(browserContext->browserContextId).expect();
     return {};
 }
@@ -762,7 +760,7 @@ Expected<void, String> BrowserPageSession::createBlankTarget()
         cdpClient, "Target.createTarget"_t, targetParams
     );
     if (!target)
-        return std::unexpected(target.error());
+        return Unex(target.error());
     targetIdValue = String::fromBytes(target->targetId).expect();
     return {};
 }
@@ -778,11 +776,11 @@ Expected<void, String> BrowserPageSession::attachToTarget()
         cdpClient, "Target.attachToTarget"_t, attachParams
     );
     if (!attached)
-        return std::unexpected(attached.error());
+        return Unex(attached.error());
     sessionIdValue = String::fromBytes(attached->sessionId).expect();
     auto cdpSession = cdpClient.createSession(*sessionIdValue, *targetIdValue);
     if (!cdpSession)
-        return std::unexpected(
+        return Unex(
             describeCdpFailure("failed to register cdp target session"_t, cdpSession.error())
         );
     cdpSessionValue = grabValueOf(cdpSession);
@@ -798,7 +796,7 @@ Expected<void, String> BrowserPageSession::detach()
     detachParams.sessionId = std::string(sessionIdValue->view());
     const auto detached = sendCdpVoid(cdpClient, "Target.detachFromTarget"_t, detachParams);
     if (!detached)
-        return std::unexpected(detached.error());
+        return Unex(detached.error());
     cdpSessionValue.reset();
     sessionIdValue.reset();
     return {};
@@ -813,7 +811,7 @@ Expected<void, String> BrowserPageSession::disposeBrowserContext()
     disposeParams.browserContextId = std::string(browserContextIdValue->view());
     const auto disposed = sendCdpVoid(cdpClient, "Target.disposeBrowserContext"_t, disposeParams);
     if (!disposed)
-        return std::unexpected(disposed.error());
+        return Unex(disposed.error());
     browserContextIdValue.reset();
     targetIdValue.reset();
     return {};
@@ -822,9 +820,9 @@ Expected<void, String> BrowserPageSession::disposeBrowserContext()
 Expected<void, String> BrowserPageSession::close()
 {
     if (const auto detached = detach(); !detached)
-        return std::unexpected(detached.error());
+        return Unex(detached.error());
     if (const auto disposed = disposeBrowserContext(); !disposed)
-        return std::unexpected(disposed.error());
+        return Unex(disposed.error());
     return {};
 }
 

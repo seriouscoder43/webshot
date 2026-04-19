@@ -54,7 +54,7 @@ fromTextImpl(const String &text, usize urlBytesMax, Link::FromTextOptions option
     std::string in(text.view());
     absl::StripAsciiWhitespace(&in);
     if (in.rfind("//", 0) == 0)
-        return std::unexpected(LinkError{.code = LinkError::Code::kMissingScheme});
+        return Unex(LinkError{.code = LinkError::Code::kMissingScheme});
     const auto schemePos = in.find("://");
     if (schemePos == std::string::npos ||
         !isValidScheme(std::string_view(in).substr(0, schemePos))) {
@@ -62,23 +62,23 @@ fromTextImpl(const String &text, usize urlBytesMax, Link::FromTextOptions option
     } else {
         std::string scheme = in.substr(0, schemePos);
         if (!(scheme == "http" || scheme == "https"))
-            return std::unexpected(LinkError{.code = LinkError::Code::kUnsupportedScheme});
+            return Unex(LinkError{.code = LinkError::Code::kUnsupportedScheme});
     }
     if (usz(in) > urlBytesMax)
-        return std::unexpected(LinkError{.code = LinkError::Code::kUrlTooLong});
+        return Unex(LinkError{.code = LinkError::Code::kUrlTooLong});
     auto url = ada::parse<ada::url_aggregator>(in);
     if (!url)
-        return std::unexpected(LinkError{.code = LinkError::Code::kFailedToParse});
+        return Unex(LinkError{.code = LinkError::Code::kFailedToParse});
     if (url->type != ada::scheme::type::HTTP && url->type != ada::scheme::type::HTTPS)
-        return std::unexpected(LinkError{.code = LinkError::Code::kUnsupportedScheme});
+        return Unex(LinkError{.code = LinkError::Code::kUnsupportedScheme});
     if (!url->has_hostname() || url->get_hostname().empty())
-        return std::unexpected(LinkError{.code = LinkError::Code::kMissingHostname});
+        return Unex(LinkError{.code = LinkError::Code::kMissingHostname});
 
     if (isIpLiteralHostname(url->get_hostname()))
-        return std::unexpected(LinkError{.code = LinkError::Code::kIpAddressNotAllowed});
+        return Unex(LinkError{.code = LinkError::Code::kIpAddressNotAllowed});
 
     if (!url->has_valid_domain())
-        return std::unexpected(LinkError{.code = LinkError::Code::kInvalidHost});
+        return Unex(LinkError{.code = LinkError::Code::kInvalidHost});
 
     url->set_username("");
     url->set_password("");

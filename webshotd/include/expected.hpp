@@ -16,6 +16,7 @@
 namespace v1 {
 
 template <typename T, typename E> class Expected;
+template <typename E> class Unex;
 
 namespace detail {
 
@@ -63,6 +64,42 @@ template <typename E>
 
 } // namespace detail
 
+template <typename E> class [[nodiscard]] Unex final {
+public:
+    using error_type = E;
+
+    constexpr Unex(const Unex &) = default;
+    constexpr Unex(Unex &&) noexcept = default;
+    constexpr Unex &operator=(const Unex &) = default;
+    constexpr Unex &operator=(Unex &&) noexcept = default;
+    constexpr ~Unex() = default;
+
+    constexpr explicit Unex(const E &inner) : inner(inner) {}
+    constexpr explicit Unex(E &&inner) noexcept(std::is_nothrow_move_constructible_v<E>)
+        : inner(std::move(inner))
+    {
+    }
+
+    template <typename U>
+        requires(
+            !detail::SameUncvref<U, E> && !detail::SameUncvref<U, Unex> &&
+            std::constructible_from<E, U>
+        )
+    constexpr explicit Unex(U &&value) noexcept(std::is_nothrow_constructible_v<E, U>)
+        : inner(E(std::forward<U>(value)))
+    {
+    }
+
+    [[nodiscard]] constexpr E &error() & noexcept { return inner; }
+    [[nodiscard]] constexpr const E &error() const & noexcept { return inner; }
+    [[nodiscard]] constexpr E &&error() && noexcept { return std::move(inner); }
+
+private:
+    E inner;
+};
+
+template <typename E> Unex(E) -> Unex<detail::RemoveCvref<E>>;
+
 template <typename T, typename E> class [[nodiscard]] Expected final {
 public:
     using value_type = T;
@@ -88,10 +125,23 @@ public:
         requires(
             !detail::SameUncvref<U, T> && !detail::SameUncvref<U, Self> &&
             !detail::SameUncvref<U, StdExpected> && !detail::SameUncvref<U, std::unexpected<E>> &&
-            std::constructible_from<T, U>
+            !detail::SameUncvref<U, Unex<E>> && std::constructible_from<T, U>
         )
     constexpr Expected(U &&value) noexcept(std::is_nothrow_constructible_v<T, U>)
         : inner(T(std::forward<U>(value)))
+    {
+    }
+
+    template <typename U>
+        requires std::constructible_from<E, const U &>
+    constexpr Expected(const Unex<U> &unex) : inner(std::unexpected<E>(E(unex.error())))
+    {
+    }
+
+    template <typename U>
+        requires std::constructible_from<E, U &&>
+    constexpr Expected(Unex<U> &&unex) noexcept(std::is_nothrow_constructible_v<E, U &&>)
+        : inner(std::unexpected<E>(E(std::move(unex).error())))
     {
     }
 
@@ -205,7 +255,7 @@ public:
     {
         using U = std::remove_cvref_t<std::invoke_result_t<F, T &>>;
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         if constexpr (std::is_void_v<U>) {
             std::invoke(std::forward<F>(f), *inner);
             return Expected<void, E>{};
@@ -221,7 +271,7 @@ public:
     {
         using U = std::remove_cvref_t<std::invoke_result_t<F, const T &>>;
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         if constexpr (std::is_void_v<U>) {
             std::invoke(std::forward<F>(f), *inner);
             return Expected<void, E>{};
@@ -237,7 +287,7 @@ public:
     {
         using U = std::remove_cvref_t<std::invoke_result_t<F, T &&>>;
         if (!inner)
-            return std::unexpected(std::move(inner.error()));
+            return Unex(std::move(inner.error()));
         if constexpr (std::is_void_v<U>) {
             std::invoke(std::forward<F>(f), std::move(*inner));
             return Expected<void, E>{};
@@ -255,7 +305,7 @@ public:
     andThen(F &&f) & -> std::remove_cvref_t<std::invoke_result_t<F, T &>>
     {
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         return std::invoke(std::forward<F>(f), *inner);
     }
 
@@ -270,7 +320,7 @@ public:
     andThen(F &&f) const & -> std::remove_cvref_t<std::invoke_result_t<F, const T &>>
     {
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         return std::invoke(std::forward<F>(f), *inner);
     }
 
@@ -283,7 +333,7 @@ public:
     andThen(F &&f) && -> std::remove_cvref_t<std::invoke_result_t<F, T &&>>
     {
         if (!inner)
-            return std::unexpected(std::move(inner.error()));
+            return Unex(std::move(inner.error()));
         return std::invoke(std::forward<F>(f), std::move(*inner));
     }
 
@@ -339,7 +389,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &>>;
         if (inner)
             return Expected<T, E2>{*inner};
-        return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
+        return Unex(std::invoke(std::forward<F>(f), inner.error()));
     }
 
     template <typename F>
@@ -351,7 +401,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, const E &>>;
         if (inner)
             return Expected<T, E2>{*inner};
-        return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
+        return Unex(std::invoke(std::forward<F>(f), inner.error()));
     }
 
     template <typename F>
@@ -362,7 +412,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &&>>;
         if (inner)
             return Expected<T, E2>{std::move(*inner)};
-        return std::unexpected(std::invoke(std::forward<F>(f), std::move(inner.error())));
+        return Unex(std::invoke(std::forward<F>(f), std::move(inner.error())));
     }
 
 private:
@@ -381,6 +431,19 @@ public:
     constexpr Expected &operator=(const Expected &) = default;
     constexpr Expected &operator=(Expected &&) noexcept = default;
     constexpr ~Expected() = default;
+
+    template <typename U>
+        requires std::constructible_from<E, const U &>
+    constexpr Expected(const Unex<U> &unex) : inner(std::unexpected<E>(E(unex.error())))
+    {
+    }
+
+    template <typename U>
+        requires std::constructible_from<E, U &&>
+    constexpr Expected(Unex<U> &&unex) noexcept(std::is_nothrow_constructible_v<E, U &&>)
+        : inner(std::unexpected<E>(E(std::move(unex).error())))
+    {
+    }
 
     constexpr Expected(std::unexpected<E> inner) noexcept(std::is_nothrow_move_constructible_v<E>)
         : inner(std::move(inner))
@@ -434,7 +497,7 @@ public:
     {
         using U = std::remove_cvref_t<std::invoke_result_t<F>>;
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         if constexpr (std::is_void_v<U>) {
             std::invoke(std::forward<F>(f));
             return Expected<void, E>{};
@@ -451,7 +514,7 @@ public:
         -> std::remove_cvref_t<std::invoke_result_t<F>>
     {
         if (!inner)
-            return std::unexpected(inner.error());
+            return Unex(inner.error());
         return std::invoke(std::forward<F>(f));
     }
 
@@ -507,7 +570,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &>>;
         if (inner)
             return Expected<void, E2>{};
-        return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
+        return Unex(std::invoke(std::forward<F>(f), inner.error()));
     }
 
     template <typename F>
@@ -519,7 +582,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, const E &>>;
         if (inner)
             return Expected<void, E2>{};
-        return std::unexpected(std::invoke(std::forward<F>(f), inner.error()));
+        return Unex(std::invoke(std::forward<F>(f), inner.error()));
     }
 
     template <typename F>
@@ -530,7 +593,7 @@ public:
         using E2 = std::remove_cvref_t<std::invoke_result_t<F, E &&>>;
         if (inner)
             return Expected<void, E2>{};
-        return std::unexpected(std::invoke(std::forward<F>(f), std::move(inner.error())));
+        return Unex(std::invoke(std::forward<F>(f), std::move(inner.error())));
     }
 
 private:

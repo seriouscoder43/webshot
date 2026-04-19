@@ -59,9 +59,7 @@ constexpr std::string_view kIndexPath = "indexes/index.cdx";
     arkhiv::GzipError error;
     auto maybeBytes = arkhiv::gzipCompressMember(body, error);
     if (!maybeBytes)
-        return std::unexpected(
-            ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail}
-        );
+        return Unex(ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail});
     return std::move(*maybeBytes);
 }
 
@@ -569,10 +567,10 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
         auto [responseBytes, requestBytes] = serializeRecordPair(response);
         auto responseGz = gzipMember(responseBytes);
         if (!responseGz)
-            return std::unexpected(responseGz.error());
+            return Unex(responseGz.error());
         auto requestGz = gzipMember(requestBytes);
         if (!requestGz)
-            return std::unexpected(requestGz.error());
+            return Unex(requestGz.error());
         out.cdxRecords.push_back(
             WarcCdxRecord{
                 .recordUrl = response.responseUrl,
@@ -599,7 +597,7 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
     const auto pageInfoBytes = serializePageInfoRecord(exchange);
     auto pageInfoGz = gzipMember(pageInfoBytes);
     if (!pageInfoGz)
-        return std::unexpected(pageInfoGz.error());
+        return Unex(pageInfoGz.error());
     out.cdxRecords.push_back(
         WarcCdxRecord{
             .recordUrl = pageInfoUrl,
@@ -632,30 +630,26 @@ Expected<std::string, ArtifactFailure> buildWacz(
                              std::string_view path, std::string_view body
                          ) -> Expected<void, ArtifactFailure> {
         if (!zip.addStoredFile(path, error, body))
-            return std::unexpected(
-                ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
-            );
+            return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
         return {};
     };
 
     if (auto ok = addFile("datapackage.json", datapackageJson); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
     if (auto ok = addFile(kWarcPath, warc.bytes); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
     if (auto ok = addFile("pages/pages.jsonl", waczPages); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
     if (auto ok = addFile("logs/stdout.log", stdoutLog); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
     if (auto ok = addFile("logs/stderr.log", stderrLog); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
     if (auto ok = addFile(kIndexPath, cdx); !ok)
-        return std::unexpected(ok.error());
+        return Unex(ok.error());
 
     const auto zipBytes = zip.finish(error);
     if (!zipBytes)
-        return std::unexpected(
-            ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail}
-        );
+        return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
     return *zipBytes;
 }
 

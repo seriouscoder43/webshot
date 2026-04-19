@@ -17,6 +17,7 @@
 #include "schema/cdp.hpp"
 #include "text.hpp"
 #include "url.hpp"
+#include "userver_expected.hpp"
 #include "uuid_format.hpp"
 
 #include <generated/browser_sandbox.sh.hpp>
@@ -196,12 +197,10 @@ template <typename T>
 [[nodiscard]] Expected<T, String> parseEventParams(const crawler::CdpEvent &event)
 {
     if (!event.params)
-        return std::unexpected(text::format("{} missing params", event.method.view()));
-    try {
-        return event.params->extra.As<T>();
-    } catch (const json::Exception &) {
-        return std::unexpected(text::format("{} has invalid params", event.method.view()));
-    }
+        return Unex(text::format("{} missing params", event.method.view()));
+    return exu::json::as<T>(
+        event.params->extra, text::format("{} has invalid params", event.method.view())
+    );
 }
 
 struct [[nodiscard]] RetainedBodyBudget {
@@ -224,7 +223,7 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
 {
     const auto nextRetainedBytes = budget.retainedBytes + i64(body.size());
     if (nextRetainedBytes > budget.maxBytes)
-        return std::unexpected(
+        return Unex(
             text::format(
                 "size_limit: retained body bytes {} exceeded size limit {}", nextRetainedBytes,
                 budget.maxBytes
@@ -334,13 +333,13 @@ isAllowedByDenylist(Denylist &denylist, const Config &config, const String &requ
         *normalized, config.urlBytesMax(), Link::FromTextOptions::kStripPort
     );
     if (!link)
-        return std::unexpected(
+        return Unex(
             text::format("failed to normalize intercepted request url {}", normalized->view())
         );
 
     const auto allowed = denylist.isAllowedPrefix(prefix::makePrefixKey(*link));
     if (!allowed)
-        return std::unexpected("denylist check failed during fetch interception"_t);
+        return Unex("denylist check failed during fetch interception"_t);
     return *allowed;
 }
 
@@ -653,7 +652,7 @@ public:
                     budget
                 );
                 if (!body)
-                    return std::unexpected(std::move(body).error());
+                    return Unex(std::move(body).error());
                 resources.push_back({
                     request.requestUrl,
                     request.method,
@@ -1108,7 +1107,7 @@ struct [[nodiscard]] DomState {
         "Runtime.evaluate"_t, params
     );
     if (!result)
-        return std::unexpected(describeCdpFailure("failed to read dom state"_t, result.error()));
+        return Unex(describeCdpFailure("failed to read dom state"_t, result.error()));
     const auto &value = result->result.value;
     auto title = value.title.transform([](const auto &t) -> std::optional<String> {
         auto parsed = String::fromBytes(t);
@@ -1118,7 +1117,7 @@ struct [[nodiscard]] DomState {
     });
     auto finalUrl = String::fromBytes(value.finalUrl);
     if (!finalUrl)
-        return std::unexpected("Runtime.evaluate returned invalid finalUrl"_t);
+        return Unex("Runtime.evaluate returned invalid finalUrl"_t);
     finalUrl = canonicalizeCapturedUrl(*finalUrl);
     return DomState{
         .finalUrl = grabValueOf(finalUrl),
@@ -1132,7 +1131,7 @@ Expected<void, String> runSiteBehavior(crawler::CdpSession &cdpSession, eng::Dea
     UINVARIANT(deadline.IsReachable(), "site behavior deadline must be reachable");
     auto budgetExpected = timeLeftMs(deadline);
     if (!budgetExpected)
-        return std::unexpected("timed out running site behavior"_t);
+        return Unex("timed out running site behavior"_t);
     const auto budget = grabValueOf(budgetExpected);
 
     dto::RuntimeEvaluateParams params;
@@ -1151,7 +1150,7 @@ Expected<void, String> runSiteBehavior(crawler::CdpSession &cdpSession, eng::Dea
     params.returnByValue = true;
     const auto result = cdpSession.send<json::Value>("Runtime.evaluate"_t, params);
     if (!result)
-        return std::unexpected(describeCdpFailure("failed to run site behavior"_t, result.error()));
+        return Unex(describeCdpFailure("failed to run site behavior"_t, result.error()));
     return {};
 }
 
@@ -1198,7 +1197,7 @@ public:
             auto failureDetail = browser.buildFailureDetail(launched.error());
             closeCdpForFailure();
             browser.close();
-            return std::unexpected(CaptureFailure{std::move(failureDetail), {}});
+            return Unex(CaptureFailure{std::move(failureDetail), {}});
         }
 
         auto captured = captureAttachedTarget();
@@ -1216,7 +1215,7 @@ public:
             auto seedProbe = currentSeedProbe();
             closeCdpForFailure();
             browser.close();
-            return std::unexpected(
+            return Unex(
                 CaptureFailure{
                     std::move(failureDetail),
                     std::move(seedProbe),
@@ -1236,9 +1235,7 @@ private:
     {
         auto result = cdpSession().sendVoid(method, std::forward<Args>(args)...);
         if (!result)
-            return std::unexpected(
-                describeCdpFailure(text::format("{} failed", method), result.error())
-            );
+            return Unex(describeCdpFailure(text::format("{} failed", method), result.error()));
         return {};
     }
 
@@ -1269,14 +1266,14 @@ private:
     {
         while (!std::invoke(predicate)) {
             if (const auto failure = currentWaitFailure())
-                return std::unexpected(*failure);
+                return Unex(*failure);
             auto progress = eventProgress.UniqueLock();
             const auto version = progress->version;
             progress.GetLock().unlock();
             if (std::invoke(predicate))
                 return {};
             if (const auto failure = currentWaitFailure())
-                return std::unexpected(*failure);
+                return Unex(*failure);
             progress.GetLock().lock();
             if (progress->version != version)
                 continue;
@@ -1287,12 +1284,12 @@ private:
                 if (std::invoke(predicate))
                     return {};
                 if (const auto failure = currentWaitFailure())
-                    return std::unexpected(*failure);
-                return std::unexpected(timeoutMessage);
+                    return Unex(*failure);
+                return Unex(timeoutMessage);
             }
         }
         if (const auto failure = currentWaitFailure())
-            return std::unexpected(*failure);
+            return Unex(*failure);
         return {};
     }
 
@@ -1300,7 +1297,7 @@ private:
     {
         while (!pageTracker().isIdleFor(idle)) {
             if (const auto failure = currentWaitFailure())
-                return std::unexpected(*failure);
+                return Unex(*failure);
             auto progress = eventProgress.UniqueLock();
             const auto version = progress->version;
             const auto idleDeadline = eng::Deadline::FromTimePoint(
@@ -1311,7 +1308,7 @@ private:
             if (pageTracker().isIdleFor(idle))
                 return {};
             if (const auto failure = currentWaitFailure())
-                return std::unexpected(*failure);
+                return Unex(*failure);
             progress.GetLock().lock();
             if (progress->version != version)
                 continue;
@@ -1322,13 +1319,13 @@ private:
                 if (pageTracker().isIdleFor(idle))
                     return {};
                 if (const auto failure = currentWaitFailure())
-                    return std::unexpected(*failure);
+                    return Unex(*failure);
                 if (deadline.IsReached())
-                    return std::unexpected("timed out waiting for network idle"_t);
+                    return Unex("timed out waiting for network idle"_t);
             }
         }
         if (const auto failure = currentWaitFailure())
-            return std::unexpected(*failure);
+            return Unex(*failure);
         return {};
     }
 
@@ -1373,25 +1370,25 @@ private:
     {
         auto launched = browser.launch();
         if (!launched)
-            return std::unexpected(launched.error());
+            return Unex(launched.error());
         browser.markPhase("connect_cdp");
         auto connected = browser.connectCdp(deadline);
         if (!connected)
-            return std::unexpected(connected.error());
+            return Unex(connected.error());
         cdp = grabValueOf(connected);
         pageSession = std::make_unique<crawler::BrowserPageSession>(cdpClient());
 
         browser.markPhase("create_browser_context");
         if (auto created = pageSession->createBrowserContext(); !created)
-            return std::unexpected(created.error());
+            return Unex(created.error());
 
         browser.markPhase("create_target");
         if (auto created = pageSession->createBlankTarget(); !created)
-            return std::unexpected(created.error());
+            return Unex(created.error());
 
         browser.markPhase("attach_target");
         if (auto attached = pageSession->attachToTarget(); !attached)
-            return std::unexpected(attached.error());
+            return Unex(attached.error());
         tracker = std::make_unique<PageTracker>(pageSession->sessionId(), pageSession->targetId());
         startEventLoop();
         return {};
@@ -1401,38 +1398,38 @@ private:
     {
         browser.markPhase("enable_page");
         if (auto ok = sendSessionVoid("Page.enable"_t); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
         browser.markPhase("enable_runtime");
         if (auto ok = sendSessionVoid("Runtime.enable"_t); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
         browser.markPhase("enable_network");
         if (auto ok = sendSessionVoid("Network.enable"_t); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
 
         browser.markPhase("enable_fetch");
         dto::FetchEnableParams fetchParams;
         fetchParams.handleAuthRequests = true;
         if (auto ok = sendSessionVoid("Fetch.enable"_t, fetchParams); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
 
         browser.markPhase("enable_lifecycle_events");
         dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
         lifecycleParams.enabled = true;
         if (auto ok = sendSessionVoid("Page.setLifecycleEventsEnabled"_t, lifecycleParams); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
 
         browser.markPhase("disable_cache");
         dto::NetworkSetCacheDisabledParams cacheParams;
         cacheParams.cacheDisabled = true;
         if (auto ok = sendSessionVoid("Network.setCacheDisabled"_t, cacheParams); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
 
         browser.markPhase("bypass_service_worker");
         dto::NetworkSetBypassServiceWorkerParams serviceWorkerParams;
         serviceWorkerParams.bypass = true;
         if (auto ok = sendSessionVoid("Network.setBypassServiceWorker"_t, serviceWorkerParams);
             !ok) {
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
         }
 
         browser.markPhase("set_extra_headers");
@@ -1441,14 +1438,12 @@ private:
             "Accept-Language", std::string(crawler::kBrowserAcceptLanguage)
         );
         if (auto ok = sendSessionVoid("Network.setExtraHTTPHeaders"_t, headerParams); !ok)
-            return std::unexpected(ok.error());
+            return Unex(ok.error());
 
         browser.markPhase("get_frame_tree");
         auto frameTree = cdpSession().send<dto::PageGetFrameTreeResult>("Page.getFrameTree"_t);
         if (!frameTree)
-            return std::unexpected(
-                describeCdpFailure("Page.getFrameTree failed"_t, frameTree.error())
-            );
+            return Unex(describeCdpFailure("Page.getFrameTree failed"_t, frameTree.error()));
         pageTracker().setMainFrameId(String::fromBytes(frameTree->frameTree.frame.id).expect());
 
         browser.markPhase("navigate");
@@ -1459,11 +1454,9 @@ private:
             "Page.navigate"_t, navigateParams
         );
         if (!navigateResult)
-            return std::unexpected(
-                describeCdpFailure("Page.navigate failed"_t, navigateResult.error())
-            );
+            return Unex(describeCdpFailure("Page.navigate failed"_t, navigateResult.error()));
         if (navigateResult->errorText)
-            return std::unexpected(String::fromBytes(*navigateResult->errorText).expect());
+            return Unex(String::fromBytes(*navigateResult->errorText).expect());
         pageTracker().setExpectedMainLoaderId(stringOrNull(navigateResult->loaderId));
 
         browser.markPhase("wait_for_load");
@@ -1472,7 +1465,7 @@ private:
                 "timed out waiting for page load"_t
             );
             !waited)
-            return std::unexpected(waited.error());
+            return Unex(waited.error());
         if (timings.postLoadDelay > chrono::seconds::zero()) {
             browser.markPhase("post_load_delay");
             const auto phaseDeadline = pickEarlierDeadline(
@@ -1480,7 +1473,7 @@ private:
             );
             const auto ok = sleepUntilDeadline(phaseDeadline);
             if (!ok)
-                return std::unexpected("timed out waiting for post-load delay"_t);
+                return Unex("timed out waiting for post-load delay"_t);
             browser.markPhase("post_load_delay_done");
         }
         if (timings.behaviorTimeout > chrono::seconds::zero()) {
@@ -1491,7 +1484,7 @@ private:
             );
             auto ranSiteBehavior = runSiteBehavior(cdpSession(), behaviorDeadline);
             if (!ranSiteBehavior)
-                return std::unexpected(ranSiteBehavior.error());
+                return Unex(ranSiteBehavior.error());
             browser.markPhase("run_site_behavior_done");
         }
         if (timings.netIdleWait > chrono::seconds::zero()) {
@@ -1499,7 +1492,7 @@ private:
             browser.markPhase("wait_for_idle_wait");
             auto waited = waitForIdle(timings.netIdleWait);
             if (!waited)
-                return std::unexpected(waited.error());
+                return Unex(waited.error());
             browser.markPhase("wait_for_idle_done");
         }
         if (timings.pageExtraDelay > chrono::seconds::zero()) {
@@ -1509,7 +1502,7 @@ private:
             );
             const auto ok = sleepUntilDeadline(phaseDeadline);
             if (!ok)
-                return std::unexpected("timed out waiting for extra page delay"_t);
+                return Unex("timed out waiting for extra page delay"_t);
             browser.markPhase("page_extra_delay_done");
         }
         browser.markPhase("wait_for_main_document");
@@ -1519,32 +1512,32 @@ private:
                 "timed out waiting for main document response"_t
             );
             !waited)
-            return std::unexpected(waited.error());
+            return Unex(waited.error());
         browser.markPhase("wait_for_main_document_done");
 
         browser.markPhase("read_dom_state");
         browser.markPhase("read_dom_state_runtime_evaluate");
         auto domState = readDomState(cdpSession());
         if (!domState)
-            return std::unexpected(domState.error());
+            return Unex(domState.error());
         browser.markPhase("read_dom_state_done");
         RetainedBodyBudget budget{maxArchiveBytes, 0_i64};
         browser.markPhase("read_main_body");
         auto body = pageTracker().readBody(cdpSession(), budget, domState->html);
         if (!body)
-            return std::unexpected(body.error());
+            return Unex(body.error());
         browser.markPhase("read_resources");
         auto resources = pageTracker().readResources(cdpSession(), budget);
         if (!resources)
-            return std::unexpected(resources.error());
+            return Unex(resources.error());
 
         stopEventLoop();
         browser.markPhase("detach_target");
         if (auto detached = pageSession->detach(); !detached)
-            return std::unexpected(detached.error());
+            return Unex(detached.error());
         browser.markPhase("dispose_browser_context");
         if (auto disposed = pageSession->disposeBrowserContext(); !disposed)
-            return std::unexpected(disposed.error());
+            return Unex(disposed.error());
         pageSession.reset();
 
         browser.markPhase("build_exchange_start");
@@ -1569,7 +1562,7 @@ private:
         LOG_INFO() << std::format("captureViaProxy closing browser for {}", run.seedUrl);
         browser.close();
         if (const auto proxyFailure = browser.proxyFailureReason())
-            return std::unexpected(*proxyFailure);
+            return Unex(*proxyFailure);
         LOG_INFO() << std::format("captureViaProxy returning capture for {}", run.seedUrl);
         return exchange;
     }

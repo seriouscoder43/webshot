@@ -2,9 +2,11 @@
 
 #include "crawler/cdp_request_tracker.hpp"
 #include "expected.hpp"
+#include "grab_value.hpp"
 #include "integers.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
+#include "userver_expected.hpp"
 #include "userver_namespaces.hpp"
 
 #include <chrono>
@@ -81,12 +83,8 @@ public:
     {
         auto value = sendRaw(method, json::Value{}, {});
         if (!value)
-            return std::unexpected(value.error());
-        try {
-            return (*value).As<T>();
-        } catch (const json::Exception &) {
-            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
-        }
+            return Unex(value.error());
+        return exu::json::as<T>(*value, CdpFailure{.code = CdpError::kProtocol, .detail = {}});
     }
 
     template <typename T, typename Params>
@@ -107,26 +105,23 @@ public:
     {
         auto value = sendRaw(method, json::Value{}, sessionId);
         if (!value)
-            return std::unexpected(value.error());
-        try {
-            return (*value).As<T>();
-        } catch (const json::Exception &) {
-            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
-        }
+            return Unex(value.error());
+        return exu::json::as<T>(*value, CdpFailure{.code = CdpError::kProtocol, .detail = {}});
     }
 
     template <typename T, typename Params>
     [[nodiscard]] Expected<T, CdpFailure>
     send(const String &method, const Params &params, const std::optional<String> &sessionId)
     {
-        auto value = sendRaw(method, json::ValueBuilder(params).ExtractValue(), sessionId);
+        auto paramsValue = exu::json::valueOf(
+            params, CdpFailure{.code = CdpError::kProtocol, .detail = {}}
+        );
+        if (!paramsValue)
+            return Unex(paramsValue.error());
+        auto value = sendRaw(method, grabValueOf(paramsValue), sessionId);
         if (!value)
-            return std::unexpected(value.error());
-        try {
-            return (*value).As<T>();
-        } catch (const json::Exception &) {
-            return std::unexpected(CdpFailure{.code = CdpError::kProtocol, .detail = {}});
-        }
+            return Unex(value.error());
+        return exu::json::as<T>(*value, CdpFailure{.code = CdpError::kProtocol, .detail = {}});
     }
 
     [[nodiscard]] Expected<std::unique_ptr<class CdpSession>, CdpFailure>
@@ -223,7 +218,7 @@ public:
         UINVARIANT(client != nullptr, "cdp session is not attached");
         auto result = client->send<dto::CdpEmptyObject>(method, params, sessionIdValue);
         if (!result)
-            return std::unexpected(result.error());
+            return Unex(result.error());
         return {};
     }
 
@@ -232,7 +227,7 @@ public:
         UINVARIANT(client != nullptr, "cdp session is not attached");
         auto result = client->send<dto::CdpEmptyObject>(method, sessionIdValue);
         if (!result)
-            return std::unexpected(result.error());
+            return Unex(result.error());
         return {};
     }
 

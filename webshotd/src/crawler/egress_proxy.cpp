@@ -332,9 +332,7 @@ resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadli
     try {
         auto addrs = resolver.Resolve(hostText, deadline);
         if (addrs.empty())
-            return std::unexpected(
-                text::format("dns resolve returned no addresses for {}", hostText)
-            );
+            return Unex(text::format("dns resolve returned no addresses for {}", hostText));
 
         auto resolved = std::vector<ResolvedTcpAddress>{};
         resolved.reserve(addrs.size());
@@ -349,7 +347,7 @@ resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadli
         }
         return resolved;
     } catch (const dns::ResolverException &) {
-        return std::unexpected(text::format("dns resolve failed for {}", hostText));
+        return Unex(text::format("dns resolve failed for {}", hostText));
     }
 }
 
@@ -431,7 +429,7 @@ parseHttpRequestTarget(const ParsedRequest &req)
         const auto authority = slash == std::string_view::npos ? rest : rest.substr(0, slash);
         const auto parsedAuthority = parseAuthority(authority, 80_u16, PortMode::kOptional);
         if (!parsedAuthority)
-            return std::unexpected(kUnsupportedRequestTarget);
+            return Unex(kUnsupportedRequestTarget);
 
         return HttpRequestTarget{
             .host = parsedAuthority->host,
@@ -441,15 +439,15 @@ parseHttpRequestTarget(const ParsedRequest &req)
     }
 
     if (!req.target.starts_with('/'))
-        return std::unexpected(kUnsupportedRequestTarget);
+        return Unex(kUnsupportedRequestTarget);
 
     const auto hostHeader = findHeaderValue(req.headers, "host");
     if (!hostHeader)
-        return std::unexpected(kMissingHostHeader);
+        return Unex(kMissingHostHeader);
 
     const auto parsedHost = parseAuthority(*hostHeader, 0_u16, PortMode::kOptional);
     if (!parsedHost)
-        return std::unexpected(kInvalidHostHeader);
+        return Unex(kInvalidHostHeader);
 
     return HttpRequestTarget{
         .host = parsedHost->host,
@@ -462,16 +460,16 @@ parseHttpRequestTarget(const ParsedRequest &req)
 {
     const auto digits = absl::StripAsciiWhitespace(headerValue);
     if (digits.empty())
-        return std::unexpected("invalid Content-Length"_t);
+        return Unex("invalid Content-Length"_t);
 
     int64_t contentLength = 0;
     const auto *const begin = digits.data();
     const auto *const end = begin + digits.size();
     const auto result = std::from_chars(begin, end, contentLength);
     if (result.ec != std::errc{} || result.ptr != end)
-        return std::unexpected("invalid Content-Length"_t);
+        return Unex("invalid Content-Length"_t);
     if (contentLength < 0 || contentLength > raw(kMaxContentLengthBytes))
-        return std::unexpected("invalid Content-Length"_t);
+        return Unex("invalid Content-Length"_t);
 
     return i64(contentLength);
 }
@@ -631,7 +629,7 @@ struct EgressProxy::Impl final {
         const auto upstream = rewriteLocalFixtureIfNeeded(config, host, port);
         auto addrs = resolveTcp(resolver, upstream.connectHost, upstream.connectPort, deadline);
         if (!addrs)
-            return std::unexpected(std::move(addrs).error());
+            return Unex(std::move(addrs).error());
 
         auto errors = std::vector<std::string>{};
         errors.reserve(addrs->size());
@@ -651,7 +649,7 @@ struct EgressProxy::Impl final {
                 details.append("; ");
             details.append(error);
         }
-        return std::unexpected(
+        return Unex(
             text::format(
                 "connect upstream failed for {}:{} after {} attempt(s): {}", upstream.connectHost,
                 upstream.connectPort, errors.size(), details
@@ -950,7 +948,7 @@ Expected<void, String> EgressProxy::start(dns::Resolver &resolver, eng::Deadline
 {
     UINVARIANT(deadline.IsReachable(), "proxy start deadline must be reachable");
     if (impl->acceptTask)
-        return std::unexpected("proxy already started"_t);
+        return Unex("proxy already started"_t);
 
     impl->listener = eng::io::Socket(eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream);
     try {
@@ -958,7 +956,7 @@ Expected<void, String> EgressProxy::start(dns::Resolver &resolver, eng::Deadline
         impl->listener.Bind(addr);
         impl->listener.Listen();
     } catch (const utils::TracefulException &e) {
-        return std::unexpected(text::format("proxy bind then listen failed: {}", e.what()));
+        return Unex(text::format("proxy bind then listen failed: {}", e.what()));
     }
 
     impl->acceptTask = eng::AsyncNoSpan([this, &resolver, deadline]() {

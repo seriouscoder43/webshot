@@ -2,6 +2,7 @@
 
 #include "grab_value.hpp"
 #include "schema/cdp.hpp"
+#include "userver_expected.hpp"
 
 #include <algorithm>
 #include <array>
@@ -73,14 +74,14 @@ struct HandshakeResponse final {
     try {
         auto message = String::fromBytes(error.As<dto::CdpError>().message);
         if (!message)
-            return std::unexpected(CdpFailure{.code = kProtocol, .detail = {}});
+            return Unex(CdpFailure{.code = kProtocol, .detail = {}});
         return std::move(*message);
     } catch (const json::Exception &e) {
         UINVARIANT(
             false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
         );
     }
-    return std::unexpected(CdpFailure{.code = kProtocol, .detail = {}});
+    return Unex(CdpFailure{.code = kProtocol, .detail = {}});
 }
 
 [[nodiscard]] bool containsHeaderToken(std::string_view value, std::string_view token)
@@ -110,12 +111,12 @@ readHandshakeResponse(eng::io::Socket &socket, eng::Deadline deadline)
 
     while (response.find("\r\n\r\n") == std::string::npos) {
         if (ssize(response) >= kMaxHandshakeResponseBytes)
-            return std::unexpected(CdpFailure{.code = kHandshakeResponseTooLarge, .detail = {}});
+            return Unex(CdpFailure{.code = kHandshakeResponseTooLarge, .detail = {}});
 
         char ch = '\0';
         const auto bytesRead = socket.RecvSome(&ch, 1, deadline);
         if (bytesRead == 0)
-            return std::unexpected(CdpFailure{.code = kHandshakeUnexpectedEof, .detail = {}});
+            return Unex(CdpFailure{.code = kHandshakeUnexpectedEof, .detail = {}});
         response.push_back(ch);
     }
 
@@ -152,18 +153,14 @@ parseHandshakeResponse(std::string_view response)
 {
     const auto headersEnd = response.find("\r\n\r\n");
     if (headersEnd == std::string::npos)
-        return std::unexpected(
-            CdpFailure{.code = CdpError::kHandshakeMalformedResponse, .detail = {}}
-        );
+        return Unex(CdpFailure{.code = CdpError::kHandshakeMalformedResponse, .detail = {}});
 
     HandshakeResponse parsed;
     parsed.rawHeaders = std::string(response.substr(0, headersEnd + 4));
 
     const auto statusLineEnd = response.find("\r\n");
     if (statusLineEnd == std::string::npos)
-        return std::unexpected(
-            CdpFailure{.code = CdpError::kHandshakeMalformedResponse, .detail = {}}
-        );
+        return Unex(CdpFailure{.code = CdpError::kHandshakeMalformedResponse, .detail = {}});
 
     parsed.statusLine = std::string(response.substr(0, statusLineEnd));
     parsed.headers = parseHandshakeHeaders(
@@ -177,24 +174,24 @@ validateHandshakeResponse(const HandshakeResponse &response, std::string_view se
 {
     if (response.statusLine.rfind("HTTP/1.1 101 ", 0) != 0 &&
         response.statusLine != "HTTP/1.1 101") {
-        return std::unexpected(CdpFailure{.code = CdpError::kHandshakeRejected, .detail = {}});
+        return Unex(CdpFailure{.code = CdpError::kHandshakeRejected, .detail = {}});
     }
 
     const auto upgradeIt = response.headers.find("upgrade");
     if (upgradeIt == std::end(response.headers) ||
         !absl::EqualsIgnoreCase(std::string_view{upgradeIt->second}, "websocket")) {
-        return std::unexpected(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
+        return Unex(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
     }
 
     const auto connectionIt = response.headers.find("connection");
     if (connectionIt == std::end(response.headers) ||
         !containsHeaderToken(connectionIt->second, "upgrade")) {
-        return std::unexpected(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
+        return Unex(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
     }
 
     const auto acceptIt = response.headers.find("sec-websocket-accept");
     if (acceptIt == std::end(response.headers)) {
-        return std::unexpected(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
+        return Unex(CdpFailure{.code = CdpError::kHandshakeMissingHeader, .detail = {}});
     }
 
     const auto expectedAccept = us::crypto::base64::Base64Encode(
@@ -203,7 +200,7 @@ validateHandshakeResponse(const HandshakeResponse &response, std::string_view se
         )
     );
     if (acceptIt->second != expectedAccept)
-        return std::unexpected(CdpFailure{.code = CdpError::kHandshakeRejected, .detail = {}});
+        return Unex(CdpFailure{.code = CdpError::kHandshakeRejected, .detail = {}});
     return {};
 }
 
@@ -328,7 +325,7 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
                        }
         );
     } catch (const std::runtime_error &) {
-        return std::unexpected(CdpFailure{.code = kTraceFileOpenFailed, .detail = {}});
+        return Unex(CdpFailure{.code = kTraceFileOpenFailed, .detail = {}});
     }
 
     auto socket = eng::io::Socket{eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream};
@@ -339,7 +336,7 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
     try {
         socket.Connect(address, handshakeDeadline);
     } catch (const us::utils::TracefulException &) {
-        return std::unexpected(CdpFailure{.code = kSocketConnectFailed, .detail = {}});
+        return Unex(CdpFailure{.code = kSocketConnectFailed, .detail = {}});
     }
 
     auto randomKey = std::array<char, 16>{};
@@ -365,18 +362,18 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
     try {
         static_cast<void>(socket.SendAll(request.data(), request.size(), handshakeDeadline));
     } catch (const us::utils::TracefulException &) {
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+        return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 
     auto response = readHandshakeResponse(socket, handshakeDeadline);
     if (!response)
-        return std::unexpected(response.error());
+        return Unex(response.error());
     auto parsedResponse = parseHandshakeResponse(grabValueOf(response));
     if (!parsedResponse)
-        return std::unexpected(parsedResponse.error());
+        return Unex(parsedResponse.error());
     auto validated = validateHandshakeResponse(grabValueOf(parsedResponse), secWebsocketKey);
     if (!validated)
-        return std::unexpected(validated.error());
+        return Unex(validated.error());
 
     std::shared_ptr<us::websocket::WebSocketConnection> ws;
     try {
@@ -389,7 +386,7 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
             std::move(connectionSocket), std::move(address), wsConfig
         );
     } catch (const us::utils::TracefulException &) {
-        return std::unexpected(CdpFailure{.code = kTransport, .detail = {}});
+        return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 
     auto client = std::unique_ptr<CdpClient>(new CdpClient(
@@ -418,9 +415,9 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
     {
         auto state = sharedState.Lock();
         if (state->terminalFailure)
-            return std::unexpected(*state->terminalFailure);
+            return Unex(*state->terminalFailure);
         if (state->closing || state->closed)
-            return std::unexpected(makeSocketClosedFailure("cdp socket is closed"_t));
+            return Unex(makeSocketClosedFailure("cdp socket is closed"_t));
         id = state->nextRequestId++;
         state->pendingRequests.insertWaiting(id, method, sessionId);
         state->pendingWaiters.emplace(id, waiter);
@@ -442,7 +439,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
         traceTransportError("send"_t, parsePrintableText(e.what()));
         auto failure = CdpFailure{.code = kTransport, .detail = {}};
         failTerminal(failure);
-        return std::unexpected(failure);
+        return Unex(failure);
     }
 
     const auto deadline = pickEarlierReachableDeadline(
@@ -458,15 +455,15 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
                 requestInFlight != nullptr) {
                 requestInFlight->ignoreResponse = true;
                 state->pendingWaiters.erase(id);
-                return std::unexpected(makeTimeoutFailure("timed out waiting for cdp response"_t));
+                return Unex(makeTimeoutFailure("timed out waiting for cdp response"_t));
             }
         }
         waiterState.GetLock().lock();
     }
     if (!waiterState->done)
-        return std::unexpected(makeTimeoutFailure("timed out waiting for cdp response"_t));
+        return Unex(makeTimeoutFailure("timed out waiting for cdp response"_t));
     if (waiterState->failure)
-        return std::unexpected(*waiterState->failure);
+        return Unex(*waiterState->failure);
     UINVARIANT(waiterState->result, "cdp waiter completed without result");
     return *waiterState->result;
 }
@@ -491,7 +488,7 @@ Expected<void, CdpFailure> CdpClient::close()
         auto failure = CdpFailure{.code = CdpError::kTransport, .detail = {}};
         failTerminal(failure);
         connection.reset();
-        return std::unexpected(failure);
+        return Unex(failure);
     }
 
     if (readerTask.IsValid()) {
@@ -510,9 +507,9 @@ CdpClient::createSession(String sessionId, String targetId)
     {
         auto state = sharedState.Lock();
         if (state->terminalFailure)
-            return std::unexpected(*state->terminalFailure);
+            return Unex(*state->terminalFailure);
         if (state->closing || state->closed)
-            return std::unexpected(makeSocketClosedFailure("cdp socket is closed"_t));
+            return Unex(makeSocketClosedFailure("cdp socket is closed"_t));
         state->sessionsById.emplace(sessionId, sessionState);
         state->sessionsByTargetId.emplace(targetId, sessionState);
     }
@@ -564,12 +561,12 @@ CdpSession::~CdpSession()
 Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
 {
     using enum CdpError;
-    json::Value value;
-    try {
-        value = json::FromString(payload);
-    } catch (const json::Exception &) {
-        return std::unexpected(CdpFailure{.code = kJsonParseFailed, .detail = {}});
-    }
+    auto parsedValue = exu::json::parse<json::Value>(
+        payload, CdpFailure{.code = kJsonParseFailed, .detail = {}}
+    );
+    if (!parsedValue)
+        return Unex(parsedValue.error());
+    auto &value = *parsedValue;
     const auto idValue = value["id"];
     if (!idValue.IsMissing()) {
         const auto id = i64(idValue.As<int64_t>());
@@ -587,7 +584,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
             if (!errorValue.IsMissing()) {
                 auto parsed = getErrorMessage(errorValue);
                 if (!parsed)
-                    return std::unexpected(parsed.error());
+                    return Unex(parsed.error());
                 errorMessage = *parsed;
             }
             if (request->ignoreResponse) {
@@ -620,23 +617,22 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
 
     UINVARIANT(!value["method"].IsMissing(), "cdp message missing id and method");
 
-    dto::CdpEventMessage eventMessage;
-    try {
-        eventMessage = value.As<dto::CdpEventMessage>();
-    } catch (const json::Exception &) {
-        return std::unexpected(CdpFailure{.code = kProtocol, .detail = {}});
-    }
-    const auto sessionId = eventMessage.sessionId.transform([](const auto &s) {
+    auto eventMessage = exu::json::as<dto::CdpEventMessage>(
+        value, CdpFailure{.code = kProtocol, .detail = {}}
+    );
+    if (!eventMessage)
+        return Unex(eventMessage.error());
+    const auto sessionId = eventMessage->sessionId.transform([](const auto &s) {
         return String::fromBytes(s).expect();
     });
-    const auto method = String::fromBytes(eventMessage.method).expect();
-    const auto routingSessionId = extractRoutingSessionId(eventMessage);
-    const auto routingTargetId = extractRoutingTargetId(eventMessage);
+    const auto method = String::fromBytes(eventMessage->method).expect();
+    const auto routingSessionId = extractRoutingSessionId(*eventMessage);
+    const auto routingTargetId = extractRoutingTargetId(*eventMessage);
     traceEvent(method, sessionId);
 
     auto event = CdpEvent{
         .method = method,
-        .params = std::move(eventMessage.params),
+        .params = std::move(eventMessage->params),
         .sessionId = sessionId,
     };
 
@@ -679,11 +675,11 @@ Expected<CdpEvent, CdpFailure> CdpClient::waitForSessionEvent(
         return !sessionData->events.empty() || sessionData->failure || sessionData->closed;
     };
     if (!ready() && !sessionData->cv.WaitUntil(sessionData.GetLock(), deadline, ready))
-        return std::unexpected(makeTimeoutFailure(timeoutMessage));
+        return Unex(makeTimeoutFailure(timeoutMessage));
     if (sessionData->failure)
-        return std::unexpected(*sessionData->failure);
+        return Unex(*sessionData->failure);
     if (sessionData->closed)
-        return std::unexpected(makeSocketClosedFailure("cdp session is closed"_t));
+        return Unex(makeSocketClosedFailure("cdp session is closed"_t));
     UINVARIANT(!sessionData->events.empty(), "cdp session woke without queued event");
     auto event = std::move(sessionData->events.front());
     sessionData->events.pop_front();
@@ -792,7 +788,7 @@ Expected<void, CdpFailure> CdpClient::writeTraceLine(const json::Value &value)
     try {
         traceFile.Write(line);
     } catch (const std::runtime_error &) {
-        return std::unexpected(CdpFailure{.code = kTraceWriteFailed, .detail = {}});
+        return Unex(CdpFailure{.code = kTraceWriteFailed, .detail = {}});
     }
     return {};
 }

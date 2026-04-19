@@ -1,14 +1,15 @@
-function(add_cpp_test target)
-  cmake_parse_arguments(ARGS "" "" "SOURCES;LIBS;INCLUDE_DIRS" ${ARGN})
+function(_add_cpp_test_target target)
+  cmake_parse_arguments(
+    ARGS "WITH_UTEST;REGISTER_CTEST;ENABLE_COVERAGE" "" "SOURCES;LIBS;INCLUDE_DIRS"
+    ${ARGN})
+
+  set(linkLibs ada::ada uni-algo::uni-algo absl::strings ${ARGS_LIBS})
+  if(ARGS_WITH_UTEST)
+    list(PREPEND linkLibs userver::utest)
+  endif()
 
   add_executable(${target} ${ARGS_SOURCES})
-  target_link_libraries(
-    ${target}
-    PRIVATE userver::utest
-            ada::ada
-            uni-algo::uni-algo
-            absl::strings
-            ${ARGS_LIBS})
+  target_link_libraries(${target} PRIVATE ${linkLibs})
   target_include_directories(
     ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
                       ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
@@ -20,38 +21,26 @@ function(add_cpp_test target)
     target_link_options(${target} PRIVATE "-fsanitize=address,undefined")
   endif()
 
-  add_test(NAME ${target} COMMAND ${target})
-  set(test_env "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan.supp")
-  set_tests_properties(${target} PROPERTIES ENVIRONMENT "${test_env}")
+  if(ARGS_REGISTER_CTEST)
+    add_test(NAME ${target} COMMAND ${target})
+    set(test_env "LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan.supp")
+    set_tests_properties(${target} PROPERTIES ENVIRONMENT "${test_env}")
+  endif()
 
-  if(WEBSHOT_ENABLE_COVERAGE)
+  if(ARGS_ENABLE_COVERAGE AND WEBSHOT_ENABLE_COVERAGE)
     target_compile_options(${target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
     target_link_options(${target} PRIVATE ${WEBSHOT_COVERAGE_FLAGS})
   endif()
+endfunction()
 
+function(add_cpp_test target)
+  _add_cpp_test_target(
+    ${target} WITH_UTEST REGISTER_CTEST ENABLE_COVERAGE ${ARGN})
   set_property(GLOBAL APPEND PROPERTY WEBSHOT_CPP_TESTS ${target})
 endfunction()
 
 function(add_cpp_helper target)
-  cmake_parse_arguments(ARGS "" "" "SOURCES;LIBS;INCLUDE_DIRS" ${ARGN})
-
-  add_executable(${target} ${ARGS_SOURCES})
-  target_link_libraries(
-    ${target}
-    PRIVATE ada::ada
-            uni-algo::uni-algo
-            absl::strings
-            ${ARGS_LIBS})
-  target_include_directories(
-    ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
-                      ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
-  apply_defaults(${target})
-  target_compile_options(${target} PRIVATE -Wno-switch-default)
-
-  if(USE_SANITIZERS)
-    target_compile_options(${target} PRIVATE "-fsanitize=address,undefined")
-    target_link_options(${target} PRIVATE "-fsanitize=address,undefined")
-  endif()
+  _add_cpp_test_target(${target} ${ARGN})
 endfunction()
 
 add_cpp_test(
@@ -133,6 +122,12 @@ add_cpp_test(s3_refresh_schedule_test SOURCES
 
 add_cpp_test(deadline_utils_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils.cpp)
+
+add_cpp_test(expected_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/expected.cpp)
+
+add_cpp_test(userver_expected_test SOURCES
+                     ${CMAKE_CURRENT_SOURCE_DIR}/userver_expected.cpp)
 
 add_cpp_test(
   crawler_fallback_test SOURCES

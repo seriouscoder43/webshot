@@ -64,7 +64,7 @@ struct Denylist::Impl {
                 return Out{std::forward<F>(f)(res)};
             }
         } catch (const pg::Error &e) {
-            return Out{std::unexpected(PgError{.what = std::string(e.what())})};
+            return Out{Unex(PgError{.what = std::string(e.what())})};
         }
     }
 
@@ -100,7 +100,7 @@ Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
     );
     if (!blocked) {
         LOG_ERROR() << std::format("denylist check failed: {}", blocked.error().what);
-        return std::unexpected(DenylistError::kDbFailure);
+        return Unex(DenylistError::kDbFailure);
     }
     return !*blocked;
 }

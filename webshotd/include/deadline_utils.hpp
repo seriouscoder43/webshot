@@ -69,7 +69,7 @@ enum class DeadlineError {
 timeLeftMs(eng::Deadline deadline) noexcept
 {
     if (deadline.IsReachable() && deadline.IsReached())
-        return std::unexpected(DeadlineError::kTimeout);
+        return Unex(DeadlineError::kTimeout);
     return timeLeftOrZeroMs(deadline);
 }
 
@@ -83,12 +83,12 @@ sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 
     const auto remaining = timeLeftMs(deadline);
     if (!remaining)
-        return std::unexpected(remaining.error());
+        return Unex(remaining.error());
 
     const auto sleepFor = std::min(delay, *remaining);
     eng::SleepFor(sleepFor);
     if (sleepFor != delay)
-        return std::unexpected(DeadlineError::kTimeout);
+        return Unex(DeadlineError::kTimeout);
 
     return {};
 }
@@ -101,9 +101,9 @@ sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 
     const auto remaining = timeLeftMs(deadline);
     if (!remaining)
-        return std::unexpected(remaining.error());
+        return Unex(remaining.error());
     if (*remaining <= 0ms)
-        return std::unexpected(DeadlineError::kTimeout);
+        return Unex(DeadlineError::kTimeout);
 
     eng::SleepFor(*remaining);
     return {};

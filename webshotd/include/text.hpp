@@ -19,6 +19,7 @@
 namespace text {
 
 using v1::Expected;
+using v1::Unex;
 
 struct [[nodiscard]] TextError final {
     enum class Code {
@@ -39,7 +40,7 @@ public:
     [[nodiscard]] static constexpr Expected<String, TextError> fromBytes(std::string_view bytes)
     {
         if (!una::is_valid_utf8(bytes)) {
-            return std::unexpected(
+            return Unex(
                 TextError{
                     .code = TextError::Code::kInvalidUtf8,
                 }
