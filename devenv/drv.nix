@@ -35,6 +35,7 @@
     inherit inputs;
   };
   includeWhatYouUse = callPkg ./pkgs/include-what-you-use.nix {};
+  boostSml = callPkg ./pkgs/boost-sml.nix {};
   unialgo = callSrcPkg ./pkgs/uni-algo.nix "unialgo" {
     inherit toolchain;
   };
@@ -143,6 +144,7 @@
     '';
   };
 in {
+  boostSml = boostSml;
   includeWhatYouUse = includeWhatYouUse;
   pgmigrate = pgmigrate;
   rapidoc = rapidoc;

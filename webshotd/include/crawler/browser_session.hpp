@@ -1,5 +1,6 @@
 #pragma once
 
+#include "crawler/browser_page_lifecycle.hpp"
 #include "crawler/limits.hpp"
 #include "expected.hpp"
 #include "integers.hpp"
@@ -7,6 +8,7 @@
 #include "userver_namespaces.hpp"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +84,12 @@ public:
     [[nodiscard]] Expected<void, String> createBrowserContext();
     [[nodiscard]] Expected<void, String> createBlankTarget();
     [[nodiscard]] Expected<void, String> attachToTarget();
+    [[nodiscard]] Expected<void, String>
+    attachFreshTarget(const std::function<void(std::string_view)> &markPhase);
+    [[nodiscard]] Expected<void, String>
+    enableBaseDomains(const std::function<void(std::string_view)> &markPhase);
+    [[nodiscard]] Expected<void, String>
+    close(const std::function<void(std::string_view)> &markPhase);
     [[nodiscard]] Expected<void, String> detach();
     [[nodiscard]] Expected<void, String> disposeBrowserContext();
     [[nodiscard]] Expected<void, String> close();
@@ -92,6 +100,7 @@ public:
 
 private:
     CdpClient &cdpClient;
+    BrowserPageSessionLifecycle lifecycle;
     std::unique_ptr<CdpSession> cdpSessionValue;
     std::optional<String> browserContextIdValue;
     std::optional<String> targetIdValue;

@@ -713,10 +713,9 @@ std::optional<String> BrowserSession::proxyFailureReason() const noexcept
 namespace {
 
 template <typename T, typename... Args>
-[[nodiscard]] Expected<T, String>
-sendCdp(CdpClient &cdpClient, const String &method, Args &&...args)
+[[nodiscard]] Expected<T, String> sendCdp(auto &cdpEndpoint, const String &method, Args &&...args)
 {
-    auto result = cdpClient.send<T>(method, std::forward<Args>(args)...);
+    auto result = cdpEndpoint.template send<T>(method, std::forward<Args>(args)...);
     if (!result)
         return Unex(describeCdpFailure(text::format("{} failed", method), result.error()));
     return grabValueOf(result);
@@ -724,10 +723,10 @@ sendCdp(CdpClient &cdpClient, const String &method, Args &&...args)
 
 template <typename... Args>
 [[nodiscard]] Expected<void, String>
-sendCdpVoid(CdpClient &cdpClient, const String &method, Args &&...args)
+sendCdpVoid(auto &cdpEndpoint, const String &method, Args &&...args)
 {
     const auto result = sendCdp<dto::CdpEmptyObject>(
-        cdpClient, method, std::forward<Args>(args)...
+        cdpEndpoint, method, std::forward<Args>(args)...
     );
     if (!result)
         return Unex(result.error());
@@ -746,6 +745,10 @@ Expected<void, String> BrowserPageSession::createBrowserContext()
     if (!browserContext)
         return Unex(browserContext.error());
     browserContextIdValue = String::fromBytes(browserContext->browserContextId).expect();
+    UINVARIANT(
+        lifecycle.markBrowserContextCreated(),
+        "invalid browser page lifecycle transition after creating browser context"
+    );
     return {};
 }
 
@@ -762,6 +765,10 @@ Expected<void, String> BrowserPageSession::createBlankTarget()
     if (!target)
         return Unex(target.error());
     targetIdValue = String::fromBytes(target->targetId).expect();
+    UINVARIANT(
+        lifecycle.markTargetCreated(),
+        "invalid browser page lifecycle transition after creating target"
+    );
     return {};
 }
 
@@ -777,14 +784,77 @@ Expected<void, String> BrowserPageSession::attachToTarget()
     );
     if (!attached)
         return Unex(attached.error());
-    sessionIdValue = String::fromBytes(attached->sessionId).expect();
-    auto cdpSession = cdpClient.createSession(*sessionIdValue, *targetIdValue);
+    auto sessionId = String::fromBytes(attached->sessionId).expect();
+    auto cdpSession = cdpClient.createSession(sessionId, *targetIdValue);
     if (!cdpSession)
         return Unex(
             describeCdpFailure("failed to register cdp target session"_t, cdpSession.error())
         );
+    sessionIdValue = std::move(sessionId);
     cdpSessionValue = grabValueOf(cdpSession);
+    UINVARIANT(
+        lifecycle.markAttached(), "invalid browser page lifecycle transition after attaching target"
+    );
     return {};
+}
+
+Expected<void, String>
+BrowserPageSession::attachFreshTarget(const std::function<void(std::string_view)> &markPhase)
+{
+    markPhase("create_browser_context");
+    if (const auto created = createBrowserContext(); !created)
+        return Unex(created.error());
+    markPhase("create_target");
+    if (const auto created = createBlankTarget(); !created)
+        return Unex(created.error());
+    markPhase("attach_target");
+    if (const auto attached = attachToTarget(); !attached)
+        return Unex(attached.error());
+    return {};
+}
+
+Expected<void, String>
+BrowserPageSession::enableBaseDomains(const std::function<void(std::string_view)> &markPhase)
+{
+    markPhase("enable_page");
+    if (const auto enabled = sendCdpVoid(cdpSession(), "Page.enable"_t); !enabled)
+        return Unex(enabled.error());
+    markPhase("enable_runtime");
+    if (const auto enabled = sendCdpVoid(cdpSession(), "Runtime.enable"_t); !enabled)
+        return Unex(enabled.error());
+    markPhase("enable_network");
+    if (const auto enabled = sendCdpVoid(cdpSession(), "Network.enable"_t); !enabled)
+        return Unex(enabled.error());
+    markPhase("enable_lifecycle_events");
+    dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
+    lifecycleParams.enabled = true;
+    if (const auto enabled =
+            sendCdpVoid(cdpSession(), "Page.setLifecycleEventsEnabled"_t, lifecycleParams);
+        !enabled) {
+        return Unex(enabled.error());
+    }
+
+    UINVARIANT(
+        lifecycle.markBaseDomainsEnabled(),
+        "invalid browser page lifecycle transition after enabling base CDP domains"
+    );
+    return {};
+}
+
+Expected<void, String>
+BrowserPageSession::close(const std::function<void(std::string_view)> &markPhase)
+{
+    if (sessionIdValue) {
+        markPhase("detach_target");
+        if (const auto detached = detach(); !detached)
+            return Unex(detached.error());
+    }
+    if (browserContextIdValue) {
+        markPhase("dispose_browser_context");
+        if (const auto disposed = disposeBrowserContext(); !disposed)
+            return Unex(disposed.error());
+    }
+    return close();
 }
 
 Expected<void, String> BrowserPageSession::detach()
@@ -799,6 +869,9 @@ Expected<void, String> BrowserPageSession::detach()
         return Unex(detached.error());
     cdpSessionValue.reset();
     sessionIdValue.reset();
+    UINVARIANT(
+        lifecycle.markDetached(), "invalid browser page lifecycle transition after detaching target"
+    );
     return {};
 }
 
@@ -814,6 +887,10 @@ Expected<void, String> BrowserPageSession::disposeBrowserContext()
         return Unex(disposed.error());
     browserContextIdValue.reset();
     targetIdValue.reset();
+    UINVARIANT(
+        lifecycle.markDisposed(),
+        "invalid browser page lifecycle transition after disposing browser context"
+    );
     return {};
 }
 
@@ -823,6 +900,10 @@ Expected<void, String> BrowserPageSession::close()
         return Unex(detached.error());
     if (const auto disposed = disposeBrowserContext(); !disposed)
         return Unex(disposed.error());
+    UINVARIANT(
+        lifecycle.markClosed(),
+        "invalid browser page lifecycle transition after closing page session"
+    );
     return {};
 }
 

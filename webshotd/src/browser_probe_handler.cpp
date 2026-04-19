@@ -388,21 +388,10 @@ runProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         cleanup();
         return Unex(std::move(detail));
     };
-    const auto runPageSessionStep = [&](const char *phase, auto &&step) -> Expected<void, String> {
-        browser.markPhase(phase);
-        const auto result = step();
+    const auto runPageSessionFlow = [&](auto &&step) -> Expected<void, String> {
+        const auto result = step([&browser](std::string_view phase) { browser.markPhase(phase); });
         if (!result)
             return Unex(browser.buildFailureDetail(result.error()));
-        return {};
-    };
-    const auto sendSessionVoid = [&](const String &method,
-                                     auto &&...args) -> Expected<void, String> {
-        const auto result = cdpSession->sendVoid(method, std::forward<decltype(args)>(args)...);
-        if (!result) {
-            return Unex(browser.buildFailureDetail(
-                describeCdpFailure(text::format("{} failed", method), result.error())
-            ));
-        }
         return {};
     };
     const auto drainSessionEvents = [&]() -> Expected<void, String> {
@@ -412,38 +401,20 @@ runProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         return {};
     };
 
-    if (const auto created = runPageSessionStep(
-            "create_browser_context", [&] { return pageSession.createBrowserContext(); }
-        );
-        !created) {
-        return failProbe(created.error());
-    }
-
-    if (const auto created =
-            runPageSessionStep("create_target", [&] { return pageSession.createBlankTarget(); });
-        !created) {
-        return failProbe(created.error());
-    }
-
-    if (const auto attached =
-            runPageSessionStep("attach_target", [&] { return pageSession.attachToTarget(); });
+    if (const auto attached = runPageSessionFlow([&](const auto &markPhase) {
+            return pageSession.attachFreshTarget(markPhase);
+        });
         !attached) {
         return failProbe(attached.error());
     }
     cdpSession = &pageSession.cdpSession();
 
-    if (const auto ok = sendSessionVoid("Page.enable"_t); !ok)
+    if (const auto ok = runPageSessionFlow([&](const auto &markPhase) {
+            return pageSession.enableBaseDomains(markPhase);
+        });
+        !ok) {
         return failProbe(ok.error());
-    if (const auto ok = sendSessionVoid("Runtime.enable"_t); !ok)
-        return failProbe(ok.error());
-    browser.markPhase("enable_network");
-    if (const auto ok = sendSessionVoid("Network.enable"_t); !ok)
-        return failProbe(ok.error());
-    browser.markPhase("enable_lifecycle_events");
-    dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
-    lifecycleParams.enabled = true;
-    if (const auto ok = sendSessionVoid("Page.setLifecycleEventsEnabled"_t, lifecycleParams); !ok)
-        return failProbe(ok.error());
+    }
     if (const auto drained = drainSessionEvents(); !drained)
         return failProbe(drained.error());
 

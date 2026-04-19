@@ -136,6 +136,15 @@ add_cpp_test(
 add_cpp_test(cdp_request_tracker_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/cdp_request_tracker.cpp)
 
+add_cpp_test(
+  browser_page_lifecycle_test
+  SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/browser_page_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/src/crawler/browser_page_lifecycle.cpp
+  LIBS
+  sml::sml)
+target_compile_definitions(browser_page_lifecycle_test PRIVATE BOOST_SML_CFG_DISABLE_MIN_SIZE)
+
 add_cpp_helper(
   s3_v4_client_abort_probe
   SOURCES

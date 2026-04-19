@@ -8,6 +8,7 @@
     ada
     pkg-config
     ccache
+    drv.boostSml
     boost183
     libarchive
     libarchive.dev
@@ -17,6 +18,7 @@
   ];
 
   cmakePrefix = with nix; [
+    drv.boostSml
     boost183.dev
     fmt.dev
     zstd.dev

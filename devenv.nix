@@ -17,6 +17,8 @@
         ./devenv/pkgs/pgmigrate.nix
         ./devenv/pkgs/seaweedfs.nix
         ./devenv/pkgs/testsuite.nix
+        ./devenv/pkgs/boost-sml.nix
+        ./patch/boost_sml_disable_min_size.patch
         ./devenv/pkgs/include-what-you-use.nix
         ./devenv/pkgs/uni-algo.nix
         ./devenv/pkgs/userver.nix

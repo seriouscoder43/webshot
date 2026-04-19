@@ -1378,17 +1378,12 @@ private:
         cdp = grabValueOf(connected);
         pageSession = std::make_unique<crawler::BrowserPageSession>(cdpClient());
 
-        browser.markPhase("create_browser_context");
-        if (auto created = pageSession->createBrowserContext(); !created)
-            return Unex(created.error());
-
-        browser.markPhase("create_target");
-        if (auto created = pageSession->createBlankTarget(); !created)
-            return Unex(created.error());
-
-        browser.markPhase("attach_target");
-        if (auto attached = pageSession->attachToTarget(); !attached)
+        if (auto attached = pageSession->attachFreshTarget([this](std::string_view phase) {
+                browser.markPhase(phase);
+            });
+            !attached) {
             return Unex(attached.error());
+        }
         tracker = std::make_unique<PageTracker>(pageSession->sessionId(), pageSession->targetId());
         startEventLoop();
         return {};
@@ -1396,26 +1391,17 @@ private:
 
     [[nodiscard]] Expected<crawler::CapturedExchange, String> captureAttachedTarget()
     {
-        browser.markPhase("enable_page");
-        if (auto ok = sendSessionVoid("Page.enable"_t); !ok)
+        if (auto ok = pageSession->enableBaseDomains([this](std::string_view phase) {
+                browser.markPhase(phase);
+            });
+            !ok) {
             return Unex(ok.error());
-        browser.markPhase("enable_runtime");
-        if (auto ok = sendSessionVoid("Runtime.enable"_t); !ok)
-            return Unex(ok.error());
-        browser.markPhase("enable_network");
-        if (auto ok = sendSessionVoid("Network.enable"_t); !ok)
-            return Unex(ok.error());
+        }
 
         browser.markPhase("enable_fetch");
         dto::FetchEnableParams fetchParams;
         fetchParams.handleAuthRequests = true;
         if (auto ok = sendSessionVoid("Fetch.enable"_t, fetchParams); !ok)
-            return Unex(ok.error());
-
-        browser.markPhase("enable_lifecycle_events");
-        dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
-        lifecycleParams.enabled = true;
-        if (auto ok = sendSessionVoid("Page.setLifecycleEventsEnabled"_t, lifecycleParams); !ok)
             return Unex(ok.error());
 
         browser.markPhase("disable_cache");
@@ -1532,12 +1518,12 @@ private:
             return Unex(resources.error());
 
         stopEventLoop();
-        browser.markPhase("detach_target");
-        if (auto detached = pageSession->detach(); !detached)
-            return Unex(detached.error());
-        browser.markPhase("dispose_browser_context");
-        if (auto disposed = pageSession->disposeBrowserContext(); !disposed)
-            return Unex(disposed.error());
+        if (auto closedPage = pageSession->close([this](std::string_view phase) {
+                browser.markPhase(phase);
+            });
+            !closedPage) {
+            return Unex(closedPage.error());
+        }
         pageSession.reset();
 
         browser.markPhase("build_exchange_start");
@@ -1570,7 +1556,15 @@ private:
     void closeCdpForFailure()
     {
         stopEventLoop();
-        pageSession.reset();
+        if (pageSession) {
+            if (const auto closedPage = pageSession->close(); !closedPage) {
+                LOG_WARNING() << std::format(
+                    "Suppressing page session close failure during capture cleanup: {}",
+                    closedPage.error().view()
+                );
+            }
+            pageSession.reset();
+        }
         if (!cdp)
             return;
 

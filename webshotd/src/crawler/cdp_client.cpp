@@ -410,8 +410,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
 {
     using enum CdpError;
     auto waiter = std::make_shared<PendingCommandWaiter>();
-    i64 id{0_i64};
-
+    i64 id{0};
     {
         auto state = sharedState.Lock();
         if (state->terminalFailure)
@@ -422,7 +421,6 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
         state->pendingRequests.insertWaiting(id, method, sessionId);
         state->pendingWaiters.emplace(id, waiter);
     }
-
     dto::CdpCommandRequest request;
     request.id = raw(id);
     request.method = std::string(method.view());

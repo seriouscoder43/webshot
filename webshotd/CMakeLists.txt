@@ -3,7 +3,8 @@ project(webshotd CXX)
 
 include(GNUInstallDirs)
 
-get_filename_component(WEBSHOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+get_filename_component(WEBSHOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.."
+                       ABSOLUTE)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX
@@ -30,16 +31,13 @@ set(WEBSHOT_ENABLE_COVERAGE
 set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
 set(WEBSHOT_RAPIDOC_ASSETS_DIR
     ""
-    CACHE STRING
-          "Absolute path to pinned RapiDoc assets")
+    CACHE STRING "Absolute path to pinned RapiDoc assets")
 set(WEBSHOT_WEB_UI_VENDOR_DIR
     ""
-    CACHE STRING
-          "Absolute path to pinned web UI vendor assets")
+    CACHE STRING "Absolute path to pinned web UI vendor assets")
 set(WEBSHOT_RUNTIME_EXTRA_PATH
     ""
-    CACHE STRING
-          "Colon-separated PATH prefix exported by the runtime wrapper")
+    CACHE STRING "Colon-separated PATH prefix exported by the runtime wrapper")
 
 option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
 
@@ -78,12 +76,13 @@ set(${PROJECT_NAME}_headers
     include/docs_handler.hpp
     include/ui_replay_handler.hpp
     include/crud.hpp
-	include/crawler/runner.hpp
-	include/crawler/artifacts.hpp
-	include/crawler/browser_session.hpp
-	include/crawler/limits.hpp
-	include/crawler/launch_policy.hpp
-	include/crawler/cdp_client.hpp
+    include/crawler/runner.hpp
+    include/crawler/artifacts.hpp
+    include/crawler/browser_session.hpp
+    include/crawler/browser_page_lifecycle.hpp
+    include/crawler/limits.hpp
+    include/crawler/launch_policy.hpp
+    include/crawler/cdp_client.hpp
     include/crawler/egress_proxy.hpp
     include/config.hpp
     include/crawler/failure.hpp
@@ -119,6 +118,7 @@ add_library(
   src/crawler/runner.cpp
   src/crawler/artifacts.cpp
   src/crawler/browser_session.cpp
+  src/crawler/browser_page_lifecycle.cpp
   src/crawler/cdp_client.cpp
   src/crawler/egress_proxy.cpp
   src/crawler/failure.cpp
@@ -179,44 +179,47 @@ apply_defaults(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME webshotd)
 set(WEBSHOT_RUNTIME_WRAPPER_TEMPLATE
     "${CMAKE_CURRENT_SOURCE_DIR}/webshotd_wrapper.sh.in")
-set(WEBSHOT_RUNTIME_WRAPPER
-    "${CMAKE_CURRENT_BINARY_DIR}/webshotd_wrapper.sh")
+set(WEBSHOT_RUNTIME_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/webshotd_wrapper.sh")
 configure_file("${WEBSHOT_RUNTIME_WRAPPER_TEMPLATE}"
                "${WEBSHOT_RUNTIME_WRAPPER}" @ONLY)
 file(
-  CHMOD "${WEBSHOT_RUNTIME_WRAPPER}"
-  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
-              WORLD_READ WORLD_EXECUTE)
+  CHMOD
+  "${WEBSHOT_RUNTIME_WRAPPER}"
+  PERMISSIONS
+  OWNER_READ
+  OWNER_WRITE
+  OWNER_EXECUTE
+  GROUP_READ
+  GROUP_EXECUTE
+  WORLD_READ
+  WORLD_EXECUTE)
 add_custom_target(
   ${PROJECT_NAME}_stage_runtime_layout ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/web_ui"
   COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
-    "${CMAKE_INSTALL_PREFIX}/web_ui/index.html"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
-    "${CMAKE_INSTALL_PREFIX}/web_ui/style.css"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_directory "${WEBSHOT_WEB_UI_VENDOR_DIR}"
-    "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}>
-    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper"
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+          "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_BINARY_DIR}/CMakeCache.txt"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/CMakeCache.txt"
-  DEPENDS
-    ${PROJECT_NAME}
-    "${CMAKE_BINARY_DIR}/CMakeCache.txt"
     "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
+    "${CMAKE_INSTALL_PREFIX}/web_ui/index.html"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
     "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
+    "${CMAKE_INSTALL_PREFIX}/web_ui/style.css"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${WEBSHOT_WEB_UI_VENDOR_DIR}"
+          "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}>
+          "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
+          "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/CMakeCache.txt"
+    "${CMAKE_INSTALL_PREFIX}/webshotd/CMakeCache.txt"
+  DEPENDS ${PROJECT_NAME} "${CMAKE_BINARY_DIR}/CMakeCache.txt"
+          "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
+          "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
   VERBATIM)
 
 if(WEBSHOT_RAPIDOC_ASSETS_DIR STREQUAL "")
@@ -235,6 +238,7 @@ if(WEBSHOT_ENABLE_COVERAGE)
 endif()
 
 find_package(Boost CONFIG REQUIRED COMPONENTS context)
+find_package(sml CONFIG REQUIRED)
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
 include("${userver_DIR}/UserverEmbedFile.cmake")
 userver_embed_file(
@@ -246,12 +250,16 @@ userver_embed_file(
   HPP_FILENAME
   "browser_sandbox.sh")
 set(_webshot_browser_sandbox_embed_hpp
-    "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox.sh.hpp")
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox.sh.hpp"
+)
 set_source_files_properties(
-  src/crawler/runner.cpp src/crawler/browser_session.cpp src/browser_probe_handler.cpp PROPERTIES OBJECT_DEPENDS
-                                   "${_webshot_browser_sandbox_embed_hpp}")
+  src/crawler/runner.cpp src/crawler/browser_session.cpp
+  src/browser_probe_handler.cpp
+  PROPERTIES OBJECT_DEPENDS "${_webshot_browser_sandbox_embed_hpp}")
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE webshotd_browser_sandbox_sh)
 target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_sh)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE sml::sml)
+target_compile_definitions(${PROJECT_NAME}_objs PRIVATE BOOST_SML_CFG_DISABLE_MIN_SIZE)
 find_package(ada CONFIG REQUIRED COMPONENTS ada)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ada::ada)
 find_package(uni-algo CONFIG REQUIRED)
@@ -259,8 +267,7 @@ target_link_libraries(${PROJECT_NAME}_objs PRIVATE uni-algo::uni-algo)
 find_package(absl CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
-                      PUBLIC userver::core userver::postgresql userver::s3api
-                             )
+                      PUBLIC userver::core userver::postgresql userver::s3api)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${jemalloc_LIBRARIES_jemalloc})
 
@@ -289,7 +296,8 @@ if(CMAKE_CXX_INCLUDE_WHAT_YOU_USE)
   set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE "")
 endif()
 
-add_subdirectory("${WEBSHOT_REPO_ROOT}/arkhiv" "${CMAKE_CURRENT_BINARY_DIR}/arkhiv")
+add_subdirectory("${WEBSHOT_REPO_ROOT}/arkhiv"
+                 "${CMAKE_CURRENT_BINARY_DIR}/arkhiv")
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE arkhiv::arkhiv)
 target_sources(
   ${PROJECT_NAME}_objs
@@ -308,7 +316,8 @@ userver_add_sql_library(
   SQL_FILES
   *.sql)
 set_source_files_properties(
-  "${CMAKE_CURRENT_BINARY_DIR}/src/webshot/sql_queries.cpp" PROPERTIES SKIP_LINTING ON)
+  "${CMAKE_CURRENT_BINARY_DIR}/src/webshot/sql_queries.cpp"
+  PROPERTIES SKIP_LINTING ON)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE ${PROJECT_NAME}_sql)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_sql)
 
@@ -358,5 +367,4 @@ target_include_directories(
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "webshotd")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/config/"
         DESTINATION "webshotd/config")
-install(DIRECTORY "${WEBSHOT_REPO_ROOT}/schema/"
-        DESTINATION "schema")
+install(DIRECTORY "${WEBSHOT_REPO_ROOT}/schema/" DESTINATION "schema")
