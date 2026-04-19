@@ -188,6 +188,7 @@
 in {
   inherit drv nix paths sets srcs toolchain variants;
   treefmtExcludes = treefmtExcludes;
+  mkConfigureArgv = mkConfigureArgv;
 
   mkConfigureFingerprint = {
     buildDir,

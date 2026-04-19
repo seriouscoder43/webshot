@@ -227,6 +227,44 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
     return std::unexpected("timed out waiting for expression"_t);
 }
 
+[[nodiscard]] Expected<void, String> settleProbeEvents(
+    crawler::CdpSession &cdpSession, us::engine::Deadline deadline,
+    chrono::milliseconds recheckInterval, std::vector<std::string> &console,
+    std::vector<std::string> &pageErrors
+)
+{
+    const auto settleWindow = std::max(recheckInterval * 2, chrono::milliseconds{250});
+    const auto settleDeadline = pickEarlierDeadline(
+        deadline, us::engine::Deadline::FromDuration(settleWindow)
+    );
+
+    while (!settleDeadline.IsReached()) {
+        if (const auto drained = drainProbeEvents(cdpSession, console, pageErrors); !drained) {
+            return std::unexpected(drained.error());
+        }
+
+        const auto eventDeadline = us::engine::Deadline::FromDuration(
+            std::min(
+                chrono::duration_cast<chrono::milliseconds>(settleDeadline.TimeLeft()),
+                recheckInterval
+            )
+        );
+        auto event = cdpSession.waitEvent(eventDeadline, "timed out waiting for probe settle"_t);
+        if (!event) {
+            if (event.error().code == crawler::CdpError::kTimeout)
+                continue;
+            return std::unexpected(
+                describeCdpFailure("wait for cdp event failed"_t, event.error())
+            );
+        }
+        if (const auto handled = handleProbeEvent(*event, console, pageErrors); !handled) {
+            return std::unexpected(handled.error());
+        }
+    }
+
+    return {};
+}
+
 [[nodiscard]] Expected<dto::BrowserProbeFrameState, String> waitForFrameExpression(
     crawler::CdpSession &cdpSession, const String &expression, us::engine::Deadline deadline,
     chrono::milliseconds recheckInterval, std::vector<std::string> &console,
@@ -450,6 +488,14 @@ evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expressio
     }
     if (const auto drained = drainProbeEvents(*cdpSession, console, pageErrors); !drained) {
         const auto detail = browser.buildFailureDetail(drained.error());
+        cleanup();
+        return std::unexpected(detail);
+    }
+    if (const auto settled = settleProbeEvents(
+            *cdpSession, deadline, config.devtoolsPollInterval, console, pageErrors
+        );
+        !settled) {
+        const auto detail = browser.buildFailureDetail(settled.error());
         cleanup();
         return std::unexpected(detail);
     }

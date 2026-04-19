@@ -27,105 +27,44 @@
 
   runtimeLdPath = lib.makeLibraryPath ctx.sets.testLibs;
 
-  mkBuild = mode: let
-    cfg = modes.${mode};
-    configureFingerprint = ctx.mkConfigureFingerprint {
-      inherit (cfg) buildDir variant;
-    };
-  in ''
-    build_dir=${lib.escapeShellArg cfg.buildDir}
-    configure_fingerprint=${lib.escapeShellArg configureFingerprint}
-    configure_fingerprint_file="$build_dir/.configure-fingerprint"
-    configure_fresh_flag=
-    configure_mode=normal
-    if [[ -f "$configure_fingerprint_file" ]]; then
-      previous_configure_fingerprint=$(<"$configure_fingerprint_file")
-      if [[ "$previous_configure_fingerprint" != "$configure_fingerprint" ]]; then
-        configure_fresh_flag=--fresh
-        configure_mode=fresh
-        printf 'CMake configure spec changed; reconfiguring with --fresh\n'
-      fi
-    elif [[ -f "$build_dir/CMakeCache.txt" || -d "$build_dir/CMakeFiles" ]]; then
-      configure_fresh_flag=--fresh
-      configure_mode=fresh
-      printf 'Existing build dir has no configure fingerprint; reconfiguring with --fresh\n'
-    fi
+  mkRepeatedFlagArgs = flag: args:
+    lib.concatMapStringsSep " \\\n      " (arg: "${flag}=${lib.escapeShellArg arg}") args;
 
-    before_log=$(mktemp /tmp/webshot_build_times_before.XXXXXX)
-    started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    started_ms=$(date +%s%3N)
-    if [[ -f "$build_dir/.ninja_log" ]]; then
-      cp "$build_dir/.ninja_log" "$before_log"
-    else
-      : > "$before_log"
-    fi
-
-    configure_started_ms=$(date +%s%3N)
-    configure_exit_code=0
-    if [[ -n "$configure_fresh_flag" ]]; then
-      set +e
-      ${ctx.mkConfigure {
-      buildDir = cfg.buildDir;
-      clangdFile = cfg.clangd;
-      variant = cfg.variant;
-      fresh = true;
-    }}
-      configure_exit_code=$?
-      set -e
-    else
-      set +e
-      ${ctx.mkConfigure {
-      buildDir = cfg.buildDir;
-      clangdFile = cfg.clangd;
-      variant = cfg.variant;
+  mkBuild = {
+    buildDir,
+    clangdFile,
+    variant,
+    timingsOutput ? null,
+    buildArgs ? [],
+  }: let
+    configureArgv = ctx.mkConfigureArgv {
+      inherit buildDir variant;
       fresh = false;
-    }}
-      configure_exit_code=$?
-      set -e
-    fi
-    configure_finished_ms=$(date +%s%3N)
-    configure_time_ms=$((configure_finished_ms - configure_started_ms))
-    if [[ "$configure_exit_code" -eq 0 ]]; then
-      printf '%s\n' "$configure_fingerprint" > "$configure_fingerprint_file"
-    fi
-
-    build_started_ms=$(date +%s%3N)
-    build_exit_code=0
-    if [[ "$configure_exit_code" -eq 0 ]]; then
-      cmake --build "$build_dir" || build_exit_code=$?
-    fi
-    build_finished_ms=$(date +%s%3N)
-    build_time_ms=$((build_finished_ms - build_started_ms))
-
-    build_exit_code_final=$build_exit_code
-    if [[ "$configure_exit_code" -ne 0 ]]; then
-      build_exit_code_final=$configure_exit_code
-    fi
-
-    build_status=success
-    if [[ "$build_exit_code_final" -ne 0 ]]; then
-      build_status=failure
-    fi
-
-    finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    finished_ms=$(date +%s%3N)
-    wall_time_ms=$((finished_ms - started_ms))
-    python3 webshotd/collect_build_times.py \
-      --build-dir "$build_dir" \
-      --before-log "$before_log" \
-      --after-log "$build_dir/.ninja_log" \
-      --output "$build_dir/latest_build_times.json" \
-      --status "$build_status" \
-      --started-at "$started_at" \
-      --finished-at "$finished_at" \
-      --wall-time-ms "$wall_time_ms" \
-      --configure-time-ms "$configure_time_ms" \
-      --build-time-ms "$build_time_ms"
-    rm -f "$before_log"
-
-    if [[ "$build_exit_code_final" -ne 0 ]]; then
-      exit "$build_exit_code_final"
-    fi
+    };
+    configureFingerprint = ctx.mkConfigureFingerprint {
+      inherit buildDir variant;
+    };
+    timingsArgs =
+      if timingsOutput == null
+      then ""
+      else ''
+        \
+          --timings-output ${lib.escapeShellArg timingsOutput} \
+          --timings-collector ${lib.escapeShellArg "${config.devenv.root}/webshotd/collect_build_times.py"}
+      '';
+    buildArgFlags =
+      if buildArgs == []
+      then ""
+      else ''
+        \
+          ${mkRepeatedFlagArgs "--build-arg" buildArgs}
+      '';
+  in ''
+    python3 devenv/build_task.py \
+      --build-dir ${lib.escapeShellArg buildDir} \
+      --clangd-file ${lib.escapeShellArg clangdFile} \
+      --configure-fingerprint ${lib.escapeShellArg configureFingerprint} \
+      ${mkRepeatedFlagArgs "--configure-arg" configureArgv}${buildArgFlags}${timingsArgs}
   '';
 
   mkTask = exec: {
@@ -158,50 +97,55 @@
         --mode ${lib.escapeShellArg cfg.infra}${profileArg}
     '';
 
-  mkBuildTask = mode:
+  mkBuildTask = mode: let
+    cfg = modes.${mode};
+  in
     mkTask ''
       set -euo pipefail
-      ${mkBuild mode}
+      ${mkBuild {
+        inherit (cfg) buildDir variant;
+        clangdFile = cfg.clangd;
+        timingsOutput = "${cfg.buildDir}/latest_build_times.json";
+      }}
     '';
 
-  mkUpTask = mode:
+  mkUpTask = mode: let
+    cfg = modes.${mode};
+  in
     mkTask ''
       set -euo pipefail
-      ${mkBuild mode}
+      ${mkBuild {
+        inherit (cfg) buildDir variant;
+        clangdFile = cfg.clangd;
+        timingsOutput = "${cfg.buildDir}/latest_build_times.json";
+      }}
       exec ${mkRuntime "up" mode null}
     '';
 
   mkRuntimeTask = action: mode: mkTask (mkRuntime action mode null);
 
-  mkTestTask = mode: let
+  mkTestTask = mode: failFast: let
     up = mkRuntime "up" mode "test_infra";
     down = mkRuntime "down" mode null;
+    failFastArg =
+      if failFast
+      then " --fail-fast"
+      else "";
   in
     mkTask ''
       set -euo pipefail
-      ${mkBuild mode}
+      ${mkBuild {
+        inherit (modes.${mode}) buildDir variant;
+        clangdFile = modes.${mode}.clangd;
+        timingsOutput = "${modes.${mode}.buildDir}/latest_build_times.json";
+      }}
       cleanup() {
         ${down}
       }
       trap cleanup EXIT
       ${up}
-      ${ctx.drv.testSan}/bin/test_san
-    '';
-
-  mkFailFastTestTask = mode: let
-    up = mkRuntime "up" mode "test_infra";
-    down = mkRuntime "down" mode null;
-  in
-    mkTask ''
-      set -euo pipefail
-      ${mkBuild mode}
-      cleanup() {
-        ${down}
-      }
-      trap cleanup EXIT
-      ${up}
-      ${ctx.drv.testSan}/bin/test_san --stop-on-failure -E '^testsuite-testsuite-tests(-fail-fast)?$'
-      ${ctx.drv.testSan}/bin/test_san --stop-on-failure -R '^testsuite-testsuite-tests-fail-fast$'
+      python3 devenv/run_unit_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
+      python3 devenv/run_testsuite_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
     '';
 
   mkPgmigrate = mode: cmd: let
@@ -218,21 +162,20 @@ in {
 
   tasks."proj:tidyBuild" = mkTask ''
     set -euo pipefail
-    ${ctx.mkConfigure {
+    ${mkBuild {
       buildDir = ctx.paths.build.tidy;
       clangdFile = ctx.paths.clangd.tidy;
       variant = ctx.variants.tidy;
-      fresh = false;
+      buildArgs = ["--" "-k" "0"];
     }}
-    cmake --build ${lib.escapeShellArg ctx.paths.build.tidy} -- -k 0
   '';
 
   tasks."proj:devUp" = mkUpTask "dev";
   tasks."proj:devDown" = mkRuntimeTask "down" "dev";
   tasks."proj:devStatus" = (mkRuntimeTask "status" "dev") // {showOutput = true;};
   tasks."proj:devLogs" = (mkRuntimeTask "logs" "dev") // {showOutput = true;};
-  tasks."proj:devTest" = mkTestTask "dev";
-  tasks."proj:devTestFailFast" = mkFailFastTestTask "dev";
+  tasks."proj:devTest" = mkTestTask "dev" false;
+  tasks."proj:devTestFailFast" = mkTestTask "dev" true;
   tasks."proj:devDbMigrate" = mkPgmigrate "dev" "migrate";
   tasks."proj:devDbBaseline" = mkPgmigrate "dev" "baseline";
 

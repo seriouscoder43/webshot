@@ -1,3 +1,6 @@
+#include "subprocess_probe.hpp"
+
+#include <csignal>
 #include <map>
 #include <string>
 #include <vector>
@@ -208,18 +211,12 @@ UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
 
 UTEST(S3SigV4Client, VirtualHostRequiresBucket)
 {
-    auto httpClient = userver::utest::CreateHttpClient();
-    auto cfg = makeConfig();
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, String());
-
-    const auto expiresAt = userver::utils::datetime::Now() + std::chrono::seconds(60);
-    EXPECT_DEATH(
-        static_cast<void>(
-            client->GenerateDownloadUrlVirtualHostAddressing("obj", expiresAt, "https")
-        ),
-        "presign requires non-empty bucket"
+    const auto result = test::subprocess_probe::run(
+        "s3_v4_client_abort_probe", {"virtual-host-requires-bucket"}
     );
+    EXPECT_TRUE(result.signaled());
+    EXPECT_EQ(result.termSignal, SIGABRT);
+    EXPECT_NE(result.output.find("presign requires non-empty bucket"), std::string::npos);
 }
 
 UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)

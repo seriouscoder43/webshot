@@ -32,6 +32,28 @@ function(add_cpp_test target)
   set_property(GLOBAL APPEND PROPERTY WEBSHOT_CPP_TESTS ${target})
 endfunction()
 
+function(add_cpp_helper target)
+  cmake_parse_arguments(ARGS "" "" "SOURCES;LIBS;INCLUDE_DIRS" ${ARGN})
+
+  add_executable(${target} ${ARGS_SOURCES})
+  target_link_libraries(
+    ${target}
+    PRIVATE ada::ada
+            uni-algo::uni-algo
+            absl::strings
+            ${ARGS_LIBS})
+  target_include_directories(
+    ${target} PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
+                      ${PROJECT_BINARY_DIR}/src ${ARGS_INCLUDE_DIRS})
+  apply_defaults(${target})
+  target_compile_options(${target} PRIVATE -Wno-switch-default)
+
+  if(USE_SANITIZERS)
+    target_compile_options(${target} PRIVATE "-fsanitize=address,undefined")
+    target_link_options(${target} PRIVATE "-fsanitize=address,undefined")
+  endif()
+endfunction()
+
 add_cpp_test(
   link_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/link.cpp
   ${CMAKE_SOURCE_DIR}/src/link.cpp ${CMAKE_SOURCE_DIR}/src/url.cpp)
@@ -92,6 +114,10 @@ add_cpp_test(
   error_utils_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/error_utils.cpp
   ${CMAKE_SOURCE_DIR}/src/error_utils.cpp LIBS ${PROJECT_NAME}-chgen)
 
+add_cpp_helper(
+  integers_abort_probe SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/integers_abort_probe.cpp LIBS userver::core)
+
 add_cpp_test(integers_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/integers.cpp)
 
@@ -114,6 +140,20 @@ add_cpp_test(
 
 add_cpp_test(cdp_request_tracker_test SOURCES
                      ${CMAKE_CURRENT_SOURCE_DIR}/cdp_request_tracker.cpp)
+
+add_cpp_helper(
+  s3_v4_client_abort_probe
+  SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/s3_v4_client_abort_probe.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/sigv4_signer.cpp
+  ${CMAKE_SOURCE_DIR}/src/s3/s3_v4_client.cpp
+  ${CMAKE_SOURCE_DIR}/src/link.cpp
+  ${CMAKE_SOURCE_DIR}/src/url.cpp
+  LIBS
+  userver::utest
+  userver::core
+  INCLUDE_DIRS
+  ${CMAKE_SOURCE_DIR}/src)
 
 get_property(WEBSHOT_CPP_TESTS GLOBAL PROPERTY WEBSHOT_CPP_TESTS)
 set(WEBSHOT_COVERAGE_TARGETS ${PROJECT_NAME} ${WEBSHOT_CPP_TESTS})
@@ -145,11 +185,6 @@ if(USERVER_FEATURE_TESTSUITE)
     --service-secdist=${CMAKE_SOURCE_DIR}/secret/test_secdist.json
     --service-source-dir=${CMAKE_SOURCE_DIR}
     --postgresql=postgresql://postgres@localhost:5432/postgres)
-
-  add_test(
-    NAME testsuite-testsuite-tests-fail-fast
-    COMMAND ${TESTSUITE_PYTHON_BINARY} ${testsuite_runner_path}
-            --service-logs-pretty -vv -x)
 
   add_custom_target(
     testsuite-runner-guard ALL

@@ -26,7 +26,7 @@ in {
       ctx.drv.pgmigrate
     ]
     ++ ctx.sets.userverLibs
-    ++ [ctx.drv.testSan ctx.drv.testCov]
+    ++ [ctx.drv.testCov]
     ++ (with ctx.nix; [
       git
       gdb

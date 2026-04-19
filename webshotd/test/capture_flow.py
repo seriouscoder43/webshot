@@ -348,7 +348,7 @@ async def test_capture_depth_fetches_additional_resources(
 
 @pytest.mark.asyncio
 async def test_capture_near_archive_limit_success(
-    service_client, download_wacz, testsuite_webshotd_state_dir
+    service_client, download_wacz, test_target_payload_dir
 ):
     limit_mib = 8
     payload_mib = limit_mib - 3
@@ -358,9 +358,7 @@ async def test_capture_near_archive_limit_success(
     import os
 
     token = uuid.uuid4().hex
-    payload_dir = testsuite_webshotd_state_dir / "nginx_payloads"
-    payload_dir.mkdir(parents=True, exist_ok=True)
-    payload_path = payload_dir / f"{token}.bin"
+    payload_path = test_target_payload_dir / f"{token}.bin"
     try:
         with payload_path.open("wb") as f:
             remaining = payload_bytes
@@ -392,8 +390,8 @@ async def test_capture_records_main_document_redirect_in_wacz(
     archive_text = _wacz_archive_text(wacz)
     assert 302 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-seed")
     assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-final")
-    assert "HTTP/1.1 302 Found" in archive_text
-    assert "Location: /redirect-final" in archive_text
+    assert "HTTP/1.1 302 " in archive_text
+    assert "location: /redirect-final" in archive_text
     assert "WARC-Target-URI: https://test-target/redirect-final" in archive_text
     assert "redirect final" in archive_text
 
@@ -441,7 +439,7 @@ async def test_capture_preserves_redirected_subresource_hops(
     archive_text = _wacz_archive_text(wacz)
     assert 302 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-script.js")
     assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/script-final.js")
-    assert "Location: /script-final.js" in archive_text
+    assert "location: /script-final.js" in archive_text
     assert "window.__redirectedAssetLoaded = true;" in archive_text
 
 

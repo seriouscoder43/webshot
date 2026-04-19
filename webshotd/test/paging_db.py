@@ -12,6 +12,10 @@ INSERT_CAPTURE_SQL = _adapt_positional_to_psycopg(
 DUMMY_SHA256 = b"\x00" * 32
 
 
+def _replay_url(capture_id: uuid.UUID) -> str:
+    return f"https://replay.invalid/{capture_id}"
+
+
 async def test_list_captures_orders_by_created_at(
     service_client,
     pgsql,
@@ -35,6 +39,7 @@ async def test_list_captures_orders_by_created_at(
                 prefix_key,
                 prefix_tree,
                 DUMMY_SHA256,
+                _replay_url(newer_id),
             ),
         )
         cur.execute(
@@ -45,6 +50,7 @@ async def test_list_captures_orders_by_created_at(
                 prefix_key,
                 prefix_tree,
                 DUMMY_SHA256,
+                _replay_url(older_id),
             ),
         )
     finally:
@@ -71,28 +77,32 @@ async def test_list_captures_prefix_sees_inserted_links(
 
     cur = db.cursor()
     try:
+        capture_id_a = uuid.uuid4()
         prefix_key_a = prefix_key_from_link(f"{TEST_HOST}/prefix/a")
         prefix_tree_a = prefix_tree_from_prefix_key(prefix_key_a)
         cur.execute(
             INSERT_CAPTURE_SQL,
             (
-                uuid.uuid4(),
+                capture_id_a,
                 f"{TEST_HOST}/prefix/a",
                 prefix_key_a,
                 prefix_tree_a,
                 DUMMY_SHA256,
+                _replay_url(capture_id_a),
             ),
         )
+        capture_id_b = uuid.uuid4()
         prefix_key_b = prefix_key_from_link(f"{TEST_HOST}/prefix/b")
         prefix_tree_b = prefix_tree_from_prefix_key(prefix_key_b)
         cur.execute(
             INSERT_CAPTURE_SQL,
             (
-                uuid.uuid4(),
+                capture_id_b,
                 f"{TEST_HOST}/prefix/b",
                 prefix_key_b,
                 prefix_tree_b,
                 DUMMY_SHA256,
+                _replay_url(capture_id_b),
             ),
         )
     finally:
@@ -133,6 +143,7 @@ async def test_list_captures_paged_two_pages(
                     prefix_key,
                     prefix_tree,
                     DUMMY_SHA256,
+                    _replay_url(capture_id),
                 ),
             )
     finally:

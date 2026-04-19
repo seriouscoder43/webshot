@@ -1,8 +1,11 @@
 #include "integers.hpp"
+#include "subprocess_probe.hpp"
 
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <string>
 
 #include <userver/utest/utest.hpp>
 
@@ -39,20 +42,28 @@ UTEST(Integers, NumericCastSupportsSafeIntegerSources)
 
 UTEST(Integers, NumericCastAbortsOnNegativeToUnsigned)
 {
-    EXPECT_DEATH(static_cast<void>(numericCast<size_t>(-1)), "safe integer failure");
+    const auto result = test::subprocess_probe::run(
+        "integers_abort_probe", {"negative-to-unsigned"}
+    );
+    EXPECT_TRUE(result.signaled());
+    EXPECT_EQ(result.termSignal, SIGABRT);
+    EXPECT_NE(result.output.find("safe integer failure"), std::string::npos);
 }
 
 UTEST(Integers, NumericCastAbortsOnNarrowingOverflow)
 {
-    EXPECT_DEATH(
-        static_cast<void>(numericCast<int>(std::numeric_limits<int64_t>::max())),
-        "safe integer failure"
-    );
+    const auto result = test::subprocess_probe::run("integers_abort_probe", {"narrowing-overflow"});
+    EXPECT_TRUE(result.signaled());
+    EXPECT_EQ(result.termSignal, SIGABRT);
+    EXPECT_NE(result.output.find("safe integer failure"), std::string::npos);
 }
 
 UTEST(Integers, NumericCastAbortsOnEnumUnderlyingOverflow)
 {
-    EXPECT_DEATH(
-        static_cast<void>(numericCast<SmallEnum>(std::uint16_t{256})), "safe integer failure"
+    const auto result = test::subprocess_probe::run(
+        "integers_abort_probe", {"enum-underlying-overflow"}
     );
+    EXPECT_TRUE(result.signaled());
+    EXPECT_EQ(result.termSignal, SIGABRT);
+    EXPECT_NE(result.output.find("safe integer failure"), std::string::npos);
 }

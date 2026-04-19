@@ -16,6 +16,7 @@ from s6.s3_bucket import ensure_s3_bucket_exists
 _S3_GATE_HOST = "localhost"
 _SERVICE_PORT = 8080
 _MONITOR_PORT = 8081
+_DEV_RUNTIME_STATE_ROOT = pathlib.Path("/tmp/webshot/dev")
 _DEV_WEBSHOTD_TEST_PKI_DIR = pathlib.Path("/tmp/webshot/dev/webshotd/test_pki")
 _TESTSUITE_STATE_ROOT = pathlib.Path("/tmp/webshot/testsuite")
 
@@ -92,6 +93,13 @@ def testsuite_webshotd_state_dir(
     service_binary: pathlib.Path, service_source_dir: pathlib.Path
 ) -> pathlib.Path:
     return _prepare_testsuite_webshotd_state_dir(service_binary, service_source_dir)
+
+
+@pytest.fixture(scope="session")
+def test_target_payload_dir() -> pathlib.Path:
+    payload_dir = _DEV_RUNTIME_STATE_ROOT / "nginx_payloads"
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    return payload_dir
 
 
 @pytest.fixture(scope="session")

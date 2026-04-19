@@ -11,8 +11,9 @@ Reminder:
 
 # General rules
 - Never implement backwards compatibility or silent fallbacks unless told to do so.
-- Prefer failing hard over silent fallbacks.
 - Never introduce environment variables unless told to do so.
+- Never run `grep` or `find` on the whole /nix/store.
+- Never run multiple devenv commands. A devenv command rebuilds repo state on every change.
 
 # Response discipline
 - Do not respond with large blocks of code; show only short, focused snippets when necessary, or omit code entirely and describe changes instead.
