@@ -1,4 +1,5 @@
 #include "crawler/artifacts.hpp"
+#include "try.hpp"
 #include "url.hpp"
 #include "userver_namespaces.hpp"
 
@@ -565,27 +566,23 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
     auto offset = 0_i64;
     for (const auto &response : responses) {
         auto [responseBytes, requestBytes] = serializeRecordPair(response);
-        auto responseGz = gzipMember(responseBytes);
-        if (!responseGz)
-            return Unex(responseGz.error());
-        auto requestGz = gzipMember(requestBytes);
-        if (!requestGz)
-            return Unex(requestGz.error());
+        auto responseGz = TRY(gzipMember(responseBytes));
+        auto requestGz = TRY(gzipMember(requestBytes));
         out.cdxRecords.push_back(
             WarcCdxRecord{
                 .recordUrl = response.responseUrl,
                 .timestamp = toCdxTimestamp(response.timestamp),
                 .digest = cdxPayloadDigest(response.body),
-                .recordDigest = cdxRecordDigest(*responseGz),
+                .recordDigest = cdxRecordDigest(responseGz),
                 .statusCode = response.statusCode,
                 .headers = response.headers,
                 .offset = offset,
-                .length = i64(responseGz->size()),
+                .length = i64(responseGz.size()),
             }
         );
-        out.bytes.append(*responseGz);
-        out.bytes.append(*requestGz);
-        offset += i64{responseGz->size()} + i64{requestGz->size()};
+        out.bytes.append(responseGz);
+        out.bytes.append(requestGz);
+        offset += i64{responseGz.size()} + i64{requestGz.size()};
     }
 
     const auto pageInfoUrl = text::format(
@@ -595,22 +592,20 @@ Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exc
         {"content-type", "application/json"},
     };
     const auto pageInfoBytes = serializePageInfoRecord(exchange);
-    auto pageInfoGz = gzipMember(pageInfoBytes);
-    if (!pageInfoGz)
-        return Unex(pageInfoGz.error());
+    auto pageInfoGz = TRY(gzipMember(pageInfoBytes));
     out.cdxRecords.push_back(
         WarcCdxRecord{
             .recordUrl = pageInfoUrl,
             .timestamp = toCdxTimestamp(pageTimestamp(exchange)),
             .digest = cdxPayloadDigest(buildPageInfoJson(exchange)),
-            .recordDigest = cdxRecordDigest(*pageInfoGz),
+            .recordDigest = cdxRecordDigest(pageInfoGz),
             .statusCode = 200_i64,
             .headers = std::move(pageInfoHeaders),
             .offset = offset,
-            .length = i64(pageInfoGz->size()),
+            .length = i64(pageInfoGz.size()),
         }
     );
-    out.bytes.append(*pageInfoGz);
+    out.bytes.append(pageInfoGz);
     return out;
 }
 
@@ -634,18 +629,12 @@ Expected<std::string, ArtifactFailure> buildWacz(
         return {};
     };
 
-    if (auto ok = addFile("datapackage.json", datapackageJson); !ok)
-        return Unex(ok.error());
-    if (auto ok = addFile(kWarcPath, warc.bytes); !ok)
-        return Unex(ok.error());
-    if (auto ok = addFile("pages/pages.jsonl", waczPages); !ok)
-        return Unex(ok.error());
-    if (auto ok = addFile("logs/stdout.log", stdoutLog); !ok)
-        return Unex(ok.error());
-    if (auto ok = addFile("logs/stderr.log", stderrLog); !ok)
-        return Unex(ok.error());
-    if (auto ok = addFile(kIndexPath, cdx); !ok)
-        return Unex(ok.error());
+    TRY(addFile("datapackage.json", datapackageJson));
+    TRY(addFile(kWarcPath, warc.bytes));
+    TRY(addFile("pages/pages.jsonl", waczPages));
+    TRY(addFile("logs/stdout.log", stdoutLog));
+    TRY(addFile("logs/stderr.log", stderrLog));
+    TRY(addFile(kIndexPath, cdx));
 
     const auto zipBytes = zip.finish(error);
     if (!zipBytes)

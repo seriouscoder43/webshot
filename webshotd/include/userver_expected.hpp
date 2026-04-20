@@ -2,6 +2,7 @@
 
 #include "expected.hpp"
 #include "grab_value.hpp"
+#include "try.hpp"
 #include "userver_namespaces.hpp"
 
 #include <concepts>
@@ -161,20 +162,14 @@ template <typename T, typename E, typename G>
 [[nodiscard]] Expected<std::string, E> stringify(const T &value, G &&mapError)
 {
     auto mapper = std::forward<G>(mapError);
-    auto built = valueOf<T, E>(value, mapper);
-    if (!built)
-        return Unex(built.error());
-    return stringify<E>(grabValueOf(built), mapper);
+    return stringify<E>(TRY(valueOf<T, E>(value, mapper)), mapper);
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E>
 [[nodiscard]] Expected<std::string, E> stringify(const T &value, E error)
 {
-    auto built = valueOf<T, E>(value, error);
-    if (!built)
-        return Unex(built.error());
-    return stringify<E>(grabValueOf(built), std::move(error));
+    return stringify<E>(TRY(valueOf<T, E>(value, error)), std::move(error));
 }
 
 } // namespace json

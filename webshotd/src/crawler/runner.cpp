@@ -16,6 +16,7 @@
 #include "prefix_utils.hpp"
 #include "schema/cdp.hpp"
 #include "text.hpp"
+#include "try.hpp"
 #include "url.hpp"
 #include "userver_expected.hpp"
 #include "uuid_format.hpp"
@@ -243,13 +244,11 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
 
 [[nodiscard]] std::optional<String> buildUrlOrigin(const String &urlText)
 {
-    const auto maybeUrl = Url::fromText(urlText);
-    if (!maybeUrl)
-        return {};
-    if (!maybeUrl->isHttp() && !maybeUrl->isHttps())
+    const auto maybeUrl = TRY(Url::fromText(urlText));
+    if (!maybeUrl.isHttp() && !maybeUrl.isHttps())
         return {};
 
-    return text::format("{}://{}", maybeUrl->isHttps() ? "https" : "http", maybeUrl->host());
+    return text::format("{}://{}", maybeUrl.isHttps() ? "https" : "http", maybeUrl.host());
 }
 
 [[nodiscard]] String resolveRedirectTargetUrl(
@@ -314,10 +313,8 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
         return grabValueOf(normalized);
     }
 
-    const auto parsed = Url::fromText(requestUrl);
-    if (!parsed)
-        return {};
-    if (!parsed->isHttp() && !parsed->isHttps())
+    const auto parsed = TRY(Url::fromText(requestUrl));
+    if (!parsed.isHttp() && !parsed.isHttps())
         return {};
     return requestUrl;
 }
@@ -1368,14 +1365,9 @@ private:
 
     [[nodiscard]] Expected<void, String> launch()
     {
-        auto launched = browser.launch();
-        if (!launched)
-            return Unex(launched.error());
+        TRY(browser.launch());
         browser.markPhase("connect_cdp");
-        auto connected = browser.connectCdp(deadline);
-        if (!connected)
-            return Unex(connected.error());
-        cdp = grabValueOf(connected);
+        cdp = TRY(browser.connectCdp(deadline));
         pageSession = std::make_unique<crawler::BrowserPageSession>(cdpClient());
 
         if (auto attached = pageSession->attachFreshTarget([this](std::string_view phase) {
@@ -1391,40 +1383,31 @@ private:
 
     [[nodiscard]] Expected<crawler::CapturedExchange, String> captureAttachedTarget()
     {
-        if (auto ok = pageSession->enableBaseDomains([this](std::string_view phase) {
-                browser.markPhase(phase);
-            });
-            !ok) {
-            return Unex(ok.error());
-        }
+        TRY(pageSession->enableBaseDomains([this](std::string_view phase) {
+            browser.markPhase(phase);
+        }));
 
         browser.markPhase("enable_fetch");
         dto::FetchEnableParams fetchParams;
         fetchParams.handleAuthRequests = true;
-        if (auto ok = sendSessionVoid("Fetch.enable"_t, fetchParams); !ok)
-            return Unex(ok.error());
+        TRY(sendSessionVoid("Fetch.enable"_t, fetchParams));
 
         browser.markPhase("disable_cache");
         dto::NetworkSetCacheDisabledParams cacheParams;
         cacheParams.cacheDisabled = true;
-        if (auto ok = sendSessionVoid("Network.setCacheDisabled"_t, cacheParams); !ok)
-            return Unex(ok.error());
+        TRY(sendSessionVoid("Network.setCacheDisabled"_t, cacheParams));
 
         browser.markPhase("bypass_service_worker");
         dto::NetworkSetBypassServiceWorkerParams serviceWorkerParams;
         serviceWorkerParams.bypass = true;
-        if (auto ok = sendSessionVoid("Network.setBypassServiceWorker"_t, serviceWorkerParams);
-            !ok) {
-            return Unex(ok.error());
-        }
+        TRY(sendSessionVoid("Network.setBypassServiceWorker"_t, serviceWorkerParams));
 
         browser.markPhase("set_extra_headers");
         dto::NetworkSetExtraHTTPHeadersParams headerParams;
         headerParams.headers.extra.emplace(
             "Accept-Language", std::string(crawler::kBrowserAcceptLanguage)
         );
-        if (auto ok = sendSessionVoid("Network.setExtraHTTPHeaders"_t, headerParams); !ok)
-            return Unex(ok.error());
+        TRY(sendSessionVoid("Network.setExtraHTTPHeaders"_t, headerParams));
 
         browser.markPhase("get_frame_tree");
         auto frameTree = cdpSession().send<dto::PageGetFrameTreeResult>("Page.getFrameTree"_t);
@@ -1446,12 +1429,10 @@ private:
         pageTracker().setExpectedMainLoaderId(stringOrNull(navigateResult->loaderId));
 
         browser.markPhase("wait_for_load");
-        if (auto waited = waitForPredicate(
-                [this]() { return pageTracker().isLoadedOrFailed(); },
-                "timed out waiting for page load"_t
-            );
-            !waited)
-            return Unex(waited.error());
+        TRY(waitForPredicate(
+            [this]() { return pageTracker().isLoadedOrFailed(); },
+            "timed out waiting for page load"_t
+        ));
         if (timings.postLoadDelay > chrono::seconds::zero()) {
             browser.markPhase("post_load_delay");
             const auto phaseDeadline = pickEarlierDeadline(
@@ -1468,17 +1449,13 @@ private:
             const auto behaviorDeadline = pickEarlierDeadline(
                 deadline, eng::Deadline::FromDuration(timings.behaviorTimeout)
             );
-            auto ranSiteBehavior = runSiteBehavior(cdpSession(), behaviorDeadline);
-            if (!ranSiteBehavior)
-                return Unex(ranSiteBehavior.error());
+            TRY(runSiteBehavior(cdpSession(), behaviorDeadline));
             browser.markPhase("run_site_behavior_done");
         }
         if (timings.netIdleWait > chrono::seconds::zero()) {
             browser.markPhase("wait_for_idle");
             browser.markPhase("wait_for_idle_wait");
-            auto waited = waitForIdle(timings.netIdleWait);
-            if (!waited)
-                return Unex(waited.error());
+            TRY(waitForIdle(timings.netIdleWait));
             browser.markPhase("wait_for_idle_done");
         }
         if (timings.pageExtraDelay > chrono::seconds::zero()) {
@@ -1493,29 +1470,21 @@ private:
         }
         browser.markPhase("wait_for_main_document");
         browser.markPhase("wait_for_main_document_wait");
-        if (auto waited = waitForPredicate(
-                [this]() { return pageTracker().hasMainDocumentOrFailure(); },
-                "timed out waiting for main document response"_t
-            );
-            !waited)
-            return Unex(waited.error());
+        TRY(waitForPredicate(
+            [this]() { return pageTracker().hasMainDocumentOrFailure(); },
+            "timed out waiting for main document response"_t
+        ));
         browser.markPhase("wait_for_main_document_done");
 
         browser.markPhase("read_dom_state");
         browser.markPhase("read_dom_state_runtime_evaluate");
-        auto domState = readDomState(cdpSession());
-        if (!domState)
-            return Unex(domState.error());
+        auto domState = TRY(readDomState(cdpSession()));
         browser.markPhase("read_dom_state_done");
         RetainedBodyBudget budget{maxArchiveBytes, 0_i64};
         browser.markPhase("read_main_body");
-        auto body = pageTracker().readBody(cdpSession(), budget, domState->html);
-        if (!body)
-            return Unex(body.error());
+        auto body = TRY(pageTracker().readBody(cdpSession(), budget, domState.html));
         browser.markPhase("read_resources");
-        auto resources = pageTracker().readResources(cdpSession(), budget);
-        if (!resources)
-            return Unex(resources.error());
+        auto resources = TRY(pageTracker().readResources(cdpSession(), budget));
 
         stopEventLoop();
         if (auto closedPage = pageSession->close([this](std::string_view phase) {
@@ -1529,11 +1498,11 @@ private:
         browser.markPhase("build_exchange_start");
         LOG_INFO() << std::format(
             "captureViaProxy building exchange for {} (body_bytes={}, resources={})", run.seedUrl,
-            body->size(), resources->size()
+            body.size(), resources.size()
         );
         auto exchange = pageTracker().buildExchange(
-            std::move(domState->finalUrl), std::move(domState->title), grabValueOf(body),
-            grabValueOf(resources)
+            std::move(domState.finalUrl), std::move(domState.title), std::move(body),
+            std::move(resources)
         );
         browser.markPhase("build_exchange_done");
         LOG_INFO() << std::format(

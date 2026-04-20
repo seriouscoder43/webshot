@@ -8,6 +8,7 @@
 #include "integers.hpp"
 #include "schema/webshot.hpp"
 #include "text.hpp"
+#include "try.hpp"
 
 #include <userver/utils/assert.hpp>
 
@@ -15,10 +16,7 @@ namespace v1::crud {
 
 [[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token)
 {
-    const auto dtoOpt = decodeToken<dto::PaginationPrefixCursor>(token);
-    if (!dtoOpt)
-        return {};
-    const auto &cur = *dtoOpt;
+    const auto cur = TRY(decodeToken<dto::PaginationPrefixCursor>(token));
     const auto prefix = String::fromBytes(cur.p);
     if (!prefix)
         return {};

@@ -6,6 +6,7 @@
 #include "pagination.hpp"
 
 #include "schema/webshot.hpp"
+#include "try.hpp"
 
 namespace v1::crud {
 
@@ -18,10 +19,7 @@ namespace v1::crud {
 
 [[nodiscard]] std::optional<Cursor> decodeCursor(const String &token)
 {
-    const auto dtoOpt = decodeToken<dto::PaginationCursor>(token);
-    if (!dtoOpt)
-        return {};
-    const auto &cur = *dtoOpt;
+    const auto cur = TRY(decodeToken<dto::PaginationCursor>(token));
     Cursor out;
     out.createdAt = microsToTimePoint(cur.t);
     out.id = cur.i;

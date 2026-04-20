@@ -2,6 +2,7 @@
 
 #include "grab_value.hpp"
 #include "schema/cdp.hpp"
+#include "try.hpp"
 #include "userver_expected.hpp"
 
 #include <algorithm>
@@ -365,15 +366,9 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
         return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 
-    auto response = readHandshakeResponse(socket, handshakeDeadline);
-    if (!response)
-        return Unex(response.error());
-    auto parsedResponse = parseHandshakeResponse(grabValueOf(response));
-    if (!parsedResponse)
-        return Unex(parsedResponse.error());
-    auto validated = validateHandshakeResponse(grabValueOf(parsedResponse), secWebsocketKey);
-    if (!validated)
-        return Unex(validated.error());
+    auto response = TRY(readHandshakeResponse(socket, handshakeDeadline));
+    auto parsedResponse = TRY(parseHandshakeResponse(response));
+    TRY(validateHandshakeResponse(parsedResponse, secWebsocketKey));
 
     std::shared_ptr<us::websocket::WebSocketConnection> ws;
     try {
@@ -559,12 +554,9 @@ CdpSession::~CdpSession()
 Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
 {
     using enum CdpError;
-    auto parsedValue = exu::json::parse<json::Value>(
-        payload, CdpFailure{.code = kJsonParseFailed, .detail = {}}
+    auto value = TRY(
+        exu::json::parse<json::Value>(payload, CdpFailure{.code = kJsonParseFailed, .detail = {}})
     );
-    if (!parsedValue)
-        return Unex(parsedValue.error());
-    auto &value = *parsedValue;
     const auto idValue = value["id"];
     if (!idValue.IsMissing()) {
         const auto id = i64(idValue.As<int64_t>());
@@ -580,10 +572,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
             requestCopy = *request;
             const auto errorValue = value["error"];
             if (!errorValue.IsMissing()) {
-                auto parsed = getErrorMessage(errorValue);
-                if (!parsed)
-                    return Unex(parsed.error());
-                errorMessage = *parsed;
+                errorMessage = TRY(getErrorMessage(errorValue));
             }
             if (request->ignoreResponse) {
                 state->pendingRequests.erase(id);
@@ -615,22 +604,20 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
 
     UINVARIANT(!value["method"].IsMissing(), "cdp message missing id and method");
 
-    auto eventMessage = exu::json::as<dto::CdpEventMessage>(
-        value, CdpFailure{.code = kProtocol, .detail = {}}
+    auto eventMessage = TRY(
+        exu::json::as<dto::CdpEventMessage>(value, CdpFailure{.code = kProtocol, .detail = {}})
     );
-    if (!eventMessage)
-        return Unex(eventMessage.error());
-    const auto sessionId = eventMessage->sessionId.transform([](const auto &s) {
+    const auto sessionId = eventMessage.sessionId.transform([](const auto &s) {
         return String::fromBytes(s).expect();
     });
-    const auto method = String::fromBytes(eventMessage->method).expect();
-    const auto routingSessionId = extractRoutingSessionId(*eventMessage);
-    const auto routingTargetId = extractRoutingTargetId(*eventMessage);
+    const auto method = String::fromBytes(eventMessage.method).expect();
+    const auto routingSessionId = extractRoutingSessionId(eventMessage);
+    const auto routingTargetId = extractRoutingTargetId(eventMessage);
     traceEvent(method, sessionId);
 
     auto event = CdpEvent{
         .method = method,
-        .params = std::move(eventMessage->params),
+        .params = std::move(eventMessage.params),
         .sessionId = sessionId,
     };
 

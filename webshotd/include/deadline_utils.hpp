@@ -1,6 +1,7 @@
 #pragma once
 
 #include "expected.hpp"
+#include "try.hpp"
 #include "userver_namespaces.hpp"
 
 #include <algorithm>
@@ -81,11 +82,7 @@ sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
     if (delay <= 0ms)
         return {};
 
-    const auto remaining = timeLeftMs(deadline);
-    if (!remaining)
-        return Unex(remaining.error());
-
-    const auto sleepFor = std::min(delay, *remaining);
+    const auto sleepFor = std::min(delay, TRY(timeLeftMs(deadline)));
     eng::SleepFor(sleepFor);
     if (sleepFor != delay)
         return Unex(DeadlineError::kTimeout);
@@ -99,13 +96,11 @@ sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 
     UINVARIANT(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline");
 
-    const auto remaining = timeLeftMs(deadline);
-    if (!remaining)
-        return Unex(remaining.error());
-    if (*remaining <= 0ms)
+    const auto remaining = TRY(timeLeftMs(deadline));
+    if (remaining <= 0ms)
         return Unex(DeadlineError::kTimeout);
 
-    eng::SleepFor(*remaining);
+    eng::SleepFor(remaining);
     return {};
 }
 

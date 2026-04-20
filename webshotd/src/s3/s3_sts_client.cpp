@@ -6,6 +6,7 @@
 #include "s3/sigv4_signer.hpp"
 #include "s3_credentials_types.hpp"
 #include "text.hpp"
+#include "try.hpp"
 #include "userver_namespaces.hpp"
 
 #include <format>
@@ -65,27 +66,17 @@ parseExpiration(const String &expiration)
 
 Expected<StsCredentials, StsError> StsCredentials::fromXml(const String &xml)
 {
-    auto accessKeyId = extractXmlTag(xml, "AccessKeyId"_t);
-    if (!accessKeyId)
-        return Unex(accessKeyId.error());
-    auto secretAccessKey = extractXmlTag(xml, "SecretAccessKey"_t);
-    if (!secretAccessKey)
-        return Unex(secretAccessKey.error());
-    auto sessionToken = extractXmlTag(xml, "SessionToken"_t);
-    if (!sessionToken)
-        return Unex(sessionToken.error());
-    auto expiration = extractXmlTag(xml, "Expiration"_t);
-    if (!expiration)
-        return Unex(expiration.error());
-    auto expiresAt = parseExpiration(*expiration);
-    if (!expiresAt)
-        return Unex(expiresAt.error());
+    auto accessKeyId = TRY(extractXmlTag(xml, "AccessKeyId"_t));
+    auto secretAccessKey = TRY(extractXmlTag(xml, "SecretAccessKey"_t));
+    auto sessionToken = TRY(extractXmlTag(xml, "SessionToken"_t));
+    auto expiration = TRY(extractXmlTag(xml, "Expiration"_t));
+    auto expiresAt = TRY(parseExpiration(expiration));
 
     StsCredentials creds{
-        s3v4::AccessKeyId(std::move(*accessKeyId)),
-        s3v4::SecretAccessKey(std::move(*secretAccessKey)),
-        s3v4::SessionToken(std::move(*sessionToken)),
-        *expiresAt,
+        s3v4::AccessKeyId(std::move(accessKeyId)),
+        s3v4::SecretAccessKey(std::move(secretAccessKey)),
+        s3v4::SessionToken(std::move(sessionToken)),
+        expiresAt,
     };
     return creds;
 }
@@ -154,11 +145,9 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     headers[us::http::headers::kContentType] = std::string(kUrlEncoded.view());
     for (const auto &kv : signedHeaders)
         headers[kv.first] = kv.second;
-    const auto response = exec(stsLink.httpsUrl(), body, headers, timeout);
-    if (!response)
-        return Unex(response.error());
+    const auto response = TRY(exec(stsLink.httpsUrl(), body, headers, timeout));
 
-    const auto responseXml = String::fromBytes(*response);
+    const auto responseXml = String::fromBytes(response);
     if (!responseXml)
         return Unex(StsError::kInvalidUtf8);
     return StsCredentials::fromXml(*responseXml);

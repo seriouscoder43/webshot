@@ -120,6 +120,8 @@ add_cpp_test(deadline_utils_test SOURCES
 
 add_cpp_test(expected_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/expected.cpp)
 
+add_cpp_test(try_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/try.cpp)
+
 add_cpp_test(userver_expected_test SOURCES
              ${CMAKE_CURRENT_SOURCE_DIR}/userver_expected.cpp)
 
