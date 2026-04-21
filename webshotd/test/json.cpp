@@ -5,29 +5,29 @@
 #include <userver/formats/serialize/common_containers.hpp>
 #include <userver/utest/utest.hpp>
 
+#include "json.hpp"
 #include "text.hpp"
-#include "userver_expected.hpp"
 #include "userver_namespaces.hpp"
 
 using namespace text::literals;
 namespace exj = v1::exu::json;
 using v1::exu::catchException;
 
-UTEST(UserverExpected, ParsesJsonIntoExpected)
+UTEST(Json, ParsesJsonIntoExpected)
 {
     const auto parsed = exj::parse<int>("7", "parse failed"_t);
     ASSERT_TRUE(parsed);
     EXPECT_EQ(*parsed, 7);
 }
 
-UTEST(UserverExpected, MapsJsonParseFailure)
+UTEST(Json, MapsJsonParseFailure)
 {
     const auto parsed = exj::parse<int>(R"("bad")", "parse failed"_t);
     ASSERT_FALSE(parsed);
     EXPECT_EQ(parsed.error(), "parse failed"_t);
 }
 
-UTEST(UserverExpected, ConvertsJsonValueIntoExpected)
+UTEST(Json, ConvertsJsonValueIntoExpected)
 {
     const auto value = json::FromString("9");
     const auto parsed = exj::as<int>(value, "shape failed"_t);
@@ -35,14 +35,14 @@ UTEST(UserverExpected, ConvertsJsonValueIntoExpected)
     EXPECT_EQ(*parsed, 9);
 }
 
-UTEST(UserverExpected, StringifiesJsonValueIntoExpected)
+UTEST(Json, StringifiesJsonValueIntoExpected)
 {
     const auto text = exj::stringify(std::vector<int>{1, 2, 3}, "serialize failed"_t);
     ASSERT_TRUE(text);
     EXPECT_EQ(*text, std::string{"[1,2,3]"});
 }
 
-UTEST(UserverExpected, CatchesTypedExceptionWithMappedError)
+UTEST(Json, CatchesTypedExceptionWithMappedError)
 {
     const auto result = catchException<json::Exception, String>(
         []() -> int { return json::FromString("{").As<int>(); },
