@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import remote_compile
+
 
 def _repo_root() -> Path:
     root = Path(__file__).resolve().parents[1]
@@ -28,7 +30,6 @@ def _time_ms() -> int:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="build_task")
     parser.add_argument("--build-dir", required=True)
-    parser.add_argument("--clangd-file", required=True)
     parser.add_argument("--configure-fingerprint", required=True)
     parser.add_argument("--configure-arg", action="append", default=[])
     parser.add_argument("--build-arg", action="append", default=[])
@@ -77,12 +78,6 @@ def _configure_command(configure_argv: list[str], *, fresh: bool) -> list[str]:
 def _run(cmd: list[str], *, cwd: Path) -> int:
     completed = subprocess.run(cmd, cwd=cwd, check=False)
     return completed.returncode
-
-
-def _write_clangd_symlink(repo_root: Path, clangd_file: Path) -> None:
-    target = repo_root / ".clangd"
-    target.unlink(missing_ok=True)
-    target.symlink_to(clangd_file)
 
 
 def _snapshot_ninja_log(build_dir: Path) -> Path:
@@ -148,8 +143,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     repo_root = _repo_root()
     build_dir = Path(args.build_dir)
+    remote_config = remote_compile.load_config(repo_root)
+    configure_fingerprint = remote_compile.compute_configure_fingerprint(
+        args.configure_fingerprint,
+        remote_config,
+    )
     configure_fingerprint_path = build_dir / ".configure-fingerprint"
-    configure_fresh = _should_configure_fresh(build_dir, args.configure_fingerprint)
+    configure_fresh = _should_configure_fresh(build_dir, configure_fingerprint)
 
     before_log_path: Path | None = None
     started_at = _timestamp_utc()
@@ -157,27 +157,67 @@ def main(argv: list[str] | None = None) -> int:
     if args.timings_output:
         before_log_path = _snapshot_ninja_log(build_dir)
 
-    configure_started_ms = _time_ms()
-    configure_exit_code = _run(
-        _configure_command(args.configure_arg, fresh=configure_fresh),
-        cwd=repo_root,
-    )
-    configure_finished_ms = _time_ms()
-    configure_time_ms = configure_finished_ms - configure_started_ms
+    if remote_config is not None:
+        remote_compile.sync_source(remote_config, repo_root)
 
-    if configure_exit_code == 0:
-        configure_fingerprint_path.write_text(args.configure_fingerprint + "\n", encoding="utf-8")
-        _write_clangd_symlink(repo_root, Path(args.clangd_file))
+    if remote_config is None:
+        configure_started_ms = _time_ms()
+        configure_exit_code = _run(
+            _configure_command(args.configure_arg, fresh=configure_fresh),
+            cwd=repo_root,
+        )
+        configure_finished_ms = _time_ms()
+        configure_time_ms = configure_finished_ms - configure_started_ms
+    else:
+        remote_build_dir = remote_compile.remote_path_for(
+            build_dir,
+            repo_root=repo_root,
+            remote_root=remote_config.remote_root,
+        )
+        remote_result = remote_compile.run_remote_build(
+            remote_config,
+            configure_cmd=_configure_command(
+                remote_compile.rewrite_local_paths(
+                    args.configure_arg,
+                    repo_root=repo_root,
+                    remote_root=remote_config.remote_root,
+                ),
+                fresh=configure_fresh,
+            ),
+            build_cmd=[
+                "cmake",
+                "--build",
+                remote_build_dir,
+                *remote_compile.rewrite_local_paths(
+                    args.build_arg,
+                    repo_root=repo_root,
+                    remote_root=remote_config.remote_root,
+                ),
+            ],
+        )
+        configure_exit_code = remote_result.configure_exit_code
+        configure_time_ms = remote_result.configure_time_ms
+
+    if configure_exit_code == 0 and remote_config is None:
+        configure_fingerprint_path.write_text(configure_fingerprint + "\n", encoding="utf-8")
 
     build_started_ms = _time_ms()
     build_exit_code = 0
     if configure_exit_code == 0:
-        build_exit_code = _run(
-            ["cmake", "--build", str(build_dir), *args.build_arg],
-            cwd=repo_root,
-        )
+        if remote_config is None:
+            build_exit_code = _run(
+                ["cmake", "--build", str(build_dir), *args.build_arg],
+                cwd=repo_root,
+            )
+        else:
+            build_exit_code = remote_result.build_exit_code
+            remote_compile.sync_build_dir(remote_config, repo_root=repo_root, build_dir=build_dir)
+            configure_fingerprint_path.write_text(configure_fingerprint + "\n", encoding="utf-8")
     build_finished_ms = _time_ms()
-    build_time_ms = build_finished_ms - build_started_ms
+    if remote_config is None:
+        build_time_ms = build_finished_ms - build_started_ms
+    else:
+        build_time_ms = remote_result.build_time_ms
 
     exit_code = configure_exit_code if configure_exit_code != 0 else build_exit_code
 

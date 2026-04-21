@@ -7,13 +7,13 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 source "${repo_root}/shell/lib.sh"
 
 need systemd-run
-need devenv
+need nix
 
 usage() {
   cat >&2 <<'EOF'
 usage: delegated_devenv.sh
 
-Starts `devenv --no-tui shell bash` inside a delegated `systemd --user` scope.
+Starts the repo-pinned devenv shell inside a delegated `systemd --user` scope.
 
 Examples:
   delegated_devenv.sh
@@ -29,7 +29,7 @@ fi
 
 if [[ ${WEBSHOT_DELEGATED_DEVENV:-} == 1 ]]; then
   cd "${repo_root}"
-  exec devenv --no-tui shell bash
+  exec bash ./.forgejo/devenv_ci.sh shell bash
 fi
 
 exec systemd-run \
@@ -41,4 +41,4 @@ exec systemd-run \
   --setenv=WEBSHOT_DELEGATED_DEVENV=1 \
   --property='Delegate=cpu memory' \
   --description="webshot delegated devenv" \
-  bash -lc "cd \"\$1\"; exec devenv --no-tui shell bash" bash "${repo_root}"
+  bash -lc "cd \"\$1\"; exec bash ./.forgejo/devenv_ci.sh shell bash" bash "${repo_root}"

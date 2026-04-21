@@ -32,7 +32,6 @@
 
   mkBuild = {
     buildDir,
-    clangdFile,
     variant,
     timingsOutput ? null,
     buildArgs ? [],
@@ -50,7 +49,7 @@
       else ''
         \
           --timings-output ${lib.escapeShellArg timingsOutput} \
-          --timings-collector ${lib.escapeShellArg "${config.devenv.root}/webshotd/collect_build_times.py"}
+          --timings-collector ${lib.escapeShellArg "${config.devenv.root}/devenv/collect_build_times.py"}
       '';
     buildArgFlags =
       if buildArgs == []
@@ -62,7 +61,6 @@
   in ''
     python3 devenv/build_task.py \
       --build-dir ${lib.escapeShellArg buildDir} \
-      --clangd-file ${lib.escapeShellArg clangdFile} \
       --configure-fingerprint ${lib.escapeShellArg configureFingerprint} \
       ${mkRepeatedFlagArgs "--configure-arg" configureArgv}${buildArgFlags}${timingsArgs}
   '';
@@ -104,7 +102,6 @@
       set -euo pipefail
       ${mkBuild {
         inherit (cfg) buildDir variant;
-        clangdFile = cfg.clangd;
         timingsOutput = "${cfg.buildDir}/latest_build_times.json";
       }}
     '';
@@ -116,7 +113,6 @@
       set -euo pipefail
       ${mkBuild {
         inherit (cfg) buildDir variant;
-        clangdFile = cfg.clangd;
         timingsOutput = "${cfg.buildDir}/latest_build_times.json";
       }}
       exec ${mkRuntime "up" mode null}
@@ -136,7 +132,6 @@
       set -euo pipefail
       ${mkBuild {
         inherit (modes.${mode}) buildDir variant;
-        clangdFile = modes.${mode}.clangd;
         timingsOutput = "${modes.${mode}.buildDir}/latest_build_times.json";
       }}
       cleanup() {
@@ -164,7 +159,6 @@ in {
     set -euo pipefail
     ${mkBuild {
       buildDir = ctx.paths.build.tidy;
-      clangdFile = ctx.paths.clangd.tidy;
       variant = ctx.variants.tidy;
       buildArgs = ["--" "-k" "0"];
     }}

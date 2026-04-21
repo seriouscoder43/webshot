@@ -8,6 +8,7 @@
     ada
     pkg-config
     ccache
+    rsync
     drv.boostSml
     boost183
     libarchive
