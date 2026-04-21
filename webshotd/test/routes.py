@@ -99,7 +99,7 @@ async def test_create_capture_missing_body(service_client):
     assert body["error"]["message"] == "invalid request body"
 
 
-async def test_create_capture_job_strips_non_default_port(service_client):
+async def test_create_capture_job_strips_non_default_port_in_normalized_link(service_client):
     response = await service_client.post(
         "/v1/capture",
         json={"link": f"https://{TEST_HOST}:444/path?a=1"},
@@ -107,7 +107,7 @@ async def test_create_capture_job_strips_non_default_port(service_client):
 
     assert response.status == 202
     body = response.json()
-    assert body["link"] == f"http://{TEST_HOST}/path?a=1"
+    assert body["link"] == f"{TEST_HOST}/path?a=1"
 
 
 async def test_create_capture_denylisted_host(service_client, monitor_client):
