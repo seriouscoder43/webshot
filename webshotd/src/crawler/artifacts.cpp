@@ -27,6 +27,8 @@ namespace http = us::http;
 
 namespace v1::crawler {
 using namespace text::literals;
+using integers::toBytes;
+using text::toBytes;
 
 namespace {
 
@@ -87,7 +89,7 @@ template <typename T> [[nodiscard]] std::string toJsonBytes(const T &value)
 {
     return String::fromBytes(
                datetime::UtcTimestring(
-                   datetime::FromRfc3339StringSaturating(std::to_string(iso)), "%Y%m%d%H%M%S"
+                   datetime::FromRfc3339StringSaturating(toBytes(iso)), "%Y%m%d%H%M%S"
                )
     )
         .expect();
@@ -295,11 +297,11 @@ serializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] std::string buildPageInfoJsonBytes(const CapturedExchange &exchange)
 {
     json::ValueBuilder pageInfo(json::Type::kObject);
-    pageInfo["pageid"] = std::to_string(exchange.pageId);
+    pageInfo["pageid"] = toBytes(exchange.pageId);
     pageInfo["url"] = std::string(
         (exchange.seedUrl.empty() ? exchange.finalUrl : exchange.seedUrl).view()
     );
-    pageInfo["ts"] = std::to_string(pageTimestamp(exchange));
+    pageInfo["ts"] = toBytes(pageTimestamp(exchange));
 
     json::ValueBuilder urls(json::Type::kObject);
     const auto appendUrl = [&urls](
@@ -313,8 +315,8 @@ serializeRecordPair(const SerializableResponse &response)
         if (!mime.empty())
             value["mime"] = mime;
         if (resourceType && !resourceType->empty())
-            value["type"] = std::to_string(*resourceType);
-        urls[std::to_string(url)] = value.ExtractValue();
+            value["type"] = toBytes(*resourceType);
+        urls[toBytes(url)] = value.ExtractValue();
     };
 
     for (const auto &redirect : exchange.mainDocumentRedirects)
@@ -381,14 +383,14 @@ serializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] std::string makeWaczIndexJsonBytes(const WarcCdxRecord &record)
 {
     json::ValueBuilder recordEntry(json::Type::kObject);
-    recordEntry["url"] = std::to_string(record.recordUrl);
-    recordEntry["digest"] = std::to_string(record.digest);
+    recordEntry["url"] = toBytes(record.recordUrl);
+    recordEntry["digest"] = toBytes(record.digest);
     recordEntry["mime"] = contentTypeForHeaders(record.headers);
     recordEntry["filename"] = std::string(kWarcFilename);
     recordEntry["offset"] = raw(record.offset);
     recordEntry["length"] = raw(record.length);
     recordEntry["status"] = raw(record.statusCode);
-    recordEntry["recordDigest"] = std::to_string(record.recordDigest);
+    recordEntry["recordDigest"] = toBytes(record.recordDigest);
     return json::ToString(recordEntry.ExtractValue());
 }
 
@@ -405,8 +407,8 @@ serializeRecordPair(const SerializableResponse &response)
     for (const auto &record : records) {
         lines.push_back(
             CdxLine{
-                .key = std::to_string(toSurtKey(record.recordUrl)),
-                .timestamp = std::to_string(record.timestamp),
+                .key = toBytes(toSurtKey(record.recordUrl)),
+                .timestamp = toBytes(record.timestamp),
                 .json = makeWaczIndexJsonBytes(record),
             }
         );
@@ -470,7 +472,7 @@ buildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resou
         .profile = "data-package",
         .resources = std::move(resources),
         .wacz_version = "1.1.1",
-        .title = std::to_string(run.seedUrl),
+        .title = toBytes(run.seedUrl),
         .software = "webshotd",
         .created = created,
         .modified = created,
@@ -482,15 +484,15 @@ buildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resou
 std::string buildPagesJsonl(const CapturedExchange &exchange)
 {
     dto::BrowsertrixPageEntry entry{
-        .id = std::to_string(exchange.pageId),
-        .url = std::to_string(exchange.finalUrl),
-        .title = exchange.title ? std::to_string(*exchange.title) : extractHtmlTitle(exchange.body),
+        .id = toBytes(exchange.pageId),
+        .url = toBytes(exchange.finalUrl),
+        .title = exchange.title ? toBytes(*exchange.title) : extractHtmlTitle(exchange.body),
         .loadState = exchange.statusCode >= 200_i64 && exchange.statusCode < 400_i64 ? 2 : 0,
         .mime = contentTypeForHeaders(exchange.headers),
         .seed = true,
     };
     entry.ts = datetime::TimePointTz(
-        datetime::FromRfc3339StringSaturating(std::to_string(pageTimestamp(exchange)))
+        datetime::FromRfc3339StringSaturating(toBytes(pageTimestamp(exchange)))
     );
     entry.status = raw(exchange.statusCode);
     entry.depth = 0;
@@ -623,7 +625,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
         if (const auto it = exchange.headers.find("content-type"); it != std::end(exchange.headers))
             contentType = it->second;
         const auto urlDigest = sha256Bytes(exchange.finalUrl.view());
-        const auto status = std::to_string(exchange.statusCode);
+        const auto status = toBytes(exchange.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto contentTypeDigest = sha256Bytes(contentType);
         const auto bodyDigest = sha256Bytes(exchange.body);
@@ -642,7 +644,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
         if (const auto it = redirect.headers.find("location"); it != std::end(redirect.headers))
             location = it->second;
         const auto urlDigest = sha256Bytes(redirect.redirectUrl.view());
-        const auto status = std::to_string(redirect.statusCode);
+        const auto status = toBytes(redirect.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto locationDigest = sha256Bytes(location);
         itemDigests.emplace_back(sha256Bytes({
@@ -662,7 +664,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
             contentType = it->second;
         const auto urlDigest = sha256Bytes(resource.resourceUrl.view());
         const auto methodDigest = sha256Bytes(method);
-        const auto status = std::to_string(resource.statusCode);
+        const auto status = toBytes(resource.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto resourceTypeDigest = sha256Bytes(resourceType);
         const auto contentTypeDigest = sha256Bytes(contentType);

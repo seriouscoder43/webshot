@@ -45,6 +45,7 @@ namespace chrono = std::chrono;
 
 namespace v1::crawler {
 using namespace text::literals;
+using text::toBytes;
 using v1::Expected;
 
 namespace {
@@ -407,12 +408,12 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
     }
     dto::CdpCommandRequest request{
         .id = raw(id),
-        .method = std::to_string(method),
+        .method = toBytes(method),
     };
     if (!params.IsMissing())
         request.params = dto::CdpCommandRequest::Params{params};
     if (sessionId)
-        request.sessionId = std::to_string(*sessionId);
+        request.sessionId = toBytes(*sessionId);
     traceCommand(id, method, sessionId);
     const auto requestBytes = TRY(
         exu::json::stringifyBytes(request, CdpFailure{.code = kProtocol, .detail = {}})
@@ -785,9 +786,9 @@ void CdpClient::traceCommand(i64 id, const String &method, const std::optional<S
     entry["direction"] = "out";
     entry["kind"] = "command";
     entry["id"] = raw(id);
-    entry["method"] = std::to_string(method);
+    entry["method"] = toBytes(method);
     if (sessionId)
-        entry["sessionId"] = std::to_string(*sessionId);
+        entry["sessionId"] = toBytes(*sessionId);
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
@@ -801,12 +802,12 @@ void CdpClient::traceResponse(
     entry["kind"] = error ? "error" : "response";
     entry["id"] = raw(id);
     if (request) {
-        entry["method"] = std::to_string(request->method);
+        entry["method"] = toBytes(request->method);
         if (request->sessionId)
-            entry["sessionId"] = std::to_string(*request->sessionId);
+            entry["sessionId"] = toBytes(*request->sessionId);
     }
     if (error)
-        entry["error"] = std::to_string(*error);
+        entry["error"] = toBytes(*error);
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
@@ -816,9 +817,9 @@ void CdpClient::traceEvent(const String &method, const std::optional<String> &se
     entry["ts"] = currentTraceTimestamp();
     entry["direction"] = "in";
     entry["kind"] = "event";
-    entry["method"] = std::to_string(method);
+    entry["method"] = toBytes(method);
     if (sessionId)
-        entry["sessionId"] = std::to_string(*sessionId);
+        entry["sessionId"] = toBytes(*sessionId);
     writeTraceLine(entry.ExtractValue()).expect();
 }
 
@@ -826,7 +827,7 @@ void CdpClient::traceClose(const String &direction, int closeCode)
 {
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
-    entry["direction"] = std::to_string(direction);
+    entry["direction"] = toBytes(direction);
     entry["kind"] = "close";
     entry["closeCode"] = closeCode;
     writeTraceLine(entry.ExtractValue()).expect();
@@ -837,8 +838,8 @@ void CdpClient::traceTransportError(const String &operation, const String &error
     json::ValueBuilder entry;
     entry["ts"] = currentTraceTimestamp();
     entry["kind"] = "transport_error";
-    entry["operation"] = std::to_string(operation);
-    entry["error"] = std::to_string(error);
+    entry["operation"] = toBytes(operation);
+    entry["error"] = toBytes(error);
     writeTraceLine(entry.ExtractValue()).expect();
 }
 

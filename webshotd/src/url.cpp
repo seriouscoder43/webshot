@@ -9,6 +9,8 @@
 
 namespace v1 {
 
+using text::toBytes;
+
 namespace {
 
 constexpr bool hasStripOption(Url::StripOptions options, Url::StripOptions flag) noexcept
@@ -89,7 +91,7 @@ String Url::surt() const
     if (hasNonDefaultPort())
         surtHost += ":" + portText;
 
-    return String::fromBytes(surtHost + ")" + std::to_string(pathWithSearch())).expect();
+    return String::fromBytes(surtHost + ")" + toBytes(pathWithSearch())).expect();
 }
 
 bool Url::hasHostname() const { return adaUrl.has_hostname() && !adaUrl.get_hostname().empty(); }
@@ -133,21 +135,21 @@ Url Url::stripped(StripOptions options) const
 Url Url::withProtocol(const String &protocol) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_protocol(std::to_string(protocol)), "invalid protocol");
+    invariant(parsed.set_protocol(toBytes(protocol)), "invalid protocol");
     return Url::fromParsed(std::move(parsed));
 }
 
 Url Url::withHostname(const String &hostname) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_hostname(std::to_string(hostname)), "invalid hostname");
+    invariant(parsed.set_hostname(toBytes(hostname)), "invalid hostname");
     return Url::fromParsed(std::move(parsed));
 }
 
 Url Url::withPort(const String &portValue) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_port(std::to_string(portValue)), "invalid port");
+    invariant(parsed.set_port(toBytes(portValue)), "invalid port");
     return Url::fromParsed(std::move(parsed));
 }
 

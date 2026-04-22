@@ -68,6 +68,8 @@ namespace chrono = std::chrono;
 namespace dns = us::clients::dns;
 
 using namespace text::literals;
+using integers::toBytes;
+using text::toBytes;
 
 namespace v1 {
 namespace {
@@ -138,21 +140,21 @@ canonicalizeCapturedLocationHeader(const String &responseUrl, std::string_view l
         return std::string(locationValue);
     if (location->empty() || location->startsWith('/') || location->startsWith('?') ||
         location->startsWith("//")) {
-        return std::to_string(*location);
+        return toBytes(*location);
     }
 
     const auto canonicalLocation = canonicalizeCapturedUrl(*location);
     const auto maybeCanonicalUrl = Url::fromText(canonicalLocation);
     const auto maybeResponseUrl = Url::fromText(responseUrl);
     if (!maybeCanonicalUrl || !maybeResponseUrl)
-        return std::to_string(canonicalLocation);
+        return toBytes(canonicalLocation);
 
     if (maybeCanonicalUrl->isHttp() == maybeResponseUrl->isHttp() &&
         maybeCanonicalUrl->host() == maybeResponseUrl->host()) {
-        return std::to_string(maybeCanonicalUrl->pathWithSearch());
+        return toBytes(maybeCanonicalUrl->pathWithSearch());
     }
 
-    return std::to_string(canonicalLocation);
+    return toBytes(canonicalLocation);
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -359,7 +361,7 @@ isAllowedByDenylist(Denylist &denylist, const Config &config, const String &requ
     headers.push_back(
         dto::FetchHeaderEntry{
             .name = "Content-Length",
-            .value = std::to_string(bodyBytes),
+            .value = toBytes(bodyBytes),
         }
     );
     headers.push_back(
@@ -582,7 +584,7 @@ public:
 
         try {
             dto::NetworkGetResponseBodyParams params;
-            params.requestId = std::to_string(*bodyRequestId);
+            params.requestId = toBytes(*bodyRequestId);
             const auto body = cdpSession.send<dto::NetworkGetResponseBodyResult>(
                 "Network.getResponseBody"_t, params
             );
@@ -633,7 +635,7 @@ public:
 
             try {
                 dto::NetworkGetResponseBodyParams params;
-                params.requestId = std::to_string(requestId);
+                params.requestId = toBytes(requestId);
                 const auto bodyValue = cdpSession.send<dto::NetworkGetResponseBodyResult>(
                     "Network.getResponseBody"_t, params
                 );
@@ -1420,7 +1422,7 @@ private:
 
         browser.markPhase("navigate");
         dto::PageNavigateParams navigateParams;
-        navigateParams.url = std::to_string(run.seedUrl);
+        navigateParams.url = toBytes(run.seedUrl);
         pageTracker().beginSeedNavigation(run.seedUrl);
         const auto navigateResult = TRY_MAP_ERR(
             cdpSession().send<dto::PageNavigateResult>("Page.navigate"_t, navigateParams),
@@ -1798,7 +1800,7 @@ private:
                 out.attempt.failureDetail = captured.error().detail;
             }
             out.stdoutLog.clear();
-            out.stderrLog = std::to_string(captured.error().detail) + "\n";
+            out.stderrLog = toBytes(captured.error().detail) + "\n";
             out.wacz.reset();
             out.pagesJsonl.reset();
             out.contentSha256.reset();
@@ -1853,7 +1855,7 @@ private:
             out.pagesJsonl.reset();
             out.contentSha256.reset();
             out.replayUrl.reset();
-            out.stderrLog += std::to_string(detail) + "\n";
+            out.stderrLog += toBytes(detail) + "\n";
             return out;
         }
 
@@ -1884,7 +1886,7 @@ private:
             out.pagesJsonl.reset();
             out.contentSha256.reset();
             out.replayUrl.reset();
-            out.stderrLog += std::to_string(detail) + "\n";
+            out.stderrLog += toBytes(detail) + "\n";
             return out;
         }
 

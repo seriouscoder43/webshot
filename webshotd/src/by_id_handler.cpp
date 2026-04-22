@@ -31,6 +31,7 @@
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
+using text::toBytes;
 
 ById::ById(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -90,8 +91,8 @@ std::string ById::HandleRequestThrow(
         dto::CaptureDetails{
             (**capture).uuid,
             (**capture).createdAt,
-            std::to_string((**capture).link),
-            std::to_string(buildCaptureDownloadUrl((**capture).uuid, config).href()),
+            toBytes((**capture).link),
+            toBytes(buildCaptureDownloadUrl((**capture).uuid, config).href()),
         }
     );
 }

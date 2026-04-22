@@ -216,6 +216,31 @@ inline constexpr SSizeFn ssize{};
 // NOLINTNEXTLINE(readability-identifier-naming)
 inline constexpr USizeFn usz{};
 
+[[nodiscard]] inline std::string toBytes(const u16 &value)
+{
+    return std::to_string(integers::raw(value));
+}
+
+[[nodiscard]] inline std::string toBytes(const u32 &value)
+{
+    return std::to_string(integers::raw(value));
+}
+
+[[nodiscard]] inline std::string toBytes(const i32 &value)
+{
+    return std::to_string(integers::raw(value));
+}
+
+[[nodiscard]] inline std::string toBytes(const u64 &value)
+{
+    return std::to_string(integers::raw(value));
+}
+
+[[nodiscard]] inline std::string toBytes(const i64 &value)
+{
+    return std::to_string(integers::raw(value));
+}
+
 } // namespace integers
 
 namespace integers::literals {
@@ -250,101 +275,72 @@ using integers::usize;
 using integers::usz;
 using namespace integers::literals;
 
-namespace std {
-
-template <> struct formatter<u16, char> : formatter<uint16_t, char> {
-    auto format(const u16 &value, format_context &ctx) const
+template <> struct std::formatter<u16, char> : std::formatter<uint16_t, char> {
+    auto format(const u16 &value, std::format_context &ctx) const
     {
-        return formatter<uint16_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint16_t, char>::format(integers::raw(value), ctx);
     }
 };
 
-template <> struct formatter<u32, char> : formatter<uint32_t, char> {
-    auto format(const u32 &value, format_context &ctx) const
+template <> struct std::formatter<u32, char> : std::formatter<uint32_t, char> {
+    auto format(const u32 &value, std::format_context &ctx) const
     {
-        return formatter<uint32_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint32_t, char>::format(integers::raw(value), ctx);
     }
 };
 
-template <> struct formatter<i32, char> : formatter<int32_t, char> {
-    auto format(const i32 &value, format_context &ctx) const
+template <> struct std::formatter<i32, char> : std::formatter<int32_t, char> {
+    auto format(const i32 &value, std::format_context &ctx) const
     {
-        return formatter<int32_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<int32_t, char>::format(integers::raw(value), ctx);
     }
 };
 
-template <> struct formatter<u64, char> : formatter<uint64_t, char> {
-    auto format(const u64 &value, format_context &ctx) const
+template <> struct std::formatter<u64, char> : std::formatter<uint64_t, char> {
+    auto format(const u64 &value, std::format_context &ctx) const
     {
-        return formatter<uint64_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint64_t, char>::format(integers::raw(value), ctx);
     }
 };
 
-template <> struct formatter<i64, char> : formatter<int64_t, char> {
-    auto format(const i64 &value, format_context &ctx) const
+template <> struct std::formatter<i64, char> : std::formatter<int64_t, char> {
+    auto format(const i64 &value, std::format_context &ctx) const
     {
-        return formatter<int64_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<int64_t, char>::format(integers::raw(value), ctx);
     }
 };
 
-[[nodiscard]] inline std::string to_string(const u16 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string to_string(const u32 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string to_string(const i32 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string to_string(const u64 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string to_string(const i64 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-template <> struct hash<u16> {
+template <> struct std::hash<u16> {
     size_t operator()(const u16 &value) const noexcept
     {
-        return hash<uint16_t>{}(integers::raw(value));
+        return std::hash<uint16_t>{}(integers::raw(value));
     }
 };
 
-template <> struct hash<u32> {
+template <> struct std::hash<u32> {
     size_t operator()(const u32 &value) const noexcept
     {
-        return hash<uint32_t>{}(integers::raw(value));
+        return std::hash<uint32_t>{}(integers::raw(value));
     }
 };
 
-template <> struct hash<i32> {
+template <> struct std::hash<i32> {
     size_t operator()(const i32 &value) const noexcept
     {
-        return hash<int32_t>{}(integers::raw(value));
+        return std::hash<int32_t>{}(integers::raw(value));
     }
 };
 
-template <> struct hash<u64> {
+template <> struct std::hash<u64> {
     size_t operator()(const u64 &value) const noexcept
     {
-        return hash<uint64_t>{}(integers::raw(value));
+        return std::hash<uint64_t>{}(integers::raw(value));
     }
 };
 
-template <> struct hash<i64> {
+template <> struct std::hash<i64> {
     size_t operator()(const i64 &value) const noexcept
     {
-        return hash<int64_t>{}(integers::raw(value));
+        return std::hash<int64_t>{}(integers::raw(value));
     }
 };
-
-} // namespace std

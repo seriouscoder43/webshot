@@ -8,21 +8,19 @@
 #include <string>
 #include <string_view>
 
-namespace std {
+namespace v1::uuidu {
 
-using v1::uuidu::Uuid;
-
-template <> struct formatter<Uuid, char> : formatter<std::string_view, char> {
-    auto format(const Uuid &value, format_context &ctx) const
-    {
-        const auto text = boost::uuids::to_string(value);
-        return formatter<std::string_view, char>::format(text, ctx);
-    }
-};
-
-[[nodiscard]] inline std::string to_string(const Uuid &value)
+[[nodiscard]] inline std::string toBytes(const Uuid &value)
 {
     return boost::uuids::to_string(value);
 }
 
-} // namespace std
+} // namespace v1::uuidu
+
+template <> struct std::formatter<v1::uuidu::Uuid, char> : std::formatter<std::string_view, char> {
+    auto format(const v1::uuidu::Uuid &value, std::format_context &ctx) const
+    {
+        const auto text = boost::uuids::to_string(value);
+        return std::formatter<std::string_view, char>::format(text, ctx);
+    }
+};

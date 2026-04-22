@@ -13,6 +13,7 @@ using v1::Link;
 using v1::Url;
 using enum Url::StripOptions;
 using namespace text::literals;
+using text::toBytes;
 
 [[nodiscard]] String toText(std::string_view input) { return String::fromBytes(input).expect(); }
 
@@ -30,13 +31,13 @@ using namespace text::literals;
 
 [[nodiscard]] std::string normalizeKey(std::string_view input)
 {
-    return std::to_string(parseLink(input).normalized());
+    return toBytes(parseLink(input).normalized());
 }
 
 [[nodiscard]] std::string normalizeKeyFromBytes(const std::vector<char> &bytes)
 {
     const auto text = String::fromBytes(std::string_view(bytes.data(), bytes.size())).expect();
-    return std::to_string(Link::fromText(text, kUrlBytesMax).expect().normalized());
+    return toBytes(Link::fromText(text, kUrlBytesMax).expect().normalized());
 }
 } // namespace
 

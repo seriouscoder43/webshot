@@ -64,12 +64,9 @@ void writeErrorMetric(
         );
         return;
     case kCount:
-        break;
     default:
-        break;
+        invariant(false, "");
     }
-
-    invariant(false, "invalid Metrics::Error value");
 }
 
 } // namespace
@@ -89,14 +86,12 @@ Metrics::Metrics(
             writer["capture"]["captures_total"].ValueWithLabels(
                 capture.failed.Load(), {{"result", "failed"}}
             );
-
             writer["capture"]["duration_ms_sum"].ValueWithLabels(
                 capture.succeededDurationMsSum.Load(), {{"result", "succeeded"}}
             );
             writer["capture"]["duration_ms_sum"].ValueWithLabels(
                 capture.failedDurationMsSum.Load(), {{"result", "failed"}}
             );
-
             for (size_t i = 0; i < errors.size(); i++) {
                 writeErrorMetric(writer, numericCast<Metrics::Error>(i), errors[i].Load());
             }
@@ -106,25 +101,19 @@ Metrics::Metrics(
 
 Metrics::~Metrics() = default;
 
-void Metrics::accountError(Error which) noexcept
-{
-    const auto idx = numericCast<size_t>(which);
-    invariant(idx < errors.size(), "invalid Metrics::Error value");
-    errors[idx]++;
-}
+void Metrics::accountError(Error which) noexcept { errors[numericCast<size_t>(which)]++; }
 
 void Metrics::accountCaptureJobCreated() noexcept { capture.jobsCreated++; }
 
 void Metrics::accountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept
 {
-    invariant(duration.count() >= 0, "capture duration must be non-negative");
-    const auto ms = numericCast<uint64_t>(duration.count());
+    const auto rate = us::utils::statistics::Rate{numericCast<uint64_t>(duration.count())};
     if (succeeded) {
         capture.succeeded++;
-        capture.succeededDurationMsSum += us::utils::statistics::Rate{ms};
+        capture.succeededDurationMsSum += rate;
     } else {
         capture.failed++;
-        capture.failedDurationMsSum += us::utils::statistics::Rate{ms};
+        capture.failedDurationMsSum += rate;
     }
 }
 

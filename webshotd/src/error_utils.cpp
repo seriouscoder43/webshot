@@ -12,9 +12,11 @@
 
 namespace v1::errors {
 
+using text::toBytes;
+
 json::Value makeError(String message)
 {
-    dto::ErrorEnvelope::Error err(std::to_string(message));
+    dto::ErrorEnvelope::Error err(toBytes(message));
     dto::ErrorEnvelope env(err);
     return json::ValueBuilder(env).ExtractValue();
 }

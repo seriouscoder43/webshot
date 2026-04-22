@@ -131,6 +131,8 @@ private:
     std::string data;
 };
 
+[[nodiscard]] inline std::string toBytes(const String &text) { return std::string{text.view()}; }
+
 [[nodiscard]] constexpr String operator+(String lhs, const String &rhs)
 {
     lhs += rhs;
@@ -159,12 +161,6 @@ template <> struct std::formatter<text::String, char> : std::formatter<std::stri
         return std::formatter<std::string_view, char>::format(text.view(), ctx);
     }
 };
-
-namespace std {
-
-[[nodiscard]] inline string to_string(const text::String &text) { return string{text.view()}; }
-
-} // namespace std
 
 template <> struct std::hash<String> {
     size_t operator()(const String &text) const noexcept

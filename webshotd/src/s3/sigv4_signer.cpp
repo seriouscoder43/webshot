@@ -19,6 +19,8 @@
 
 namespace v1::s3v4 {
 
+using text::toBytes;
+
 namespace {
 
 /** Characters that do not require percent-encoding. */
@@ -220,11 +222,11 @@ std::unordered_map<std::string, std::string> signHeaders(
     auto headers = headersUtf8;
     std::unordered_map<std::string, std::string> out{};
 
-    auto payloadHex = std::to_string(payloadSha256Hex);
+    auto payloadHex = toBytes(payloadSha256Hex);
     out["x-amz-date"] = p.amzDate;
     out["x-amz-content-sha256"] = payloadHex;
     if (p.sessionToken)
-        out["x-amz-security-token"] = std::to_string(p.sessionToken->GetUnderlying());
+        out["x-amz-security-token"] = toBytes(p.sessionToken->GetUnderlying());
     for (const auto &[name, value] : out)
         headers.emplace_back(name, value);
     std::ranges::sort(headers, {}, &std::pair<std::string, std::string>::first);

@@ -42,15 +42,16 @@ namespace {
 {
     using enum server::http::HttpStatus;
 
-    const auto retryAfterSeconds = std::chrono::ceil<std::chrono::seconds>(retryAfter).count();
-    const auto retryAfterSecondsCount = std::max<i64>(1, i64(retryAfterSeconds));
+    const auto retryAfterSeconds = std::max(
+        1s, std::chrono::ceil<std::chrono::seconds>(retryAfter)
+    );
     dto::CaptureJobCooldownResponse body{
         .uuid = uuid,
-        .retry_after_sec = retryAfterSecondsCount,
+        .retry_after_sec = i64{retryAfterSeconds.count()},
         .error = dto::CaptureJobCooldownResponse::Error{"client IP in cooldown"},
     };
 
-    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retryAfterSecondsCount));
+    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retryAfterSeconds.count()));
     return httpu::respondJson(response, kTooManyRequests, body);
 }
 

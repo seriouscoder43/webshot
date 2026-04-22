@@ -27,6 +27,8 @@ using namespace text::literals;
 
 namespace v1 {
 
+using text::toBytes;
+
 namespace {
 
 [[nodiscard]] Expected<String, StsError> extractXmlTag(const String &xml, String tag)
@@ -51,7 +53,7 @@ parseExpiration(const String &expiration)
 {
     std::chrono::system_clock::time_point expiresAt;
     if (!cctz::parse(
-            datetime::kRfc3339Format, std::to_string(expiration), cctz::utc_time_zone(), &expiresAt
+            datetime::kRfc3339Format, toBytes(expiration), cctz::utc_time_zone(), &expiresAt
         )) {
         return Unex(StsError::kInvalidExpiration);
     }
@@ -119,7 +121,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
 
     const auto now = datetime::Now();
     s3v4::SigV4Params params(
-        std::to_string(region), "sts", staticAccessKeyId, staticSecretAccessKey, {}, now
+        toBytes(region), "sts", staticAccessKeyId, staticSecretAccessKey, {}, now
     );
 
     std::vector<std::pair<String, String>> headersToSign;
@@ -130,8 +132,8 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
         params, "POST"_t, path, query, headersToSign, payloadHash
     );
     httpc::Headers headers;
-    headers[us::http::headers::kHost] = std::to_string(host);
-    headers[us::http::headers::kContentType] = std::to_string(kUrlEncoded);
+    headers[us::http::headers::kHost] = toBytes(host);
+    headers[us::http::headers::kContentType] = toBytes(kUrlEncoded);
     for (const auto &[name, value] : signedHeaders)
         headers[name] = value;
     const auto response = TRY(exec(stsUrl.href(), body, headers, timeout));
@@ -151,8 +153,8 @@ Expected<StsCredentials, StsError> fetchStsCredentials(
                                    const httpc::Headers &headers,
                                    std::chrono::milliseconds timeoutMs
                                ) -> Expected<std::string, StsError> {
-        auto urlBytes = std::to_string(url);
-        auto bodyBytes = std::to_string(body);
+        auto urlBytes = toBytes(url);
+        auto bodyBytes = toBytes(body);
         auto resp = httpClient.CreateNotSignedRequest()
                         .post(urlBytes, std::move(bodyBytes))
                         .headers(headers)

@@ -87,6 +87,7 @@ namespace sql = webshot::sql;
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
+using text::toBytes;
 using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 
@@ -149,7 +150,7 @@ makePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz
 {
     return dto::CaptureJob{
         .uuid = uuid,
-        .link = std::to_string(link),
+        .link = toBytes(link),
         .status = dto::CaptureJob::Status::kPending,
         .created_at = createdAt,
     };
@@ -165,7 +166,7 @@ makePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz
                                                     : kFailed;
     dto::CaptureJob job{
         .uuid = row.uuid,
-        .link = std::to_string(row.link),
+        .link = toBytes(row.link),
         .status = status,
         .created_at = datetime::TimePointTz(row.createdAt.GetUnderlying()),
     };
@@ -665,9 +666,7 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
     if (!stored)
         return Unex(errors::CrawlFailure{.code = kPersistMetadataFailed, .detail = {}});
     LOG_INFO() << std::format("Persisted metadata for job {} ({})", id, ctx.link.normalized());
-    return dto::UuidWithTimeLink{
-        stored->id, stored->createdAt, std::to_string(ctx.link.normalized())
-    };
+    return dto::UuidWithTimeLink{stored->id, stored->createdAt, toBytes(ctx.link.normalized())};
 }
 
 Expected<datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid id, String link)
@@ -1481,7 +1480,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
             crud::Cursor cursor(tp, last.uuid);
             return dto::PagedFindCapturesByUrlResponse{
                 .items = std::move(items),
-                .next_page_token = std::to_string(crud::encodeCursor(cursor)),
+                .next_page_token = toBytes(crud::encodeCursor(cursor)),
             };
         }
         return dto::PagedFindCapturesByUrlResponse{
@@ -1512,7 +1511,7 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
             crud::Cursor cursor(tp, last.uuid);
             return dto::PagedFindCapturesByUrlResponse{
                 .items = std::move(items),
-                .next_page_token = std::to_string(crud::encodeCursor(cursor)),
+                .next_page_token = toBytes(crud::encodeCursor(cursor)),
             };
         }
         return dto::PagedFindCapturesByUrlResponse{
@@ -1617,9 +1616,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             return Unex(kDbFailure);
         }
         for (auto &&r : *rows) {
-            items.emplace_back(
-                r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), std::to_string(link)
-            );
+            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), toBytes(link));
         }
         if (!rows->empty()) {
             lastRow = rows->back();
@@ -1640,7 +1637,7 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
                 crud::encodePrefixCursor(normalizedPrefix, lastLink, tp, lastRow->uuid).view()
             );
         } else {
-            next = std::to_string(crud::encodePrefixCursor(normalizedPrefix, lastLink));
+            next = toBytes(crud::encodePrefixCursor(normalizedPrefix, lastLink));
         }
     }
     return dto::PagedFindCapturesByPrefixResponse{

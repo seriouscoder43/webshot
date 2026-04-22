@@ -39,6 +39,7 @@ namespace chrono = std::chrono;
 using namespace std::chrono_literals;
 
 using namespace text::literals;
+using v1::uuidu::toBytes;
 
 namespace v1::crawler {
 namespace {
@@ -219,7 +220,7 @@ struct [[nodiscard]] BrowserPaths final {
     auto tempRoot = normalizeDirPath(std::string(browserRunsRoot));
     us::fs::blocking::CreateDirectories(tempRoot);
 
-    const auto runId = std::to_string(us::utils::generators::GenerateBoostUuid());
+    const auto runId = toBytes(us::utils::generators::GenerateBoostUuid());
     const auto rootDir = std::format("{}/browser-{}", tempRoot, runId);
     BrowserPaths paths{
         .rootDir = rootDir,
@@ -774,7 +775,7 @@ Expected<void, String> BrowserPageSession::createBlankTarget()
 
     dto::TargetCreateTargetParams targetParams{
         .url = "about:blank",
-        .browserContextId = std::to_string(*browserContextIdValue),
+        .browserContextId = text::toBytes(*browserContextIdValue),
     };
     const auto target = TRY(
         sendCdp<dto::TargetCreateTargetResult>(cdpClient, "Target.createTarget"_t, targetParams)
@@ -792,7 +793,7 @@ Expected<void, String> BrowserPageSession::attachToTarget()
     invariant(targetIdValue, "target must exist before attaching");
 
     dto::TargetAttachToTargetParams attachParams{
-        .targetId = std::to_string(*targetIdValue),
+        .targetId = text::toBytes(*targetIdValue),
         .flatten = true,
     };
     const auto attached = TRY(
@@ -865,7 +866,7 @@ Expected<void, String> BrowserPageSession::detach()
         return {};
 
     dto::TargetDetachFromTargetParams detachParams;
-    detachParams.sessionId = std::to_string(*sessionIdValue);
+    detachParams.sessionId = text::toBytes(*sessionIdValue);
     TRY(sendCdpVoid(cdpClient, "Target.detachFromTarget"_t, detachParams));
     cdpSessionValue.reset();
     sessionIdValue.reset();
@@ -881,7 +882,7 @@ Expected<void, String> BrowserPageSession::disposeBrowserContext()
         return {};
 
     dto::TargetDisposeBrowserContextParams disposeParams;
-    disposeParams.browserContextId = std::to_string(*browserContextIdValue);
+    disposeParams.browserContextId = text::toBytes(*browserContextIdValue);
     TRY(sendCdpVoid(cdpClient, "Target.disposeBrowserContext"_t, disposeParams));
     browserContextIdValue.reset();
     targetIdValue.reset();

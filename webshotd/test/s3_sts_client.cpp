@@ -12,6 +12,7 @@
 using namespace std::chrono_literals;
 using v1::StsCredentials;
 using namespace text::literals;
+using text::toBytes;
 
 namespace {
 
@@ -93,8 +94,8 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
     v1::detail::StsExecutor exec = [&](const String &url, const String &body,
                                        const httpc::Headers &headers,
                                        std::chrono::milliseconds timeout) {
-        capturedUrl = std::to_string(url);
-        capturedBody = std::to_string(body);
+        capturedUrl = toBytes(url);
+        capturedBody = toBytes(body);
         capturedHeaders = headers;
         capturedTimeout = timeout;
         return makeValidXml();

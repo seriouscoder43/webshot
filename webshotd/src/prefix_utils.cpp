@@ -10,6 +10,8 @@
 
 namespace v1::prefix {
 
+using text::toBytes;
+
 namespace {
 
 void appendEncodedSegment(std::string &out, std::string_view bytes)
@@ -55,7 +57,7 @@ void appendEncodedSegment(std::string &out, std::string_view bytes)
             hostRev.push_back('.');
         hostRev += labels[i];
     }
-    auto path = std::to_string(normalizedUrl.pathname());
+    auto path = toBytes(normalizedUrl.pathname());
     if (path == "/")
         path.clear();
     else if (!path.empty() && path.back() == '/')

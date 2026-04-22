@@ -25,6 +25,8 @@
 
 namespace v1 {
 
+using text::toBytes;
+
 struct [[nodiscard]] ParamError final {
     String name;
     String message;
@@ -50,7 +52,7 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     parseRequiredQueryText(const server::http::HttpRequest &request, String paramName) const
     {
-        const std::string arg = request.GetArg(std::to_string(paramName));
+        const std::string arg = request.GetArg(toBytes(paramName));
         ENSURE(!arg.empty(), missingParamError(paramName));
         return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
                                return invalidParamError(paramName);
@@ -60,7 +62,7 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     parseQueryText(const server::http::HttpRequest &request, String paramName) const
     {
-        const std::string arg = request.GetArg(std::to_string(paramName));
+        const std::string arg = request.GetArg(toBytes(paramName));
         return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
                                return invalidParamError(paramName);
                            }));
@@ -139,7 +141,7 @@ private:
     [[nodiscard]] Expected<String, ParamError>
     parseRequiredPathText(const server::http::HttpRequest &request, String paramName) const
     {
-        const std::string arg = request.GetPathArg(std::to_string(paramName));
+        const std::string arg = request.GetPathArg(toBytes(paramName));
         ENSURE(!arg.empty(), missingParamError(paramName));
         return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
                                return invalidParamError(paramName);

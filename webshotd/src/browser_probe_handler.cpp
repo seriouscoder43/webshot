@@ -40,6 +40,7 @@
 
 using namespace text::literals;
 using namespace std::chrono_literals;
+using text::toBytes;
 
 namespace chrono = std::chrono;
 
@@ -80,7 +81,7 @@ struct [[nodiscard]] ProbeConfig final {
 evaluateExpression(crawler::CdpSession &cdpSession, const String &expression)
 {
     dto::RuntimeEvaluateParams params{
-        .expression = std::to_string(expression),
+        .expression = toBytes(expression),
         .returnByValue = true,
         .awaitPromise = true,
     };
@@ -436,11 +437,11 @@ runProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         }
         TRY(drainProbeEvents(cdpSession, console, pageErrors));
         std::ranges::transform(console, std::back_inserter(probeResult.console), [](const auto &s) {
-            return std::to_string(s);
+            return toBytes(s);
         });
         std::ranges::transform(
             pageErrors, std::back_inserter(probeResult.page_errors),
-            [](const auto &s) { return std::to_string(s); }
+            [](const auto &s) { return toBytes(s); }
         );
         return probeResult;
     }()

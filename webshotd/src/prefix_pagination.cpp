@@ -14,6 +14,8 @@
 
 namespace v1::crud {
 
+using text::toBytes;
+
 [[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token)
 {
     const auto cur = TRY(decodeToken<dto::PaginationPrefixCursor>(token));
@@ -29,7 +31,7 @@ namespace v1::crud {
 
 [[nodiscard]] String encodePrefixCursor(const String &prefix, const String &link)
 {
-    dto::PaginationPrefixCursor cur(std::to_string(prefix), std::to_string(link));
+    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link));
     return encodeToken(cur);
 }
 
@@ -38,7 +40,7 @@ namespace v1::crud {
 )
 {
     const auto micros = timePointToMicros(createdAt);
-    dto::PaginationPrefixCursor cur(std::to_string(prefix), std::to_string(link), micros, id);
+    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link), micros, id);
     return encodeToken(cur);
 }
 

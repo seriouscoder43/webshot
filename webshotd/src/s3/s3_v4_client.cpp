@@ -31,6 +31,7 @@
 
 namespace s3 = us::s3api;
 using namespace text::literals;
+using text::toBytes;
 
 namespace v1::s3v4 {
 using namespace std::chrono_literals;
@@ -140,7 +141,7 @@ S3V4Client::GetObjectHead(std::string_view path, const HeaderDataRequest &reques
     httpc::Headers headers;
     const auto payloadHash = sha256Hex("");
     signRequest("HEAD"_t, built.rawPath, built.host, headers, payloadHash);
-    const auto url = std::to_string(built.href);
+    const auto url = toBytes(built.href);
     auto resp = httpClient.CreateNotSignedRequest()
                     .head(url)
                     .headers(headers)
@@ -328,14 +329,8 @@ std::chrono::seconds S3V4Client::computePresignTtl(
 
 SigV4Params S3V4Client::makeSigV4Params(const std::chrono::system_clock::time_point &now) const
 {
-    return {
-        std::to_string(config.region),
-        "s3",
-        creds.accessKeyId,
-        creds.secretAccessKey,
-        creds.sessionToken,
-        now
-    };
+    return {toBytes(config.region), "s3", creds.accessKeyId, creds.secretAccessKey,
+            creds.sessionToken,     now};
 }
 
 void S3V4Client::signRequest(
@@ -345,7 +340,7 @@ void S3V4Client::signRequest(
 {
     const auto now = datetime::Now();
     const auto params = makeSigV4Params(now);
-    auto prepared = prepareSignedHeaders(std::to_string(host), headers);
+    auto prepared = prepareSignedHeaders(toBytes(host), headers);
     const auto headersText = detail::toTextPairs(prepared);
 
     auto signedMap = signHeaders(params, method, canonicalUri, {}, headersText, payloadHash);
@@ -355,9 +350,9 @@ void S3V4Client::signRequest(
 
 String S3V4Client::buildRawPath(String path, IncludeBucket includeBucket) const
 {
-    const auto basePath = std::to_string(endpoint.basePath);
-    const auto bucket = std::to_string(bucketName);
-    const auto pathBytes = std::to_string(path);
+    const auto basePath = toBytes(endpoint.basePath);
+    const auto bucket = toBytes(bucketName);
+    const auto pathBytes = toBytes(path);
 
     std::string raw;
     raw.reserve(numericCast<size_t>(ssize(basePath) + ssize(bucket) + ssize(pathBytes) + 2_i64));
@@ -422,7 +417,7 @@ String S3V4Client::presignVirtualHost(
     const SigV4Params params = makeSigV4Params(now);
 
     httpc::Headers extra = extraHeaders.value_or(httpc::Headers{});
-    auto prepared = prepareSignedHeaders(std::to_string(built.host), extra);
+    auto prepared = prepareSignedHeaders(toBytes(built.host), extra);
     const auto headersText = detail::toTextPairs(prepared);
 
     return buildPresignedUrl(method, built, now, expiresAt, params, headersText);
@@ -436,7 +431,7 @@ String S3V4Client::presignPathStyle(
     auto now = datetime::Now();
     auto built = makePathStyleUrl(std::move(path), std::move(protocol));
     SigV4Params params = makeSigV4Params(now);
-    auto prepared = prepareSignedHeaders(std::to_string(built.host), httpc::Headers{});
+    auto prepared = prepareSignedHeaders(toBytes(built.host), httpc::Headers{});
     const auto headersText = detail::toTextPairs(prepared);
 
     return buildPresignedUrl(method, built, now, expiresAt, params, headersText);
@@ -460,13 +455,11 @@ String S3V4Client::buildPresignedUrl(
     std::vector<std::pair<std::string, std::string>> headersUtf8;
     headersUtf8.reserve(headers.size());
     for (const auto &[name, value] : headers)
-        headersUtf8.emplace_back(std::to_string(name), std::to_string(value));
+        headersUtf8.emplace_back(toBytes(name), toBytes(value));
     const std::string signedHeaders = buildSignedHeaders(headersUtf8);
     query.emplace_back("X-Amz-SignedHeaders", signedHeaders);
     if (params.sessionToken)
-        query.emplace_back(
-            "X-Amz-Security-Token", std::to_string(params.sessionToken->GetUnderlying())
-        );
+        query.emplace_back("X-Amz-Security-Token", toBytes(params.sessionToken->GetUnderlying()));
 
     const auto cr = buildCanonicalRequest(
         method.view(), built.rawPath.view(), query, headersUtf8, "UNSIGNED-PAYLOAD"
@@ -477,7 +470,7 @@ String S3V4Client::buildPresignedUrl(
     const std::string signature = computeSignature(params, stringToSign);
     query.emplace_back("X-Amz-Signature", signature);
 
-    auto url = std::to_string(built.href);
+    auto url = toBytes(built.href);
     url.push_back('?');
     url.append(canonicalizeQuery(query));
     return String::fromBytes(url).expect();
