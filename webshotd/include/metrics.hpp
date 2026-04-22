@@ -27,7 +27,7 @@ public:
 
     ~Metrics() override;
 
-    enum class Error : std::uint8_t {
+    enum class Error : uint8_t {
         kDbCaptureMetaRead = 0,
         kDbCaptureMetaWrite = 1,
         kDbSharedStateRead = 2,
@@ -37,8 +37,7 @@ public:
         kStsRefresh = 6,
         kCrawlerRun = 7,
         kDenylistCheck = 8,
-        kJemallocMallctl = 9,
-        kCount = 10,
+        kCount = 9,
     };
 
     void accountError(Error which) noexcept;
@@ -60,8 +59,7 @@ private:
         us::utils::statistics::RateCounter failedDurationMsSum;
     };
 
-    static constexpr size_t kErrorCount = 10;
-    static_assert(kErrorCount == numericCast<size_t>(Error::kCount));
+    static constexpr size_t kErrorCount = numericCast<size_t>(Error::kCount);
 
     CaptureCounters capture;
     std::array<us::utils::statistics::RateCounter, kErrorCount> errors;

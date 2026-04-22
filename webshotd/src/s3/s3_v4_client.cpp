@@ -319,10 +319,10 @@ std::chrono::seconds S3V4Client::computePresignTtl(
 )
 {
     auto ttl = std::chrono::duration_cast<std::chrono::seconds>(expiresAt - now);
-    if (ttl.count() <= 0)
-        ttl = kMinPresignTtl;
-    if (ttl.count() > kMaxPresignTtl.count())
-        ttl = kMaxPresignTtl;
+    if (ttl <= 0s)
+        ttl = detail::kMinPresignTtl;
+    if (ttl > detail::kMaxPresignTtl)
+        ttl = detail::kMaxPresignTtl;
     return ttl;
 }
 

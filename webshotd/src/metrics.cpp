@@ -4,15 +4,9 @@
  * @brief Service metrics exposed via userver statistics (scraped by ServerMonitor).
  */
 
-#include <jemalloc/jemalloc.h>
-
 #include <cstddef>
-#include <cstdint>
-#include <string_view>
-
 #include <userver/components/component.hpp>
 #include <userver/components/statistics_storage.hpp>
-#include <userver/utils/assert.hpp>
 #include <userver/utils/statistics/labels.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
@@ -20,42 +14,62 @@ namespace v1 {
 
 namespace {
 
-struct [[nodiscard]] ErrorLabels final {
-    std::string_view subsystem;
-    std::string_view op;
-};
-
-static constexpr size_t kErrorCount = 10;
-static_assert(kErrorCount == numericCast<size_t>(Metrics::Error::kCount));
-
-static constexpr std::array<ErrorLabels, kErrorCount> kErrorLabels = {{
-    {"db", "capture_meta_read"},
-    {"db", "capture_meta_write"},
-    {"db", "shared_state_read"},
-    {"db", "shared_state_write"},
-    {"s3", "put_object"},
-    {"s3", "delete_object"},
-    {"sts", "refresh"},
-    {"crawler", "run"},
-    {"denylist", "check"},
-    {"jemalloc", "mallctl"},
-}};
-
-[[nodiscard]] bool mallctlU64(const char *name, std::uint64_t &out) noexcept
+template <typename Value>
+void writeErrorMetric(
+    us::utils::statistics::Writer &writer, Metrics::Error which, Value value
+) noexcept
 {
-    std::uint64_t value{0};
-    size_t size{sizeof(value)};
-    if (mallctl(name, &value, &size, nullptr, 0) != 0)
-        return false;
-    out = value;
-    return true;
-}
+    using enum Metrics::Error;
 
-[[nodiscard]] bool refreshJemallocEpoch() noexcept
-{
-    std::uint64_t epoch{1};
-    size_t size{sizeof(epoch)};
-    return mallctl("epoch", &epoch, &size, &epoch, size) == 0;
+    switch (which) {
+    case kDbCaptureMetaRead:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "capture_meta_read"}, {"subsystem", "db"}}
+        );
+        return;
+    case kDbCaptureMetaWrite:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "capture_meta_write"}, {"subsystem", "db"}}
+        );
+        return;
+    case kDbSharedStateRead:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "shared_state_read"}, {"subsystem", "db"}}
+        );
+        return;
+    case kDbSharedStateWrite:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "shared_state_write"}, {"subsystem", "db"}}
+        );
+        return;
+    case kS3PutObject:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "put_object"}, {"subsystem", "s3"}}
+        );
+        return;
+    case kS3DeleteObject:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "delete_object"}, {"subsystem", "s3"}}
+        );
+        return;
+    case kStsRefresh:
+        writer["errors"]["total"].ValueWithLabels(value, {{"op", "refresh"}, {"subsystem", "sts"}});
+        return;
+    case kCrawlerRun:
+        writer["errors"]["total"].ValueWithLabels(value, {{"op", "run"}, {"subsystem", "crawler"}});
+        return;
+    case kDenylistCheck:
+        writer["errors"]["total"].ValueWithLabels(
+            value, {{"op", "check"}, {"subsystem", "denylist"}}
+        );
+        return;
+    case kCount:
+        break;
+    default:
+        break;
+    }
+
+    invariant(false, "invalid Metrics::Error value");
 }
 
 } // namespace
@@ -84,31 +98,8 @@ Metrics::Metrics(
             );
 
             for (size_t i = 0; i < errors.size(); i++) {
-                const auto &labels = kErrorLabels[i];
-                writer["errors"]["total"].ValueWithLabels(
-                    errors[i].Load(), {{"op", labels.op}, {"subsystem", labels.subsystem}}
-                );
+                writeErrorMetric(writer, numericCast<Metrics::Error>(i), errors[i].Load());
             }
-
-            if (!refreshJemallocEpoch()) {
-                accountError(Error::kJemallocMallctl);
-                return;
-            }
-
-            std::uint64_t allocated{0};
-            std::uint64_t resident{0};
-            std::uint64_t active{0};
-            const bool ok = mallctlU64("stats.allocated", allocated) &&
-                            mallctlU64("stats.resident", resident) &&
-                            mallctlU64("stats.active", active);
-            if (!ok) {
-                accountError(Error::kJemallocMallctl);
-                return;
-            }
-
-            writer["memory"]["allocated_bytes"] = allocated;
-            writer["memory"]["resident_bytes"] = resident;
-            writer["memory"]["active_bytes"] = active;
         }
     );
 }
@@ -127,7 +118,7 @@ void Metrics::accountCaptureJobCreated() noexcept { capture.jobsCreated++; }
 void Metrics::accountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept
 {
     invariant(duration.count() >= 0, "capture duration must be non-negative");
-    const auto ms = numericCast<std::uint64_t>(duration.count());
+    const auto ms = numericCast<uint64_t>(duration.count());
     if (succeeded) {
         capture.succeeded++;
         capture.succeededDurationMsSum += us::utils::statistics::Rate{ms};
