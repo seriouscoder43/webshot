@@ -237,6 +237,11 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
            statusCode != 304_i64;
 }
 
+[[nodiscard]] bool isSuccessfulMainDocumentExchange(const crawler::CapturedExchange &exchange)
+{
+    return exchange.statusCode >= 200_i64 && exchange.statusCode < 400_i64;
+}
+
 [[nodiscard]] std::optional<String> buildUrlOrigin(const String &urlText)
 {
     const auto maybeUrl = TRY(Url::fromText(urlText));
@@ -1509,8 +1514,15 @@ private:
         browser.markPhase("before_browser_close");
         LOG_INFO() << std::format("captureViaProxy closing browser for {}", run.seedUrl);
         browser.close();
-        if (const auto proxyFailure = browser.proxyFailureReason())
-            return Unex(*proxyFailure);
+        if (const auto proxyFailure = browser.proxyFailureReason()) {
+            if (!isSuccessfulMainDocumentExchange(exchange))
+                return Unex(*proxyFailure);
+            LOG_WARNING() << std::format(
+                "Ignoring late proxy failure after successful main document capture for {} "
+                "(status={}): {}",
+                run.seedUrl, exchange.statusCode, *proxyFailure
+            );
+        }
         LOG_INFO() << std::format("captureViaProxy returning capture for {}", run.seedUrl);
         return exchange;
     }
