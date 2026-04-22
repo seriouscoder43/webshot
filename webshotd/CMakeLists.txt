@@ -7,9 +7,10 @@ get_filename_component(WEBSHOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.."
                        ABSOLUTE)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX
-      "${CMAKE_BINARY_DIR}/runtime_root"
-      CACHE PATH "Local runtime staging prefix" FORCE)
+  message(
+    FATAL_ERROR
+      "CMAKE_INSTALL_PREFIX must be set explicitly by the devenv configure flags."
+  )
 endif()
 
 # Ensure userver codegen target is created only once even with multiple
@@ -24,10 +25,6 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   )
 endif()
 
-set(WEBSHOT_ENABLE_COVERAGE
-    OFF
-    CACHE BOOL
-          "Enable LLVM coverage instrumentation for the webshot service binary")
 set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
 set(WEBSHOT_RAPIDOC_ASSETS_DIR
     ""
@@ -38,21 +35,6 @@ set(WEBSHOT_WEB_UI_VENDOR_DIR
 set(WEBSHOT_RUNTIME_EXTRA_PATH
     ""
     CACHE STRING "Colon-separated PATH prefix exported by the runtime wrapper")
-
-option(WEBSHOT_ENABLE_SQL_COVERAGE "Enable pytest sql_coverage includetest" ON)
-
-# Ensure that userver integration does not create Python virtual environments
-# when this service is configured. Testsuite and SQL/chaotic helpers should use
-# the system Python specified by USERVER_PYTHON_PATH instead.
-set(USERVER_TESTSUITE_USE_VENV
-    OFF
-    CACHE BOOL "Disable userver testsuite Python virtualenvs" FORCE)
-set(USERVER_SQL_USE_VENV
-    OFF
-    CACHE BOOL "Disable userver SQL helper Python virtualenvs" FORCE)
-set(USERVER_CHAOTIC_USE_VENV
-    OFF
-    CACHE BOOL "Disable userver chaotic helper Python virtualenvs" FORCE)
 
 set(CMAKE_LINKER_TYPE MOLD)
 
@@ -137,6 +119,11 @@ function(apply_defaults target)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD 26)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD_REQUIRED ON)
   set_property(TARGET ${target} PROPERTY CXX_EXTENSIONS OFF)
+  set(lifetimeSafetyWarnings
+      -Wexperimental-lifetime-safety-suggestions
+      -Wexperimental-lifetime-safety-intra-tu-suggestions
+      -Wexperimental-lifetime-safety-cross-tu-suggestions
+      -Wexperimental-lifetime-safety-permissive)
   target_compile_options(
     ${target}
     PRIVATE -Wall
@@ -164,7 +151,8 @@ function(apply_defaults target)
             -Wswitch-enum
             -Wtautological-compare
             -Wunreachable-code-aggressive
-            -Wzero-as-null-pointer-constant)
+            -Wzero-as-null-pointer-constant
+            ${lifetimeSafetyWarnings})
   target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-ggdb3>
                                            $<$<CONFIG:Release>:-O2>)
   if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -269,8 +257,6 @@ find_package(absl CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
                       PUBLIC userver::core userver::postgresql userver::s3api)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE ${jemalloc_LIBRARIES_jemalloc})
 
 if(CMAKE_CXX_INCLUDE_WHAT_YOU_USE)
   set(_webshot_iwyu_cmd ${CMAKE_CXX_INCLUDE_WHAT_YOU_USE})
