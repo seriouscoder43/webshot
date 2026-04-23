@@ -150,8 +150,11 @@ function(apply_defaults target)
             -Wunreachable-code-aggressive
             -Wzero-as-null-pointer-constant
             ${lifetimeSafetyWarnings})
-  target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-ggdb3>
-                                           $<$<CONFIG:RelWithDebInfo>:-O2>)
+  target_compile_options(
+    ${target}
+    PRIVATE $<$<CONFIG:Debug>:-ggdb3>
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:-fdebug-macro>
+            $<$<CONFIG:RelWithDebInfo>:-O2>)
   if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer)
   endif()
