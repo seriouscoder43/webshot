@@ -262,8 +262,9 @@ def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
         yaml.safe_dump(
             {
                 "rapidoc_assets_dir": rapidoc_assets_dir,
-                "openapi_dir": str(ctx.repo_root / "schema" / "public_openapi"),
-                "openapi_admin_dir": str(ctx.repo_root / "schema" / "admin_openapi"),
+                "openapi_public_dir": str(ctx.repo_root / "schema" / "public"),
+                "openapi_admin_dir": str(ctx.repo_root / "schema" / "admin"),
+                "openapi_common_dir": str(ctx.repo_root / "schema" / "common"),
                 "web_ui_dir": str(ctx.binary_path.parent.parent / "web_ui"),
                 "web_ui_vendor_dir": str(ctx.binary_path.parent.parent / "web_ui" / "vendor"),
                 "state_dir": str(ctx.webshotd_state_dir),

@@ -249,8 +249,9 @@ def service_config_path_temp(
     config_vars["rapidoc_assets_dir"] = _require_cmake_cache_string(
         cmake_cache_path, "WEBSHOT_RAPIDOC_ASSETS_DIR"
     )
-    config_vars["openapi_dir"] = str(service_source_dir.parent / "schema" / "public_openapi")
-    config_vars["openapi_admin_dir"] = str(service_source_dir.parent / "schema" / "admin_openapi")
+    config_vars["openapi_public_dir"] = str(service_source_dir.parent / "schema" / "public")
+    config_vars["openapi_admin_dir"] = str(service_source_dir.parent / "schema" / "admin")
+    config_vars["openapi_common_dir"] = str(service_source_dir.parent / "schema" / "common")
     config_vars["web_ui_dir"] = str(service_binary.parent.parent / "web_ui")
     config_vars["web_ui_vendor_dir"] = str(service_binary.parent.parent / "web_ui" / "vendor")
     config_vars["state_dir"] = str(testsuite_webshotd_state_dir)

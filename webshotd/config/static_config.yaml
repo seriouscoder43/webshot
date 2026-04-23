@@ -123,7 +123,7 @@ components_manager:
       request-timeout-ms: 10000
       max_request_size: *max-data-per-request
       title: Webshot API
-      spec-url: /openapi/webshot.yaml
+      spec-url: /openapi/public/webshot.yaml
     docs_admin:
       path: /rapidoc
       method: GET
@@ -132,7 +132,7 @@ components_manager:
       request-timeout-ms: 10000
       max_request_size: *max-data-per-request
       title: Webshot Admin API
-      spec-url: /openapi/webshot.yaml
+      spec-url: /openapi/admin/webshot.yaml
     browser_probe:
       path: /tests/browser-probe
       method: POST
@@ -170,30 +170,53 @@ components_manager:
       directory-file: ""
       not-found-file: ""
       expires: 0s
-    openapi_cache:
-      dir: $openapi_dir
+    openapi_public_cache:
+      dir: $openapi_public_dir
+      update-period: 0s
+      fs-task-processor: fs-task-processor
+    openapi_common_cache:
+      dir: $openapi_common_dir
       update-period: 0s
       fs-task-processor: fs-task-processor
     openapi_admin_cache:
       dir: $openapi_admin_dir
       update-period: 0s
       fs-task-processor: fs-task-processor
-    openapi_static:
-      path: /openapi/*
+    openapi_public_static:
+      path: /openapi/public/*
       method: GET
       task_processor: main-task-processor
       max_request_size: *max-data-per-request
-      fs-cache-component: openapi_cache
+      fs-cache-component: openapi_public_cache
       directory-file: ""
       not-found-file: ""
       expires: 0s
-    openapi_admin:
-      path: /openapi/*
+    openapi_common_static:
+      path: /openapi/common/*
+      method: GET
+      task_processor: main-task-processor
+      max_request_size: *max-data-per-request
+      fs-cache-component: openapi_common_cache
+      directory-file: ""
+      not-found-file: ""
+      expires: 0s
+    openapi_admin_static:
+      path: /openapi/admin/*
       method: GET
       monitor-handler: true
       task_processor: main-task-processor
       max_request_size: *max-data-per-request
       fs-cache-component: openapi_admin_cache
+      directory-file: ""
+      not-found-file: ""
+      expires: 0s
+    openapi_admin_common_static:
+      path: /openapi/common/*
+      method: GET
+      monitor-handler: true
+      task_processor: main-task-processor
+      max_request_size: *max-data-per-request
+      fs-cache-component: openapi_common_cache
       directory-file: ""
       not-found-file: ""
       expires: 0s

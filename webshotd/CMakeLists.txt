@@ -32,9 +32,6 @@ set(WEBSHOT_RAPIDOC_ASSETS_DIR
 set(WEBSHOT_WEB_UI_VENDOR_DIR
     ""
     CACHE STRING "Absolute path to pinned web UI vendor assets")
-set(WEBSHOT_RUNTIME_EXTRA_PATH
-    ""
-    CACHE STRING "Colon-separated PATH prefix exported by the runtime wrapper")
 
 set(CMAKE_LINKER_TYPE MOLD)
 
@@ -154,7 +151,7 @@ function(apply_defaults target)
             -Wzero-as-null-pointer-constant
             ${lifetimeSafetyWarnings})
   target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-ggdb3>
-                                           $<$<CONFIG:Release>:-O2>)
+                                           $<$<CONFIG:RelWithDebInfo>:-O2>)
   if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer)
   endif()
@@ -165,11 +162,15 @@ add_executable(${PROJECT_NAME} src/main.cpp
 apply_defaults(${PROJECT_NAME}_objs)
 apply_defaults(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME webshotd)
-set(WEBSHOT_RUNTIME_WRAPPER_TEMPLATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/webshotd_wrapper.sh.in")
+set(WEBSHOT_RUNTIME_WRAPPER_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/webshotd_wrapper.sh")
 set(WEBSHOT_RUNTIME_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/webshotd_wrapper.sh")
-configure_file("${WEBSHOT_RUNTIME_WRAPPER_TEMPLATE}"
-               "${WEBSHOT_RUNTIME_WRAPPER}" @ONLY)
+set_property(
+  DIRECTORY
+  APPEND
+  PROPERTY CMAKE_CONFIGURE_DEPENDS "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}")
+file(COPY_FILE "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}" "${WEBSHOT_RUNTIME_WRAPPER}"
+     ONLY_IF_DIFFERENT)
 file(
   CHMOD
   "${WEBSHOT_RUNTIME_WRAPPER}"
@@ -323,7 +324,8 @@ set(SCHEMAS
     ${WEBSHOT_REPO_ROOT}/schema/cdp.yaml
     ${WEBSHOT_REPO_ROOT}/schema/browsertrix_pages.yaml
     ${WEBSHOT_REPO_ROOT}/schema/wacz.yaml
-    ${WEBSHOT_REPO_ROOT}/schema/webshot.yaml)
+    ${WEBSHOT_REPO_ROOT}/schema/common/common.yaml
+    ${WEBSHOT_REPO_ROOT}/schema/public/webshot.yaml)
 userver_target_generate_chaotic(
   ${PROJECT_NAME}-chgen
   GENERATE_SERIALIZERS

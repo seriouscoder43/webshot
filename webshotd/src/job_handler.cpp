@@ -8,7 +8,7 @@
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
 #include "integers.hpp"
-#include "schema/webshot.hpp"
+#include "schema/public/webshot.hpp"
 #include "text.hpp"
 #include "uuid_utils.hpp"
 

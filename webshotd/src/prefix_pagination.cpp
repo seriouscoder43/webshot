@@ -6,7 +6,7 @@
 #include "prefix_pagination.hpp"
 
 #include "integers.hpp"
-#include "schema/webshot.hpp"
+#include "schema/public/webshot.hpp"
 #include "text.hpp"
 #include "try.hpp"
 

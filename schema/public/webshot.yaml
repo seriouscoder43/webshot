@@ -21,7 +21,7 @@ paths:
           required: true
           description: Exact link to list. Accepts a full HTTP/HTTPS link or a link without scheme (host with optional path/query). The server normalizes scheme and host.
           schema:
-            $ref: '#/components/schemas/Link'
+            $ref: '../common/common.yaml#/components/schemas/Link'
           examples:
             full-url:
               value: https://example.com/a?b=1
@@ -45,7 +45,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 missing_link:
                   value:
@@ -55,12 +55,29 @@ paths:
                   value:
                     error:
                       message: "page_token: invalid page_token"
+        '429':
+          description: Client IP is still in cooldown.
+          headers:
+            Retry-After:
+              description: Seconds until this client IP may perform another operation.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
+              examples:
+                ip_cooldown:
+                  value:
+                    error:
+                      message: client IP in cooldown
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
     post:
       operationId: createCapture
       summary: Enqueue a capture job and return its status
@@ -97,7 +114,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 bad_request:
                   value:
@@ -112,18 +129,35 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 denylisted:
                   value:
                     error:
                       message: host in denylist
+        '429':
+          description: Client IP is still in cooldown.
+          headers:
+            Retry-After:
+              description: Seconds until this client IP may perform another operation.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
+              examples:
+                ip_cooldown:
+                  value:
+                    error:
+                      message: client IP in cooldown
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
   /v1/capture/prefix:
     get:
       operationId: listCapturesByPrefix
@@ -141,7 +175,7 @@ paths:
           required: true
           description: Link prefix. Must include a full host; accepts a full HTTP/HTTPS link or a link without scheme.
           schema:
-            $ref: '#/components/schemas/Link'
+            $ref: '../common/common.yaml#/components/schemas/Link'
           examples:
             host-prefix:
               value: example.com/a
@@ -165,7 +199,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 missing_prefix:
                   value:
@@ -175,12 +209,29 @@ paths:
                   value:
                     error:
                       message: "page_token: invalid page_token"
+        '429':
+          description: Client IP is still in cooldown.
+          headers:
+            Retry-After:
+              description: Seconds until this client IP may perform another operation.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
+              examples:
+                ip_cooldown:
+                  value:
+                    error:
+                      message: client IP in cooldown
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
   /v1/capture/jobs/{uuid}:
     get:
       operationId: getCaptureJob
@@ -205,7 +256,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 invalid_uuid:
                   value:
@@ -216,18 +267,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 not_found:
                   value:
                     error:
                       message: job not found
+        '429':
+          description: Client IP is still in cooldown.
+          headers:
+            Retry-After:
+              description: Seconds until this client IP may perform another operation.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureJobCooldownResponse'
+              examples:
+                ip_cooldown:
+                  value:
+                    uuid: 123e4567-e89b-12d3-a456-426614174000
+                    retry_after_sec: 1
+                    error:
+                      message: client IP in cooldown
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
   /v1/capture/{uuid}:
     get:
       operationId: getCaptureByUuid
@@ -253,7 +323,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 missing_uuid:
                   value:
@@ -264,18 +334,35 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
               examples:
                 not_found:
                   value:
                     error:
                       message: capture not found
+        '429':
+          description: Client IP is still in cooldown.
+          headers:
+            Retry-After:
+              description: Seconds until this client IP may perform another operation.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
+              examples:
+                ip_cooldown:
+                  value:
+                    error:
+                      message: client IP in cooldown
         '500':
           description: Internal server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
 components:
   schemas:
     PaginationCursor:
@@ -293,11 +380,17 @@ components:
           type: string
           format: uuid
           description: UUID of the last item on the previous page
-    ErrorEnvelope:
+    CaptureJobCooldownResponse:
       type: object
       additionalProperties: false
-      required: [error]
+      required: [uuid, retry_after_sec, error]
       properties:
+        uuid:
+          type: string
+          format: uuid
+        retry_after_sec:
+          type: integer
+          minimum: 1
         error:
           type: object
           additionalProperties: false
@@ -306,19 +399,17 @@ components:
             message:
               type: string
       example:
+        uuid: 123e4567-e89b-12d3-a456-426614174000
+        retry_after_sec: 1
         error:
-          message: internal server error
+          message: client IP in cooldown
     CreateCaptureRequest:
       type: object
       additionalProperties: false
       required: [link]
       properties:
         link:
-          $ref: '#/components/schemas/Link'
-    Link:
-      type: string
-      description: "Either an absolute HTTP/HTTPS link (e.g., https://example.com/a) or a link without scheme (e.g., example.com/a). Must not start with '/'. Hostnames only; IP literals (IPv4/IPv6) are not allowed."
-      pattern: ^(?:[Hh][Tt][Tt][Pp][Ss]?://|[^/].+)$
+          $ref: '../common/common.yaml#/components/schemas/Link'
     UuidWithTime:
       type: object
       additionalProperties: false
@@ -396,7 +487,7 @@ components:
         result:
           $ref: '#/components/schemas/UuidWithTimeLink'
         error:
-          $ref: '#/components/schemas/ErrorEnvelope'
+          $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
       example:
         uuid: 123e4567-e89b-12d3-a456-426614174000
         link: example.com/a

@@ -22,6 +22,12 @@
         ./devenv/pkgs/include-what-you-use.nix
         ./devenv/pkgs/uni-algo.nix
         ./devenv/pkgs/userver.nix
+        ./patch/userver_testsuite_no_venv.patch
+        ./patch/userver_chaotic_no_venv.patch
+        ./patch/userver_sql_no_venv.patch
+        ./patch/userver_openssl_imported_targets.patch
+        ./patch/userver_cctz_cmake_version.patch
+        ./patch/userver_stdlib_cxx17_variant.patch
         ./devenv/pkgs/userver/deps.nix
         ./devenv/sets.nix
         ./devenv/srcs.nix

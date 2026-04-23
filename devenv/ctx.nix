@@ -38,7 +38,7 @@
       };
 
     release = {
-      buildType = "Release";
+      buildType = "RelWithDebInfo";
       exportCompileCommands = true;
       useSanitizers = false;
       buildTesting = false;
@@ -73,6 +73,8 @@
   drv = import ./drv.nix {
     inherit inputs nix paths sets srcs toolchain;
   };
+
+  repoPythonPath = "${drv.repoPy}/bin/python3";
 
   sets = import ./sets.nix {
     inherit drv nix;
@@ -127,9 +129,18 @@
     "-Duserver_DIR=${userverDir}"
     "-DUSERVER_PYTHON_PATH=${pythonPath}"
     "-DUSERVER_DEBUG_INFO_COMPRESSION=z"
-    "-DWEBSHOT_ENABLE_SQL_COVERAGE=OFF"
     "-DWEBSHOT_RAPIDOC_ASSETS_DIR=${drv.rapidoc}"
     "-DWEBSHOT_WEB_UI_VENDOR_DIR=${drv.webUi}"
+  ];
+
+  mkUserverNoVenvFlags = pythonPath: [
+    "-DUSERVER_TESTSUITE_USE_VENV=OFF"
+    "-DUSERVER_TESTSUITE_PYTHON_BINARY=${pythonPath}"
+    "-DTESTSUITE_PYTHON_BINARY=${pythonPath}"
+    "-DUSERVER_SQL_USE_VENV=OFF"
+    "-DUSERVER_SQL_PYTHON_BINARY=${pythonPath}"
+    "-DUSERVER_CHAOTIC_USE_VENV=OFF"
+    "-DUSERVER_CHAOTIC_PYTHON_BINARY=${pythonPath}"
   ];
 
   mkOutputFlags = {
@@ -142,12 +153,13 @@
       "-DCMAKE_C_COMPILER_LAUNCHER="
       "-DCMAKE_CXX_COMPILER_LAUNCHER="
       "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
-      "-DCMAKE_INSTALL_RPATH=${lib.makeLibraryPath ([userver drv.unialgo nix.libarchive nix.stdenv.cc.cc.lib] ++ sets.userver)}"
-      "-DWEBSHOT_RUNTIME_EXTRA_PATH=${lib.makeBinPath sets.crawlerRuntime}"
+      "-DCMAKE_INSTALL_RPATH=${lib.makeLibraryPath (sets.rpathLibsFor userver)}"
+      "-DUSERVER_FEATURE_TESTSUITE=OFF"
     ]
+    ++ mkUserverNoVenvFlags repoPythonPath
     ++ mkCommonFlags {
       userverDir = "${userver}/lib/cmake/userver";
-      pythonPath = "${drv.repoPy}/bin/python3";
+      pythonPath = repoPythonPath;
     }
     ++ [
       "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
@@ -174,17 +186,14 @@
     ]
     ++ mkCommonFlags {
       userverDir = "${drv.userverDbg}/lib/cmake/userver";
-      pythonPath = "${drv.repoPy}/bin/python3";
+      pythonPath = repoPythonPath;
     }
     ++ mkVariantFlags variant
     ++ [
       "-DUSERVER_FEATURE_TESTSUITE=ON"
-      "-DUSERVER_TESTSUITE_USE_VENV=OFF"
-      "-DUSERVER_SQL_USE_VENV=OFF"
-      "-DUSERVER_CHAOTIC_USE_VENV=OFF"
-      "-DTESTSUITE_PYTHON_BINARY=${drv.repoPy}/bin/python3"
       "-Wno-dev"
-    ];
+    ]
+    ++ mkUserverNoVenvFlags repoPythonPath;
 in {
   inherit drv nix paths sets srcs toolchain variants;
   treefmtExcludes = treefmtExcludes;
@@ -211,15 +220,10 @@ in {
     ln -sf "${clangdFile}" .clangd
   '';
 
-  mkWebshot = {
+  mkProjPkg = {
     suffix ? "",
     userver,
-    variant ?
-      variants.san
-      // {
-        buildTesting = false;
-        exportCompileCommands = false;
-      },
+    variant ? variants.release,
   }:
     toolchain.stdenv.mkDerivation {
       pname = "webshot${suffix}";
@@ -238,17 +242,17 @@ in {
 
       dontStrip = true;
 
-      nativeBuildInputs = sets.buildNative ++ [toolchain.cc];
-      buildInputs =
-        [
-          userver
-          drv.unialgo
-          nix.libarchive
-        ]
-        ++ sets.userver;
+      nativeBuildInputs = sets.buildNative ++ [toolchain.cc nix.makeWrapper];
+      buildInputs = sets.buildInputsFor userver;
 
       cmakeFlags = mkOutputFlags {
         inherit userver variant;
       };
+
+      postInstall = ''
+        patchShebangs "$out/webshotd/webshotd_wrapper"
+        wrapProgram "$out/webshotd/webshotd_wrapper" \
+          --set PATH "${lib.makeBinPath sets.runtimeTools}"
+      '';
     };
 }

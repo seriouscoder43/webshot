@@ -6,14 +6,17 @@
 }: let
   ctx = import ../devenv/ctx.nix {inherit pkgs config inputs;};
   lib = ctx.nix.lib;
+  repoPythonPath = "${ctx.drv.repoPy}/bin/python3";
 in {
-  outputs.webshot = ctx.mkWebshot {
-    userver = ctx.drv.userverDbg;
+  outputs.webshot = ctx.mkProjPkg {
+    userver = ctx.drv.userver;
+    variant = ctx.variants.release;
   };
 
   packages =
     ctx.sets.buildNative
     ++ ctx.sets.runtime
+    ++ ctx.sets.runtimeTools
     ++ [
       ctx.drv.repoPy
       ctx.toolchain.cc
@@ -31,8 +34,6 @@ in {
       git
       gdb
       ty
-      ungoogled-chromium
-      bubblewrap
     ]);
 
   env.CMAKE_PREFIX_PATH = ctx.paths.cmakePrefix;
@@ -41,8 +42,8 @@ in {
     ctx.nix.cryptopp.dev
   ];
 
-  env.USERVER_PYTHON = "${ctx.drv.repoPy}/bin/python3";
-  env.USERVER_PYTHON_PATH = "${ctx.drv.repoPy}/bin/python3";
+  env.USERVER_PYTHON = repoPythonPath;
+  env.USERVER_PYTHON_PATH = repoPythonPath;
   env.USERVER_DIR = "${ctx.drv.userverDbg}/lib/cmake/userver";
 
   # Expose the yandex-taxi-testsuite Python package so pytest_userver

@@ -13,7 +13,7 @@
 #include "integers.hpp"
 #include "metrics.hpp"
 #include "prefix_utils.hpp"
-#include "schema/webshot.hpp"
+#include "schema/public/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
 

@@ -7,7 +7,7 @@
 #include <userver/utest/utest.hpp>
 
 #include "cursor.hpp"
-#include "schema/webshot.hpp"
+#include "schema/public/webshot.hpp"
 #include "text.hpp"
 
 using v1::crud::Clock;

@@ -36,8 +36,7 @@
     sanitize ? "",
   }:
     toolchain.stdenv.mkDerivation {
-      pname = "userver";
-      version = "dev";
+      name = "userver";
 
       inherit src;
 
@@ -60,6 +59,8 @@
         ++ [toolchain.cc];
 
       buildInputs = userverLibs ++ [userverBuildPython];
+
+      dontStrip = true;
 
       cmakeFlags =
         baseCmakeFlags

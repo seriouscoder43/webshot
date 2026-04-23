@@ -8,7 +8,8 @@ description: API/schema and change hygiene for the webshot repo (schemas, genera
 Use this when changing the HTTP API, schema, or preparing commits/PRs.
 
 ## API and schema alignment
-- Public HTTP API is defined in `schema/webshot.yaml`.
+- Public HTTP API is defined in `schema/public/webshot.yaml`.
+- Shared public/admin DTO schemas live in `schema/common/common.yaml`.
 - Additional DTO source schemas live in `schema/cdp.yaml`, `schema/browsertrix_pages.yaml`, and `schema/wacz.yaml`.
 - `webshotd/CMakeLists.txt` feeds those schemas into `userver_target_generate_chaotic`, which generates DTOs into the build tree. Edit source schemas and rebuild; do not hand-edit generated outputs.
 - Keep schemas, handlers, SQL call sites, and service tests aligned in the same change.

@@ -2,7 +2,7 @@
 
 #include "expected.hpp"
 #include "link.hpp"
-#include "schema/webshot.hpp"
+#include "schema/public/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
 #include "userver_namespaces.hpp"

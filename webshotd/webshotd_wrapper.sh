@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-runtime_extra_path='@WEBSHOT_RUNTIME_EXTRA_PATH@'
 managed_cgroup_prefix=webshotd
 managed_cgroup_subgroup=service
 parent_procs_cgroup=webshotd-parent-procs
@@ -16,10 +15,6 @@ cleanup_parent_dir=
 managed_root_dir=
 service_dir=
 cleanup_cgroup_layout=0
-
-if [[ -n $runtime_extra_path ]]; then
-  export PATH="$runtime_extra_path:$PATH"
-fi
 
 cgroupHasControlFiles() {
   [[ -f $1/cgroup.controllers && -f $1/cgroup.subtree_control ]]
@@ -226,6 +221,6 @@ if (( cleanup_cgroup_layout != 0 )); then
   fi
 fi
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 unset CPU_LIMIT DEPLOY_VCPU_LIMIT VCPU_LIMIT
 exec "$script_dir/webshotd" "$@"
