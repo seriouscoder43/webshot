@@ -5,19 +5,19 @@
  */
 #include <webshot/sql_queries.hpp>
 
+#include "database.hpp"
 #include "prefix_utils.hpp"
 #include "text_postgres_formatter.hpp"
 #include "userver_namespaces.hpp"
 
 #include <format>
 #include <string>
-#include <type_traits>
+#include <utility>
 
 #include <userver/components/component.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/storages/postgres/cluster.hpp>
 #include <userver/storages/postgres/component.hpp>
-#include <userver/storages/postgres/exceptions.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 namespace pg = us::storages::postgres;
@@ -36,10 +36,6 @@ properties: {}
 }
 
 struct Denylist::Impl {
-    struct [[nodiscard]] PgError final {
-        std::string what;
-    };
-
     explicit Impl(
         const us::components::ComponentConfig &, const us::components::ComponentContext &context
     )
@@ -50,22 +46,7 @@ struct Denylist::Impl {
     template <pg::ClusterHostType Host, typename F, typename... Ts>
     [[nodiscard]] auto execDb(F &&f, Ts &&...args) const
     {
-        using Res = decltype(cluster->Execute(Host, std::forward<Ts>(args)...));
-        using R = std::remove_cvref_t<std::invoke_result_t<F, Res &>>;
-        using Out =
-            std::conditional_t<std::is_void_v<R>, Expected<void, PgError>, Expected<R, PgError>>;
-
-        try {
-            auto res = cluster->Execute(Host, std::forward<Ts>(args)...);
-            if constexpr (std::is_void_v<R>) {
-                std::forward<F>(f)(res);
-                return Out{};
-            } else {
-                return Out{std::forward<F>(f)(res)};
-            }
-        } catch (const pg::Error &e) {
-            return Out{Unex(PgError{.what = std::string(e.what())})};
-        }
+        return pgx::execute<Host>(cluster, std::forward<F>(f), std::forward<Ts>(args)...);
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto readonly(F &&f, Ts &&...args) const

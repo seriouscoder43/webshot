@@ -1,7 +1,9 @@
 #include <string>
+#include <string_view>
 
 #include "userver_namespaces.hpp"
 
+#include <userver/crypto/base64.hpp>
 #include <userver/utils/boost_uuid4.hpp>
 
 #include <userver/utest/utest.hpp>
@@ -16,6 +18,18 @@ using v1::crud::encodeToken;
 using v1::crud::microsToTimePoint;
 using v1::crud::timePointToMicros;
 using namespace text::literals;
+
+namespace {
+
+[[nodiscard]] String encodeRawToken(std::string_view bytes)
+{
+    return String::fromBytes(
+               us::crypto::base64::Base64UrlEncode(bytes, us::crypto::base64::Pad::kWithout)
+    )
+        .expect();
+}
+
+} // namespace
 
 UTEST(Cursor, TimePointRoundTrip)
 {
@@ -45,5 +59,17 @@ UTEST(Cursor, EncodeDecodePaginationCursor)
 UTEST(Cursor, DecodeTokenInvalidReturnsNullopt)
 {
     const auto decoded = decodeToken<dto::PaginationCursor>("not-a-token"_t);
+    EXPECT_FALSE(decoded);
+}
+
+UTEST(Cursor, DecodeTokenInvalidJsonReturnsNullopt)
+{
+    const auto decoded = decodeToken<dto::PaginationCursor>(encodeRawToken("{"));
+    EXPECT_FALSE(decoded);
+}
+
+UTEST(Cursor, DecodeTokenInvalidShapeReturnsNullopt)
+{
+    const auto decoded = decodeToken<dto::PaginationCursor>(encodeRawToken("{\"t\":123}"));
     EXPECT_FALSE(decoded);
 }

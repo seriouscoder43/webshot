@@ -7,6 +7,8 @@
  * Provides microsecond conversions for time points and generic helpers to
  * encode/decode DTOs into Base64-url JSON tokens used as page cursors.
  */
+#include "crypto.hpp"
+#include "json.hpp"
 #include "text.hpp"
 #include "userver_namespaces.hpp"
 
@@ -14,7 +16,6 @@
 #include <optional>
 
 #include <userver/crypto/base64.hpp>
-#include <userver/crypto/exception.hpp>
 #include <userver/formats/json.hpp>
 
 namespace v1::crud {
@@ -45,15 +46,18 @@ using Clock = std::chrono::system_clock;
  */
 template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const String &token)
 {
-    try {
-        const auto decoded = us::crypto::base64::Base64UrlDecode(token.view());
-        const auto val = json::FromString(decoded);
-        return val.As<Dto>();
-    } catch (const us::crypto::CryptoException &) {
+    const auto decoded = exu::crypto::base64UrlDecode(token.view(), false);
+    if (!decoded)
         return {};
-    } catch (const json::Exception &) {
+
+    const auto decodedText = String::fromBytes(*decoded);
+    if (!decodedText)
         return {};
-    }
+
+    const auto parsed = exu::json::parse<Dto>(*decodedText, false);
+    if (!parsed)
+        return {};
+    return *parsed;
 }
 
 /**

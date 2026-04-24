@@ -14,6 +14,7 @@
 #include <memory>
 #include <ranges>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -64,21 +65,130 @@ struct HandshakeResponse final {
     std::string rawHeaders;
 };
 
+[[nodiscard]] Expected<us::fs::blocking::FileDescriptor, CdpFailure>
+openTraceFile(const std::string &tracePath)
+{
+    using enum CdpError;
+    try {
+        return us::fs::blocking::FileDescriptor::Open(
+            tracePath, us::fs::blocking::OpenMode{
+                           us::fs::blocking::OpenFlag::kWrite,
+                           us::fs::blocking::OpenFlag::kCreateIfNotExists,
+                           us::fs::blocking::OpenFlag::kAppend,
+                       }
+        );
+    } catch (const std::runtime_error &) {
+        return Unex(CdpFailure{.code = kTraceFileOpenFailed, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<void, CdpFailure>
+writeTraceBytes(us::fs::blocking::FileDescriptor &traceFile, const std::string &line)
+{
+    using enum CdpError;
+    try {
+        traceFile.Write(line);
+        return {};
+    } catch (const std::runtime_error &) {
+        return Unex(CdpFailure{.code = kTraceWriteFailed, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<void, CdpFailure>
+connectCdpSocket(eng::io::Socket &socket, const eng::io::Sockaddr &address, eng::Deadline deadline)
+{
+    using enum CdpError;
+    try {
+        socket.Connect(address, deadline);
+        return {};
+    } catch (const us::utils::TracefulException &) {
+        return Unex(CdpFailure{.code = kSocketConnectFailed, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<void, CdpFailure>
+sendHandshakeRequest(eng::io::Socket &socket, const std::string &request, eng::Deadline deadline)
+{
+    using enum CdpError;
+    try {
+        static_cast<void>(socket.SendAll(request.data(), request.size(), deadline));
+        return {};
+    } catch (const us::utils::TracefulException &) {
+        return Unex(CdpFailure{.code = kTransport, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<size_t, CdpFailure>
+readHandshakeByte(eng::io::Socket &socket, char &ch, eng::Deadline deadline)
+{
+    using enum CdpError;
+    try {
+        return socket.RecvSome(&ch, 1, deadline);
+    } catch (const us::utils::TracefulException &) {
+        return Unex(CdpFailure{.code = kTransport, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<std::shared_ptr<us::websocket::WebSocketConnection>, CdpFailure>
+makeCdpWebSocketConnection(
+    eng::io::Socket socket, eng::io::Sockaddr address, i64 maxRemotePayloadBytes
+)
+{
+    using enum CdpError;
+    try {
+        auto connectionSocket = std::make_unique<eng::io::Socket>(std::move(socket));
+        us::websocket::Config wsConfig;
+        wsConfig.max_remote_payload = numericCast<decltype(wsConfig.max_remote_payload)>(
+            maxRemotePayloadBytes
+        );
+        return us::websocket::MakeClientWebSocketConnection(
+            std::move(connectionSocket), std::move(address), wsConfig
+        );
+    } catch (const us::utils::TracefulException &) {
+        return Unex(CdpFailure{.code = kTransport, .detail = {}});
+    }
+}
+
+[[nodiscard]] Expected<void, std::string>
+sendWebSocketText(us::websocket::WebSocketConnection &connection, const std::string &requestBytes)
+{
+    try {
+        connection.SendText(requestBytes);
+        return {};
+    } catch (const us::utils::TracefulException &e) {
+        return Unex(std::string(e.what()));
+    }
+}
+
+[[nodiscard]] Expected<void, std::string>
+closeWebSocket(us::websocket::WebSocketConnection &connection)
+{
+    try {
+        connection.Close(us::websocket::CloseStatus::kNormal);
+        return {};
+    } catch (const us::utils::TracefulException &e) {
+        return Unex(std::string(e.what()));
+    }
+}
+
 [[nodiscard]] Expected<String, CdpFailure> getErrorMessage(const json::Value &error)
 {
     using enum CdpError;
     invariant(error.IsObject(), "cdp error payload must be object");
-    try {
-        auto message = String::fromBytes(error.As<dto::CdpError>().message);
-        if (!message)
-            return Unex(CdpFailure{.code = kProtocol, .detail = {}});
-        return std::move(*message);
-    } catch (const json::Exception &e) {
-        invariant(
-            false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
-        );
-    }
-    return Unex(CdpFailure{.code = kProtocol, .detail = {}});
+    const auto parsed = exu::json::as<dto::CdpError, CdpFailure>(
+        error, [](const json::Exception &e) {
+            invariant(
+                false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
+            );
+            return CdpFailure{.code = kProtocol, .detail = {}};
+        }
+    );
+    if (!parsed)
+        return Unex(parsed.error());
+    auto message = String::fromBytes(parsed->message);
+    if (!message)
+        return Unex(CdpFailure{.code = kProtocol, .detail = {}});
+    return std::move(*message);
 }
 
 [[nodiscard]] bool containsHeaderToken(std::string_view value, std::string_view token)
@@ -111,7 +221,7 @@ readHandshakeResponse(eng::io::Socket &socket, eng::Deadline deadline)
             return Unex(CdpFailure{.code = kHandshakeResponseTooLarge, .detail = {}});
 
         char ch = '\0';
-        const auto bytesRead = socket.RecvSome(&ch, 1, deadline);
+        const auto bytesRead = TRY(readHandshakeByte(socket, ch, deadline));
         if (bytesRead == 0)
             return Unex(CdpFailure{.code = kHandshakeUnexpectedEof, .detail = {}});
         response.push_back(ch);
@@ -306,29 +416,14 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
     invariant(!tracePath.empty(), "cdp trace path must not be empty");
     invariant(overallDeadline.IsReachable(), "cdp overall deadline must be reachable");
 
-    us::fs::blocking::FileDescriptor traceFd;
-    try {
-        traceFd = us::fs::blocking::FileDescriptor::Open(
-            tracePath, us::fs::blocking::OpenMode{
-                           us::fs::blocking::OpenFlag::kWrite,
-                           us::fs::blocking::OpenFlag::kCreateIfNotExists,
-                           us::fs::blocking::OpenFlag::kAppend,
-                       }
-        );
-    } catch (const std::runtime_error &) {
-        return Unex(CdpFailure{.code = kTraceFileOpenFailed, .detail = {}});
-    }
+    auto traceFd = TRY(openTraceFile(tracePath));
 
     eng::io::Socket socket{eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream};
     const auto handshakeDeadline = pickEarlierDeadline(
         overallDeadline, eng::Deadline::FromDuration(handshakeTimeout)
     );
     auto address = eng::io::Sockaddr::MakeUnixSocketAddress(socketPath);
-    try {
-        socket.Connect(address, handshakeDeadline);
-    } catch (const us::utils::TracefulException &) {
-        return Unex(CdpFailure{.code = kSocketConnectFailed, .detail = {}});
-    }
+    TRY(connectCdpSocket(socket, address, handshakeDeadline));
 
     std::array<char, 16> randomKey{};
     us::crypto::GenerateRandomBlock(us::utils::span(randomKey));
@@ -350,29 +445,15 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
         "\r\n",
         requestPath, secWebsocketKey
     );
-    try {
-        static_cast<void>(socket.SendAll(request.data(), request.size(), handshakeDeadline));
-    } catch (const us::utils::TracefulException &) {
-        return Unex(CdpFailure{.code = kTransport, .detail = {}});
-    }
+    TRY(sendHandshakeRequest(socket, request, handshakeDeadline));
 
     auto response = TRY(readHandshakeResponse(socket, handshakeDeadline));
     auto parsedResponse = TRY(parseHandshakeResponse(response));
     TRY(validateHandshakeResponse(parsedResponse, secWebsocketKey));
 
-    std::shared_ptr<us::websocket::WebSocketConnection> ws;
-    try {
-        auto connectionSocket = std::make_unique<eng::io::Socket>(std::move(socket));
-        us::websocket::Config wsConfig;
-        wsConfig.max_remote_payload = numericCast<decltype(wsConfig.max_remote_payload)>(
-            maxRemotePayloadBytes
-        );
-        ws = us::websocket::MakeClientWebSocketConnection(
-            std::move(connectionSocket), std::move(address), wsConfig
-        );
-    } catch (const us::utils::TracefulException &) {
-        return Unex(CdpFailure{.code = kTransport, .detail = {}});
-    }
+    auto ws = TRY(
+        makeCdpWebSocketConnection(std::move(socket), std::move(address), maxRemotePayloadBytes)
+    );
 
     auto client = std::unique_ptr<CdpClient>(new CdpClient(
         std::move(socketPath), std::move(websocketPath), std::move(ws), std::move(tracePath),
@@ -418,12 +499,14 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
     const auto requestBytes = TRY(
         exu::json::stringifyBytes(request, CdpFailure{.code = kProtocol, .detail = {}})
     );
-    try {
+    Expected<void, std::string> sent;
+    {
         const auto sendLock = sendState.Lock();
         static_cast<void>(sendLock);
-        connection->SendText(requestBytes);
-    } catch (const us::utils::TracefulException &e) {
-        traceTransportError("send"_t, parsePrintableText(e.what()));
+        sent = sendWebSocketText(*connection, requestBytes);
+    }
+    if (!sent) {
+        traceTransportError("send"_t, parsePrintableText(sent.error()));
         CdpFailure failure{.code = kTransport, .detail = {}};
         failTerminal(failure);
         return Unex(failure);
@@ -465,13 +548,14 @@ Expected<void, CdpFailure> CdpClient::close()
     }
 
     traceClose("out"_t, numericCast<int>(us::websocket::CloseStatus::kNormal));
-    try {
+    Expected<void, std::string> closedConnection;
+    {
         const auto sendLock = sendState.Lock();
         static_cast<void>(sendLock);
-        if (connection)
-            connection->Close(us::websocket::CloseStatus::kNormal);
-    } catch (const us::utils::TracefulException &e) {
-        traceTransportError("close"_t, parsePrintableText(e.what()));
+        closedConnection = connection ? closeWebSocket(*connection) : Expected<void, std::string>{};
+    }
+    if (!closedConnection) {
+        traceTransportError("close"_t, parsePrintableText(closedConnection.error()));
         CdpFailure failure{.code = CdpError::kTransport, .detail = {}};
         failTerminal(failure);
         connection.reset();
@@ -771,11 +855,7 @@ Expected<void, CdpFailure> CdpClient::writeTraceLine(const json::Value &value)
         exu::json::stringifyBytes(value, CdpFailure{.code = kTraceWriteFailed, .detail = {}})
     );
     line.push_back('\n');
-    try {
-        traceFile.Write(line);
-    } catch (const std::runtime_error &) {
-        return Unex(CdpFailure{.code = kTraceWriteFailed, .detail = {}});
-    }
+    TRY(writeTraceBytes(traceFile, line));
     return {};
 }
 

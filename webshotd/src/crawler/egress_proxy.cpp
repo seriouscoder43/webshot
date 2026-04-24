@@ -8,6 +8,7 @@
  * (proxy -> browser). This proxy does not perform TLS MITM.
  */
 
+#include "crypto.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "ip_utils.hpp"
@@ -31,8 +32,6 @@
 #include <userver/clients/dns/exception.hpp>
 #include <userver/clients/dns/resolver.hpp>
 #include <userver/concurrent/variable.hpp>
-#include <userver/crypto/base64.hpp>
-#include <userver/crypto/exception.hpp>
 #include <userver/engine/async.hpp>
 #include <userver/engine/deadline.hpp>
 #include <userver/engine/io/socket.hpp>
@@ -48,7 +47,6 @@
 namespace v1::crawler {
 using namespace text::literals;
 namespace concurrent = us::concurrent;
-namespace crypto = us::crypto;
 namespace dns = us::clients::dns;
 namespace utils = us::utils;
 
@@ -187,17 +185,15 @@ parseBasicAuthUser(std::string_view headerValue)
     if (value.empty())
         return {};
 
-    try {
-        auto decoded = crypto::base64::Base64Decode(std::string(value));
-        auto pos = decoded.find(':');
-        if (pos == std::string::npos)
-            return {};
-        auto username = decoded.substr(0, pos);
-        auto password = decoded.substr(pos + 1);
-        return std::pair{std::move(username), std::move(password)};
-    } catch (const crypto::CryptoException &) {
+    auto decoded = exu::crypto::base64Decode(value, false);
+    if (!decoded)
         return {};
-    }
+    auto pos = decoded->find(':');
+    if (pos == std::string::npos)
+        return {};
+    auto username = decoded->substr(0, pos);
+    auto password = decoded->substr(pos + 1);
+    return std::pair{std::move(username), std::move(password)};
 }
 
 [[nodiscard]] std::optional<u16> parsePort(std::string_view portText) noexcept

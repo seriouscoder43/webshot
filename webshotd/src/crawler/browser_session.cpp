@@ -335,16 +335,36 @@ void appendDiagnosticField(String &out, const String &label, const String &value
     out += text::format("{}={}", label, value);
 }
 
-[[nodiscard]] std::optional<String> readSanitizedLogTail(const std::string &path)
+[[nodiscard]] std::optional<std::string> readBrowserFileIfExists(const std::string &path)
 {
     try {
         if (!us::fs::blocking::FileExists(path))
             return {};
-        const auto sanitized = sanitizeProcessOutputTail(us::fs::blocking::ReadFileContents(path));
-        if (!sanitized.empty())
-            return sanitized;
+        return us::fs::blocking::ReadFileContents(path);
     } catch (const std::runtime_error &) {
+        return {};
     }
+}
+
+[[nodiscard]] std::optional<std::string> removeBrowserRunDirectory(const std::string &path) noexcept
+{
+    try {
+        auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
+        std::move(tempDir).Remove();
+        return {};
+    } catch (const std::runtime_error &e) {
+        return std::string(e.what());
+    }
+}
+
+[[nodiscard]] std::optional<String> readSanitizedLogTail(const std::string &path)
+{
+    const auto bytes = readBrowserFileIfExists(path);
+    if (!bytes)
+        return {};
+    const auto sanitized = sanitizeProcessOutputTail(*bytes);
+    if (!sanitized.empty())
+        return sanitized;
     return {};
 }
 
@@ -352,23 +372,19 @@ void removeBrowserRunDir(const std::string &path) noexcept
 {
     if (path.empty())
         return;
-    try {
-        auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
-        std::move(tempDir).Remove();
-    } catch (const std::runtime_error &e) {
-        LOG_WARNING() << std::format("Failed to remove browser dir {}: {}", path, e.what());
-    }
+    if (const auto error = removeBrowserRunDirectory(path))
+        LOG_WARNING() << std::format("Failed to remove browser dir {}: {}", path, *error);
 }
 
 [[nodiscard]] std::optional<String> readWebsocketPathFile(const std::string &path)
 {
-    if (!us::fs::blocking::FileExists(path))
+    auto value = readBrowserFileIfExists(path);
+    if (!value)
         return {};
-    auto value = us::fs::blocking::ReadFileContents(path);
-    absl::StripTrailingAsciiWhitespace(&value);
-    if (value.empty())
+    absl::StripTrailingAsciiWhitespace(&*value);
+    if (value->empty())
         return {};
-    return TRY(String::fromBytes(value));
+    return TRY(String::fromBytes(*value));
 }
 
 [[nodiscard]] eng::subprocess::ChildProcess spawnProcess(

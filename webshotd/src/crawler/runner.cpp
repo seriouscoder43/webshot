@@ -8,6 +8,7 @@
 #include "crawler/failure.hpp"
 #include "crawler/launch_policy.hpp"
 #include "crawler/limits.hpp"
+#include "crypto.hpp"
 #include "deadline_utils.hpp"
 #include "denylist.hpp"
 #include "grab_value.hpp"
@@ -46,7 +47,6 @@
 #include <userver/clients/dns/resolver.hpp>
 #include <userver/concurrent/variable.hpp>
 #include <userver/crypto/base64.hpp>
-#include <userver/crypto/exception.hpp>
 #include <userver/engine/async.hpp>
 #include <userver/engine/condition_variable.hpp>
 #include <userver/engine/deadline.hpp>
@@ -67,6 +67,7 @@
 namespace chrono = std::chrono;
 namespace dns = us::clients::dns;
 
+using namespace std::chrono_literals;
 using namespace text::literals;
 using integers::toBytes;
 using text::toBytes;
@@ -229,6 +230,18 @@ retainBody(const std::string &body, RetainedBodyBudget &budget)
         );
     budget.retainedBytes = nextRetainedBytes;
     return body;
+}
+
+[[nodiscard]] std::optional<std::string>
+decodeCdpBody(const dto::NetworkGetResponseBodyResult &body)
+{
+    if (!body.base64Encoded)
+        return body.body;
+
+    const auto decoded = exu::crypto::base64Decode(body.body, false);
+    if (!decoded)
+        return {};
+    return *decoded;
 }
 
 [[nodiscard]] bool responseCanHaveBody(const String &method, i64 statusCode)
@@ -582,21 +595,17 @@ public:
         if (!bodyRequestId)
             return retainBody(fallbackBody, budget);
 
-        try {
-            dto::NetworkGetResponseBodyParams params;
-            params.requestId = toBytes(*bodyRequestId);
-            const auto body = cdpSession.send<dto::NetworkGetResponseBodyResult>(
-                "Network.getResponseBody"_t, params
-            );
-            if (!body)
-                return retainBody(fallbackBody, budget);
-            return retainBody(
-                body->base64Encoded ? us::crypto::base64::Base64Decode(body->body) : body->body,
-                budget
-            );
-        } catch (const us::crypto::CryptoException &) {
+        dto::NetworkGetResponseBodyParams params;
+        params.requestId = toBytes(*bodyRequestId);
+        const auto body = cdpSession.send<dto::NetworkGetResponseBodyResult>(
+            "Network.getResponseBody"_t, params
+        );
+        if (!body)
             return retainBody(fallbackBody, budget);
-        }
+        const auto decodedBody = decodeCdpBody(*body);
+        if (!decodedBody)
+            return retainBody(fallbackBody, budget);
+        return retainBody(*decodedBody, budget);
     }
 
     [[nodiscard]] Expected<std::vector<crawler::CapturedResource>, String>
@@ -633,43 +642,14 @@ public:
                 continue;
             }
 
-            try {
-                dto::NetworkGetResponseBodyParams params;
-                params.requestId = toBytes(requestId);
-                const auto bodyValue = cdpSession.send<dto::NetworkGetResponseBodyResult>(
-                    "Network.getResponseBody"_t, params
-                );
-                if (!bodyValue) {
-                    resources.push_back({
-                        request.requestUrl,
-                        request.method,
-                        request.resourceType,
-                        response.statusCode,
-                        response.statusMessage,
-                        response.headers,
-                        {},
-                        response.timestamp,
-                    });
-                    continue;
-                }
-                auto body = retainBody(
-                    bodyValue->base64Encoded ? us::crypto::base64::Base64Decode(bodyValue->body)
-                                             : bodyValue->body,
-                    budget
-                );
-                if (!body)
-                    return Unex(std::move(body).error());
-                resources.push_back({
-                    request.requestUrl,
-                    request.method,
-                    request.resourceType,
-                    response.statusCode,
-                    response.statusMessage,
-                    response.headers,
-                    grabValueOf(body),
-                    response.timestamp,
-                });
-            } catch (const us::crypto::CryptoException &) {
+            dto::NetworkGetResponseBodyParams params;
+            params.requestId = toBytes(requestId);
+            const auto bodyValue = cdpSession.send<dto::NetworkGetResponseBodyResult>(
+                "Network.getResponseBody"_t, params
+            );
+            const auto decodedBody = bodyValue ? decodeCdpBody(*bodyValue)
+                                               : std::optional<std::string>{};
+            if (!decodedBody) {
                 resources.push_back({
                     request.requestUrl,
                     request.method,
@@ -680,7 +660,21 @@ public:
                     {},
                     response.timestamp,
                 });
+                continue;
             }
+            auto body = retainBody(*decodedBody, budget);
+            if (!body)
+                return Unex(std::move(body).error());
+            resources.push_back({
+                request.requestUrl,
+                request.method,
+                request.resourceType,
+                response.statusCode,
+                response.statusMessage,
+                response.headers,
+                grabValueOf(body),
+                response.timestamp,
+            });
         }
 
         std::ranges::sort(resources, [](const auto &left, const auto &right) {
@@ -1438,7 +1432,7 @@ private:
             [this]() { return pageTracker().isLoadedOrFailed(); },
             "timed out waiting for page load"_t
         ));
-        if (timings.postLoadDelay > chrono::seconds::zero()) {
+        if (timings.postLoadDelay > 0s) {
             browser.markPhase("post_load_delay");
             const auto phaseDeadline = pickEarlierDeadline(
                 deadline, eng::Deadline::FromDuration(timings.postLoadDelay)
@@ -1448,7 +1442,7 @@ private:
             );
             browser.markPhase("post_load_delay_done");
         }
-        if (timings.behaviorTimeout > chrono::seconds::zero()) {
+        if (timings.behaviorTimeout > 0s) {
             browser.markPhase("run_site_behavior");
             browser.markPhase("run_site_behavior_runtime_evaluate");
             const auto behaviorDeadline = pickEarlierDeadline(
@@ -1457,13 +1451,13 @@ private:
             TRY(runSiteBehavior(cdpSession(), behaviorDeadline));
             browser.markPhase("run_site_behavior_done");
         }
-        if (timings.netIdleWait > chrono::seconds::zero()) {
+        if (timings.netIdleWait > 0s) {
             browser.markPhase("wait_for_idle");
             browser.markPhase("wait_for_idle_wait");
             TRY(waitForIdle(timings.netIdleWait));
             browser.markPhase("wait_for_idle_done");
         }
-        if (timings.pageExtraDelay > chrono::seconds::zero()) {
+        if (timings.pageExtraDelay > 0s) {
             browser.markPhase("page_extra_delay");
             const auto phaseDeadline = pickEarlierDeadline(
                 deadline, eng::Deadline::FromDuration(timings.pageExtraDelay)

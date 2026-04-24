@@ -9,6 +9,7 @@
 #include "config.hpp"
 #include "crawler/failure.hpp"
 #include "crawler/runner.hpp"
+#include "database.hpp"
 #include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
@@ -32,7 +33,6 @@
 
 #include <chrono>
 #include <cstdlib>
-#include <exception>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -40,7 +40,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
 #include <boost/uuid/uuid.hpp>
@@ -51,7 +50,6 @@
 #include <userver/components/component_base.hpp>
 #include <userver/components/process_starter.hpp>
 #include <userver/concurrent/background_task_storage.hpp>
-#include <userver/crypto/base64.hpp>
 #include <userver/engine/semaphore.hpp>
 #include <userver/engine/sleep.hpp>
 #include <userver/engine/task/cancel.hpp>
@@ -65,7 +63,6 @@
 #include <userver/storages/postgres/io/chrono.hpp>
 #include <userver/storages/postgres/io/row_types.hpp>
 #include <userver/storages/postgres/io/uuid.hpp>
-#include <userver/storages/postgres/postgres.hpp>
 #include <userver/storages/postgres/transaction.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/secdist.hpp>
@@ -105,10 +102,6 @@ namespace {
 constexpr auto kCrawlerSeedAttemptsMax = 2;
 constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;
 constexpr i64 kCpuMaxPeriodUs = 100000_i64;
-
-struct [[nodiscard]] PgError final {
-    std::string what;
-};
 
 struct [[nodiscard]] CaptureJobRow final {
     Uuid uuid;
@@ -423,7 +416,10 @@ public:
     [[nodiscard]] CrawlerRunArtifacts runCrawlerAttempt(const String &seedUrl);
     [[nodiscard]] std::optional<StoredCapture> persistMetadataForContext(CrawlContext &ctx);
     [[nodiscard]] Expected<void, errors::CrudError> purgePrefix(const String &prefixKey);
-    [[nodiscard]] S3ClientState fetchS3ClientStateFromSts();
+    [[nodiscard]] Expected<S3ClientState, std::string> fetchS3ClientStateFromSts();
+    [[nodiscard]] Expected<void, std::string>
+    putCaptureObject(std::string_view key, const std::string &bytes);
+    [[nodiscard]] Expected<void, std::string> deleteCaptureObject(std::string_view key);
     void startS3RefreshTask();
     void refreshS3CredentialsTask();
     void startCrawlJobCleanupTask();
@@ -529,7 +525,12 @@ public:
         staticSecretAccessKey = *creds.secretAccessKey;
         S3ClientState initialState;
         if (s3UseSts) {
-            initialState = fetchS3ClientStateFromSts();
+            auto fetchedState = fetchS3ClientStateFromSts();
+            if (!fetchedState) {
+                metrics.accountError(Metrics::Error::kStsRefresh);
+                us::utils::AbortWithStacktrace(fetchedState.error());
+            }
+            initialState = grabValueOf(std::move(fetchedState));
             startS3RefreshTask();
         } else {
             const auto staticCreds = makeStaticS3Credentials(
@@ -554,23 +555,10 @@ public:
     template <pg::ClusterHostType Host, Metrics::Error ErrorMetric, typename F, typename... Ts>
     [[nodiscard]] auto execDb(pg::ClusterPtr &clusterIn, F &&f, Ts &&...args)
     {
-        using Res = decltype(clusterIn->Execute(Host, std::forward<Ts>(args)...));
-        using R = std::remove_cvref_t<std::invoke_result_t<F, Res &>>;
-        using Out =
-            std::conditional_t<std::is_void_v<R>, Expected<void, PgError>, Expected<R, PgError>>;
-
-        try {
-            auto res = clusterIn->Execute(Host, std::forward<Ts>(args)...);
-            if constexpr (std::is_void_v<R>) {
-                std::forward<F>(f)(res);
-                return Out{};
-            } else {
-                return Out{std::forward<F>(f)(res)};
-            }
-        } catch (const pg::Error &e) {
+        auto out = pgx::execute<Host>(clusterIn, std::forward<F>(f), std::forward<Ts>(args)...);
+        if (!out)
             metrics.accountError(ErrorMetric);
-            return Out{Unex(PgError{.what = std::string(e.what())})};
-        }
+        return out;
     }
 
     template <typename F, typename... Ts> [[nodiscard]] auto readonly(F &&f, Ts &&...args)
@@ -690,32 +678,39 @@ Crud::Impl::acquireClientIpCooldownLocked(const String &clientIp)
     if (ipCooldown == 0ms)
         return {};
 
-    try {
-        auto trx = sharedCluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW);
-        trx.Execute(sql::kLockClientIpCooldown, text::format("client_ip_cooldown:{}", clientIp));
+    auto cooldown = pgx::readwriteTransaction(
+        sharedCluster, [&](auto &trx) -> std::optional<ClientIpCooldown> {
+            trx.Execute(
+                sql::kLockClientIpCooldown, text::format("client_ip_cooldown:{}", clientIp)
+            );
 
-        const auto now = datetime::Now();
-        auto rowOpt = trx.Execute(sql::kSelectClientIpCooldown, clientIp)
-                          .template AsOptionalSingleRow<ClientIpCooldownRow>(pg::kRowTag);
-        if (rowOpt) {
-            const auto expiresAt = rowOpt->expiresAt.GetUnderlying();
-            if (now < expiresAt) {
-                trx.Commit();
-                return ClientIpCooldown{
-                    .retryAfter = chrono::ceil<chrono::milliseconds>(expiresAt - now),
-                };
+            const auto now = datetime::Now();
+            auto rowOpt = trx.Execute(sql::kSelectClientIpCooldown, clientIp)
+                              .template AsOptionalSingleRow<ClientIpCooldownRow>(pg::kRowTag);
+            if (rowOpt) {
+                const auto expiresAt = rowOpt->expiresAt.GetUnderlying();
+                if (now < expiresAt) {
+                    trx.Commit();
+                    return ClientIpCooldown{
+                        .retryAfter = chrono::ceil<chrono::milliseconds>(expiresAt - now),
+                    };
+                }
             }
-        }
 
-        trx.Execute(sql::kUpsertClientIpCooldown, clientIp, pg::TimePointTz(now + ipCooldown));
-        trx.Commit();
-        return {};
-    } catch (const pg::Error &e) {
+            trx.Execute(sql::kUpsertClientIpCooldown, clientIp, pg::TimePointTz(now + ipCooldown));
+            trx.Commit();
+            return {};
+        }
+    );
+    if (!cooldown) {
         metrics.accountError(Metrics::Error::kDbSharedStateWrite);
         us::utils::AbortWithStacktrace(
-            std::format("Failed to acquire client IP cooldown for {}: {}", clientIp, e.what())
+            std::format(
+                "Failed to acquire client IP cooldown for {}: {}", clientIp, cooldown.error().what
+            )
         );
     }
+    return cooldown;
 }
 
 Expected<void, PgError> Crud::Impl::markJobRunning(Uuid id)
@@ -769,7 +764,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
     return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
 }
 
-Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
+Expected<Crud::Impl::S3ClientState, std::string> Crud::Impl::fetchS3ClientStateFromSts()
 {
     const auto sessionUuid = text::format("{}", us::utils::generators::GenerateBoostUuid());
     const auto sessionName = text::format("{}", sessionUuid);
@@ -787,10 +782,8 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
         svcCfg.s3Region(), kRoleArnDescription, sessionName, policyJson, s3CredentialsDuration,
         svcCfg.s3Timeout()
     );
-    if (!sts) {
-        metrics.accountError(Metrics::Error::kStsRefresh);
-        us::utils::AbortWithStacktrace("failed to fetch STS credentials");
-    }
+    if (!sts)
+        return Unex(std::string{"failed to fetch STS credentials"});
 
     const auto creds = s3v4::S3Credentials(
         sts->accessKeyId, sts->secretAccessKey, sts->sessionToken
@@ -804,6 +797,29 @@ Crud::Impl::S3ClientState Crud::Impl::fetchS3ClientStateFromSts()
             creds, String()
         ),
     };
+}
+
+Expected<void, std::string>
+Crud::Impl::putCaptureObject(std::string_view key, const std::string &bytes)
+{
+    try {
+        auto snapshot = s3State.Read();
+        snapshot->client->PutObject(key, bytes, {}, "application/wacz", {}, {});
+        return {};
+    } catch (const us::utils::TracefulException &e) {
+        return Unex(std::string(e.what()));
+    }
+}
+
+Expected<void, std::string> Crud::Impl::deleteCaptureObject(std::string_view key)
+{
+    try {
+        auto snapshot = s3State.Read();
+        snapshot->client->DeleteObject(key);
+        return {};
+    } catch (const us::utils::TracefulException &e) {
+        return Unex(std::string(e.what()));
+    }
 }
 
 Expected<std::optional<dto::CaptureJob>, PgError>
@@ -827,8 +843,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
         pg::TimePointTz createdAt;
     };
 
-    try {
-        auto trx = sharedCluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW);
+    auto result = pgx::readwriteTransaction(sharedCluster, [&](auto &trx) {
         if (linkCooldown > 0s) {
             trx.Execute(sql::kLockCrawlJobLink, text::format("link:{}", normalizedLink));
         }
@@ -837,7 +852,7 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
             auto latestJobRowOpt = trx.Execute(sql::kSelectLatestCrawlJobByLink, normalizedLink)
                                        .template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
             if (latestJobRowOpt) {
-                auto job = makeCaptureJob(grabValueOf(std::move(latestJobRowOpt)));
+                auto job = makeCaptureJob(grabValueOf(latestJobRowOpt));
                 const auto now = datetime::Now();
                 const auto lastCreated = job.created_at.GetTimePoint();
                 const auto deadline = lastCreated + linkCooldown;
@@ -860,10 +875,10 @@ Crud::Impl::getOrCreateCaptureJobLocked(const String &normalizedLink)
             ),
             .created = true,
         };
-    } catch (const pg::Error &e) {
+    });
+    if (!result)
         metrics.accountError(Metrics::Error::kDbSharedStateWrite);
-        return Unex(PgError{.what = std::string(e.what())});
-    }
+    return result;
 }
 
 void Crud::Impl::startS3RefreshTask()
@@ -889,13 +904,13 @@ void Crud::Impl::refreshS3CredentialsTask()
     for (;;) {
         if (eng::current_task::ShouldCancel())
             return;
-        try {
-            const auto newState = fetchS3ClientStateFromSts();
-            s3State.Assign(newState);
+        const auto newState = fetchS3ClientStateFromSts();
+        if (newState) {
+            s3State.Assign(*newState);
 
             const auto now = datetime::Now();
             auto nextDelay = s3refresh::computeRefreshDelay(
-                now, newState.expiresAt, s3CredentialsRefreshMargin
+                now, newState->expiresAt, s3CredentialsRefreshMargin
             );
 
             us::utils::PeriodicTask::Settings settings(
@@ -904,11 +919,12 @@ void Crud::Impl::refreshS3CredentialsTask()
             settings.task_processor = &credsRefreshTaskProcessor;
             s3RefreshTask.SetSettings(settings);
             break;
-        } catch (const us::utils::TracefulException &e) {
-            metrics.accountError(Metrics::Error::kStsRefresh);
-            LOG_ERROR() << std::format("Failed to refresh S3 credentials from STS: {}", e.what());
-            eng::SleepFor(s3CredentialsRefreshRetry);
         }
+        metrics.accountError(Metrics::Error::kStsRefresh);
+        LOG_ERROR() << std::format(
+            "Failed to refresh S3 credentials from STS: {}", newState.error()
+        );
+        eng::SleepFor(s3CredentialsRefreshRetry);
     }
 }
 
@@ -1169,14 +1185,10 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         };
     }
 
-    try {
-        auto snapshot = s3State.Read();
-        snapshot->client->PutObject(
-            ctx.s3Key.view(), *ctx.waczBytes, {}, "application/wacz", {}, {}
-        );
-    } catch (const us::utils::TracefulException &e) {
+    const auto uploaded = putCaptureObject(ctx.s3Key.view(), *ctx.waczBytes);
+    if (!uploaded) {
         metrics.accountError(Metrics::Error::kS3PutObject);
-        LOG_ERROR() << std::format("S3 upload failed for {}: {}", ctx.s3Key, e.what());
+        LOG_ERROR() << std::format("S3 upload failed for {}: {}", ctx.s3Key, uploaded.error());
         return {};
     }
 
@@ -1190,10 +1202,8 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         pg::Bytea(std::string_view{*ctx.contentSha256}), ctx.replayUrl->href()
     );
     if (!row) {
-        try {
-            auto snapshot = s3State.Read();
-            snapshot->client->DeleteObject(ctx.s3Key.view());
-        } catch (const us::utils::TracefulException &) {
+        const auto deleted = deleteCaptureObject(ctx.s3Key.view());
+        if (!deleted) {
             metrics.accountError(Metrics::Error::kS3DeleteObject);
             LOG_ERROR() << std::format("error deleting {}", ctx.s3Key);
         }
@@ -1235,23 +1245,21 @@ Expected<void, errors::CrudError> Crud::Impl::purgePrefix(const String &prefixKe
         single.reserve(1);
         for (auto &&id : *ids) {
             const auto key = std::format("{}/{}", svcCfg.s3Bucket(), id);
-            try {
-                auto snapshot = s3State.Read();
-                snapshot->client->DeleteObject(key);
-            } catch (const us::utils::TracefulException &e) {
+            const auto s3Deleted = deleteCaptureObject(key);
+            if (!s3Deleted) {
                 metrics.accountError(Metrics::Error::kS3DeleteObject);
                 LOG_ERROR() << std::format(
-                    "S3 delete failed for key {} (prefix={}): {}", key, prefixKey, e.what()
+                    "S3 delete failed for key {} (prefix={}): {}", key, prefixKey, s3Deleted.error()
                 );
                 return Unex(kDbFailure);
             }
 
             single.clear();
             single.emplace_back(id);
-            auto deleted = readwrite([](auto &) {}, sql::kDeleteCapturesByIds, single);
-            if (!deleted) {
+            auto dbDeleted = readwrite([](auto &) {}, sql::kDeleteCapturesByIds, single);
+            if (!dbDeleted) {
                 LOG_ERROR() << std::format(
-                    "denylist purge failed for {}: {}", prefixKey, deleted.error().what
+                    "denylist purge failed for {}: {}", prefixKey, dbDeleted.error().what
                 );
                 return Unex(kDbFailure);
             }
@@ -1370,8 +1378,6 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 implPtr->metrics.accountCaptureCompleted(true, *succeeded);
             }
         } catch (const us::utils::TracefulException &e) {
-            markInternalError(e.what());
-        } catch (const std::exception &e) {
             markInternalError(e.what());
         }
     });
