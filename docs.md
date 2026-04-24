@@ -6,3 +6,4 @@ Runtime design does not couple to systemd integration.
 Captures obey the denylist.
 A successful crawl emits WACZ.
 Nothing must proxy S3.
+This repo used devenv and never flake.nix.
