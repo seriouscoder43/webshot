@@ -8,7 +8,6 @@
     ada
     pkg-config
     ccache
-    rsync
     drv.boostSml
     boost183
     libarchive
@@ -16,6 +15,10 @@
     openssl.dev
     jemalloc
     mold
+  ];
+
+  devTools = with nix; [
+    rsync
   ];
 
   cmakePrefix = with nix; [

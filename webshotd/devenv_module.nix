@@ -15,6 +15,7 @@ in {
 
   packages =
     ctx.sets.buildNative
+    ++ ctx.sets.devTools
     ++ ctx.sets.runtime
     ++ ctx.sets.runtimeTools
     ++ [
