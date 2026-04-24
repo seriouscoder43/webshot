@@ -369,9 +369,8 @@ namespace {
 [[nodiscard]] std::optional<String>
 extractRoutingSessionId(const dto::CdpEventMessage &eventMessage)
 {
-    if (eventMessage.sessionId) {
-        return String::fromBytes(*eventMessage.sessionId).expect();
-    }
+    if (eventMessage.sessionId)
+        return text::optionalString(eventMessage.sessionId).expect();
     if (!eventMessage.params)
         return {};
     const auto sessionIdValue = eventMessage.params->extra["sessionId"];
@@ -690,9 +689,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
     auto eventMessage = TRY(
         exu::json::as<dto::CdpEventMessage>(value, CdpFailure{.code = kProtocol, .detail = {}})
     );
-    const auto sessionId = eventMessage.sessionId.transform([](const auto &s) {
-        return String::fromBytes(s).expect();
-    });
+    const auto sessionId = text::optionalString(eventMessage.sessionId).expect();
     const auto method = String::fromBytes(eventMessage.method).expect();
     const auto routingSessionId = extractRoutingSessionId(eventMessage);
     const auto routingTargetId = extractRoutingTargetId(eventMessage);

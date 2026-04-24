@@ -91,17 +91,6 @@ std::string canonicalizeQueryImpl(const std::vector<std::pair<std::string, std::
     return out;
 }
 
-std::vector<std::pair<std::string, std::string>>
-toUtf8Pairs(const std::vector<std::pair<String, String>> &in)
-{
-    std::vector<std::pair<std::string, std::string>> out{};
-    out.reserve(in.size());
-    for (const auto &[k, v] : in) {
-        out.emplace_back(std::string{k.view()}, std::string{v.view()});
-    }
-    return out;
-}
-
 } // namespace
 
 SigV4Params::SigV4Params(
@@ -217,8 +206,8 @@ std::unordered_map<std::string, std::string> signHeaders(
     const String &payloadSha256Hex
 )
 {
-    auto queryUtf8 = toUtf8Pairs(query);
-    auto headersUtf8 = toUtf8Pairs(headersLowerTrimmed);
+    auto queryUtf8 = text::toBytesPairs(query);
+    auto headersUtf8 = text::toBytesPairs(headersLowerTrimmed);
     auto headers = headersUtf8;
     std::unordered_map<std::string, std::string> out{};
 

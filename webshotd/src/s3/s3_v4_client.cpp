@@ -41,17 +41,6 @@ namespace detail {
 constexpr std::chrono::seconds kMinPresignTtl = 1s;
 constexpr std::chrono::seconds kMaxPresignTtl = 604800s;
 
-[[nodiscard]] std::vector<std::pair<String, String>>
-toTextPairs(const std::vector<std::pair<std::string, std::string>> &pairs)
-{
-    std::vector<std::pair<String, String>> out;
-    out.reserve(pairs.size());
-    for (const auto &[name, value] : pairs) {
-        out.emplace_back(String::fromBytes(name).expect(), String::fromBytes(value).expect());
-    }
-    return out;
-}
-
 EndpointParts parseEndpoint(const String &ep)
 {
     const auto url = parseUrlWithDefaultHttpScheme(ep);
@@ -341,7 +330,7 @@ void S3V4Client::signRequest(
     const auto now = datetime::Now();
     const auto params = makeSigV4Params(now);
     auto prepared = prepareSignedHeaders(toBytes(host), headers);
-    const auto headersText = detail::toTextPairs(prepared);
+    const auto headersText = text::stringPairs(prepared).expect();
 
     auto signedMap = signHeaders(params, method, canonicalUri, {}, headersText, payloadHash);
     for (const auto &[name, value] : signedMap)
@@ -418,7 +407,7 @@ String S3V4Client::presignVirtualHost(
 
     httpc::Headers extra = extraHeaders.value_or(httpc::Headers{});
     auto prepared = prepareSignedHeaders(toBytes(built.host), extra);
-    const auto headersText = detail::toTextPairs(prepared);
+    const auto headersText = text::stringPairs(prepared).expect();
 
     return buildPresignedUrl(method, built, now, expiresAt, params, headersText);
 }
@@ -432,7 +421,7 @@ String S3V4Client::presignPathStyle(
     auto built = makePathStyleUrl(std::move(path), std::move(protocol));
     SigV4Params params = makeSigV4Params(now);
     auto prepared = prepareSignedHeaders(toBytes(built.host), httpc::Headers{});
-    const auto headersText = detail::toTextPairs(prepared);
+    const auto headersText = text::stringPairs(prepared).expect();
 
     return buildPresignedUrl(method, built, now, expiresAt, params, headersText);
 }
@@ -452,10 +441,7 @@ String S3V4Client::buildPresignedUrl(
     query.emplace_back("X-Amz-Date", params.amzDate);
     query.emplace_back("X-Amz-Expires", std::to_string(computePresignTtl(now, expiresAt).count()));
 
-    std::vector<std::pair<std::string, std::string>> headersUtf8;
-    headersUtf8.reserve(headers.size());
-    for (const auto &[name, value] : headers)
-        headersUtf8.emplace_back(toBytes(name), toBytes(value));
+    const auto headersUtf8 = text::toBytesPairs(headers);
     const std::string signedHeaders = buildSignedHeaders(headersUtf8);
     query.emplace_back("X-Amz-SignedHeaders", signedHeaders);
     if (params.sessionToken)

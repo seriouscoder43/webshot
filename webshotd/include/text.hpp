@@ -6,10 +6,16 @@
  */
 
 #include <algorithm>
+#include <concepts>
 #include <format>
+#include <functional>
+#include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <uni_algo/conv.h>
 #include <uni_algo/norm.h>
@@ -132,6 +138,101 @@ private:
 };
 
 [[nodiscard]] inline std::string toBytes(const String &text) { return std::string{text.view()}; }
+
+namespace detail {
+
+template <typename T> [[nodiscard]] constexpr std::string_view byteView(const T &value) noexcept
+{
+    return {value.data(), value.size()};
+}
+
+template <std::ranges::input_range Range, typename F>
+    requires std::invocable<F, std::ranges::range_reference_t<const Range>>
+[[nodiscard]] auto collectExpected(const Range &range, F &&f)
+{
+    using ExpectedResult =
+        std::remove_cvref_t<std::invoke_result_t<F, std::ranges::range_reference_t<const Range>>>;
+    using Value = typename ExpectedResult::value_type;
+    using Error = typename ExpectedResult::error_type;
+
+    std::vector<Value> out;
+    if constexpr (std::ranges::sized_range<const Range>)
+        out.reserve(std::ranges::size(range));
+
+    for (const auto &item : range) {
+        auto converted = std::invoke(f, item);
+        if (!converted)
+            return Expected<std::vector<Value>, Error>{Unex(std::move(converted).error())};
+        out.push_back(std::move(*converted));
+    }
+    return Expected<std::vector<Value>, Error>{std::move(out)};
+}
+
+} // namespace detail
+
+template <std::ranges::input_range Range>
+[[nodiscard]] Expected<std::vector<String>, TextError> stringVector(const Range &bytes)
+{
+    return detail::collectExpected(bytes, [](const auto &value) {
+        return String::fromBytes(detail::byteView(value));
+    });
+}
+
+template <std::ranges::input_range Range>
+[[nodiscard]] Expected<std::vector<std::pair<String, String>>, TextError>
+stringPairs(const Range &pairs)
+{
+    return detail::collectExpected(pairs, [](const auto &pair) {
+        auto first = String::fromBytes(detail::byteView(pair.first));
+        if (!first)
+            return Expected<std::pair<String, String>, TextError>{Unex(std::move(first).error())};
+
+        auto second = String::fromBytes(detail::byteView(pair.second));
+        if (!second)
+            return Expected<std::pair<String, String>, TextError>{Unex(std::move(second).error())};
+
+        return Expected<std::pair<String, String>, TextError>{
+            std::pair<String, String>{std::move(*first), std::move(*second)}
+        };
+    });
+}
+
+template <typename T>
+[[nodiscard]] Expected<std::optional<String>, TextError>
+optionalString(const std::optional<T> &bytes)
+{
+    if (!bytes)
+        return std::optional<String>{};
+
+    auto text = String::fromBytes(detail::byteView(*bytes));
+    if (!text)
+        return Unex(std::move(text).error());
+    return std::optional<String>{std::move(*text)};
+}
+
+template <std::ranges::input_range Range>
+[[nodiscard]] std::vector<std::string> toBytesVector(const Range &texts)
+{
+    std::vector<std::string> out;
+    if constexpr (std::ranges::sized_range<const Range>)
+        out.reserve(std::ranges::size(texts));
+
+    for (const auto &text : texts)
+        out.push_back(toBytes(text));
+    return out;
+}
+
+template <std::ranges::input_range Range>
+[[nodiscard]] std::vector<std::pair<std::string, std::string>> toBytesPairs(const Range &pairs)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    if constexpr (std::ranges::sized_range<const Range>)
+        out.reserve(std::ranges::size(pairs));
+
+    for (const auto &[first, second] : pairs)
+        out.emplace_back(toBytes(first), toBytes(second));
+    return out;
+}
 
 [[nodiscard]] constexpr String operator+(String lhs, const String &rhs)
 {

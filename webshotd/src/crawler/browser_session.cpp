@@ -384,7 +384,7 @@ void removeBrowserRunDir(const std::string &path) noexcept
     absl::StripTrailingAsciiWhitespace(&*value);
     if (value->empty())
         return {};
-    return TRY(String::fromBytes(*value));
+    return TRY(text::optionalString(value));
 }
 
 [[nodiscard]] eng::subprocess::ChildProcess spawnProcess(

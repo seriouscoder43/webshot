@@ -177,9 +177,7 @@ normalizeHeadersForCapture(const std::optional<dto::CdpHeaders> &headers, const 
 
 [[nodiscard]] std::optional<String> stringOrNull(const std::optional<std::string> &value)
 {
-    if (!value)
-        return {};
-    return TRY(String::fromBytes(*value));
+    return TRY(text::optionalString(value));
 }
 
 [[nodiscard]] String generatePageId()
@@ -1109,9 +1107,7 @@ struct [[nodiscard]] DomState {
         }
     );
     const auto &value = result.result.value;
-    auto title = value.title.transform([](const auto &t) -> std::optional<String> {
-        return TRY(String::fromBytes(t));
-    });
+    const auto title = text::optionalString(value.title).valueOr(std::nullopt);
     const auto finalUrl = TRY_ERR_AS(
         String::fromBytes(value.finalUrl).transform([](String url) {
             return canonicalizeCapturedUrl(url);
@@ -1120,7 +1116,7 @@ struct [[nodiscard]] DomState {
     );
     return DomState{
         .finalUrl = finalUrl,
-        .title = title.value_or(std::nullopt),
+        .title = title,
         .html = value.html,
     };
 }

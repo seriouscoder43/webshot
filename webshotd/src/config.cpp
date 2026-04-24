@@ -5,6 +5,8 @@
  */
 
 #include <chrono>
+#include <string>
+#include <string_view>
 
 #include <userver/components/component.hpp>
 #include <userver/utils/assert.hpp>
@@ -12,6 +14,16 @@
 
 namespace v1 {
 using namespace std::chrono_literals;
+
+namespace {
+
+[[nodiscard]] String
+configText(const us::components::ComponentConfig &config, std::string_view fieldName)
+{
+    return String::fromBytes(config[std::string{fieldName}].As<std::string>()).expect();
+}
+
+} // namespace
 
 Config::Config(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -28,10 +40,10 @@ Config::Config(
           return ClientIpSource::kPeer;
       }()),
       clientIpHeaderNameValue(config["client_ip_header_name"].As<std::string>()),
-      s3BucketName(String::fromBytes(config["s3_bucket"].As<std::string>()).expect()),
-      s3EndpointUrl(String::fromBytes(config["s3_endpoint"].As<std::string>()).expect()),
-      s3RegionName(String::fromBytes(config["s3_region"].As<std::string>()).expect()),
-      publicBaseUrlValue(String::fromBytes(config["public_base_url"].As<std::string>()).expect()),
+      s3BucketName(configText(config, "s3_bucket")),
+      s3EndpointUrl(configText(config, "s3_endpoint")),
+      s3RegionName(configText(config, "s3_region")),
+      publicBaseUrlValue(configText(config, "public_base_url")),
       s3TimeoutDuration(config["s3_timeout_ms"].As<int>() * 1ms)
 {
     invariant(!stateDirValue.empty(), "state_dir must not be empty");
