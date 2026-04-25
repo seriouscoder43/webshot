@@ -89,15 +89,6 @@ using text::toBytes;
 using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 
-Url v1::buildCaptureDownloadUrl(Uuid uuid, const Config &config)
-{
-    const auto downloadUrlText =
-        String::fromBytes(std::format("{}/{}.wacz", config.publicBaseUrl(), uuid)).expect();
-    const auto downloadUrl = Url::fromText(downloadUrlText);
-    invariant(downloadUrl, "downloadUrl must parse");
-    return *downloadUrl;
-}
-
 namespace {
 constexpr auto kCrawlerSeedAttemptsMax = 2;
 constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;

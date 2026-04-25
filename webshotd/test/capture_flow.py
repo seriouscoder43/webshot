@@ -3,7 +3,7 @@ import gzip
 import io
 import json
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zipfile import ZIP_STORED, ZipFile
 
 import pytest
@@ -203,6 +203,25 @@ async def test_capture_and_query_roundtrip(service_client, pgsql, download_wacz,
     assert capture["link"] == normalized_link
     assert capture["storage_url"].endswith(f"{uuid_str}.wacz")
     assert "Location" not in resp.headers
+
+    resp = await service_client.get(
+        f"/v1/capture/{uuid_str}",
+        headers={"Host": "webshot.local:8080"},
+        allow_redirects=False,
+    )
+    assert resp.status == 200
+    capture_with_host = resp.json()
+    assert capture_with_host["storage_url"] == f"http://webshot.local:8333/webshot/{uuid_str}.wacz"
+
+    resp = await service_client.get(
+        f"/vendor/replaywebpage/replay/{uuid_str}",
+        headers={"Host": "webshot.local:8080"},
+        allow_redirects=False,
+    )
+    assert resp.status == 302
+    replay_location = urlparse(resp.headers["Location"])
+    replay_source = parse_qs(replay_location.query)["source"][0]
+    assert replay_source == f"http://webshot.local:8333/webshot/{uuid_str}.wacz"
 
     # List by exact link
     resp = await service_client.get("/v1/capture", params={"link": normalized_link})

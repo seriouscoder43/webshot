@@ -33,8 +33,6 @@ struct [[nodiscard]] CaptureRecord final {
     Url replayUrl;
 };
 
-[[nodiscard]] Url buildCaptureDownloadUrl(Uuid uuid, const Config &config);
-
 /**
  * @brief Persistence and background-crawl facade.
  *

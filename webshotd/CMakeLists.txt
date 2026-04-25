@@ -54,7 +54,9 @@ set(${PROJECT_NAME}_headers
     src/denylist_check_handler.hpp
     src/docs_handler.hpp
     src/ui_replay_handler.hpp
+    src/test_only_components.hpp
     include/crud.hpp
+    include/storage_url.hpp
     src/crawler/runner.hpp
     include/crawler/artifacts.hpp
     src/crawler/browser_session.hpp
@@ -86,7 +88,6 @@ add_library(
   src/job_handler.cpp
   src/by_prefix_handler.cpp
   src/by_id_handler.cpp
-  src/browser_probe_handler.cpp
   src/disallow_and_purge_handler.cpp
   src/denylist_check_handler.cpp
   src/docs_handler.cpp
@@ -106,11 +107,21 @@ add_library(
   src/denylist.cpp
   src/link.cpp
   src/config.cpp
+  src/storage_url.cpp
   src/cursor.cpp
   src/pagination.cpp
   src/prefix_pagination.cpp
   src/prefix_utils.cpp
   ${${PROJECT_NAME}_headers})
+
+if(USERVER_FEATURE_TESTSUITE)
+  target_sources(
+    ${PROJECT_NAME}_objs PRIVATE src/browser_probe_handler.cpp
+                                 src/test_only_components_enabled.cpp)
+else()
+  target_sources(${PROJECT_NAME}_objs
+                 PRIVATE src/test_only_components_disabled.cpp)
+endif()
 
 function(apply_defaults target)
   set_property(TARGET ${target} PROPERTY CXX_STANDARD 26)

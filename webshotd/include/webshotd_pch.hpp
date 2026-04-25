@@ -58,5 +58,4 @@
 #include <userver/storages/postgres/component.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/provider_component.hpp>
-#include <userver/testsuite/testsuite_support.hpp>
 #include <userver/utils/daemon_run.hpp>

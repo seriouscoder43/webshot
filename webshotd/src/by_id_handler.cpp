@@ -8,6 +8,7 @@
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
 #include "integers.hpp"
+#include "storage_url.hpp"
 #include "text.hpp"
 #include "uuid_format.hpp"
 #include "uuid_utils.hpp"
@@ -86,13 +87,22 @@ std::string ById::HandleRequestThrow(
         return httpu::respondError(response, kNotFound, "capture not found"_t);
     }
 
-    return httpu::respondJson(
-        response, kOk,
-        dto::CaptureDetails{
-            (**capture).uuid,
-            (**capture).createdAt,
-            toBytes((**capture).link),
-            toBytes(buildCaptureDownloadUrl((**capture).uuid, config).href()),
-        }
+    const auto downloadUrl = buildCaptureDownloadUrl(
+        (**capture).uuid, config.s3Mode(), config.publicBaseUrl(),
+        requestSupport.requestHost(request)
     );
+    if (!downloadUrl) {
+        LOG_ERROR() << std::format(
+            "Failed to build storage_url: {}", storageUrlErrorMessage(downloadUrl.error())
+        );
+        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+    }
+
+    dto::CaptureDetails details{
+        (**capture).uuid,
+        (**capture).createdAt,
+        toBytes((**capture).link),
+        toBytes(downloadUrl->href()),
+    };
+    return httpu::respondJson(response, kOk, details);
 }

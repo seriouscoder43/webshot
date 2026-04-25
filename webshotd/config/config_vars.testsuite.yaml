@@ -1,3 +1,4 @@
+s3_mode: local
 s3_bucket: webshot
 s3_endpoint: "http://localhost:8333"
 s3_region: "us-east-1"

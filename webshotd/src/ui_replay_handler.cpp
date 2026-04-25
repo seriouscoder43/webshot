@@ -7,12 +7,15 @@
 #include "crud.hpp"
 #include "handler_request_support.hpp"
 #include "integers.hpp"
+#include "storage_url.hpp"
 #include "text.hpp"
+#include "try.hpp"
 #include "uuid_format.hpp"
 #include "uuid_utils.hpp"
 
 #include <chrono>
 #include <format>
+#include <optional>
 
 #include <ada/character_sets-inl.h>
 #include <ada/unicode.h>
@@ -59,9 +62,14 @@ namespace {
     return out;
 }
 
-[[nodiscard]] std::string renderReplayLocation(const CaptureRecord &capture, const Config &config)
+[[nodiscard]] Expected<std::string, StorageUrlError> renderReplayLocation(
+    const CaptureRecord &capture, const Config &config, const std::optional<String> &requestHost
+)
 {
-    const auto downloadUrl = buildCaptureDownloadUrl(capture.uuid, config);
+    const auto downloadUrl = TRY(
+        buildCaptureDownloadUrl(capture.uuid, config.s3Mode(), config.publicBaseUrl(), requestHost)
+    );
+
     std::string out = "/vendor/replaywebpage/index.html?source=";
     out += ada::unicode::percent_encode(
         downloadUrl.href().view(), ada::character_sets::WWW_FORM_URLENCODED_PERCENT_ENCODE
@@ -176,7 +184,17 @@ std::string UiReplayHandler::HandleRequestThrow(
         return renderErrorPage("capture not found");
     }
     response.SetStatus(kFound);
-    response.SetHeader(us::http::headers::kLocation, renderReplayLocation(**capture, config));
+    auto replayLocation = renderReplayLocation(
+        **capture, config, requestSupport.requestHost(request)
+    );
+    if (!replayLocation) {
+        LOG_ERROR() << std::format(
+            "Failed to build replay storage URL: {}", storageUrlErrorMessage(replayLocation.error())
+        );
+        response.SetStatus(kInternalServerError);
+        return renderErrorPage("internal server error");
+    }
+    response.SetHeader(us::http::headers::kLocation, *replayLocation);
     return {};
 }
 

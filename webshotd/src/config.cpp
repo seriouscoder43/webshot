@@ -40,6 +40,15 @@ Config::Config(
           return ClientIpSource::kPeer;
       }()),
       clientIpHeaderNameValue(config["client_ip_header_name"].As<std::string>()),
+      s3ModeValue([&config]() {
+          const auto mode = config["s3_mode"].As<std::string>();
+          if (mode == "local")
+              return S3Mode::kLocal;
+          if (mode == "external")
+              return S3Mode::kExternal;
+          invariant(false, "s3_mode must be local or external");
+          return S3Mode::kExternal;
+      }()),
       s3BucketName(configText(config, "s3_bucket")),
       s3EndpointUrl(configText(config, "s3_endpoint")),
       s3RegionName(configText(config, "s3_region")),
@@ -78,6 +87,10 @@ properties:
   s3_bucket:
     type: string
     description: Target bucket name
+  s3_mode:
+    type: string
+    enum: [local, external]
+    description: S3 dependency mode from config vars
   s3_endpoint:
     type: string
     description: S3 HTTP endpoint (e.g., http://localhost:8333)

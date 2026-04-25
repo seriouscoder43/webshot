@@ -17,6 +17,11 @@ enum class ClientIpSource {
     kTrustedHeader,
 };
 
+enum class S3Mode {
+    kLocal,
+    kExternal,
+};
+
 /**
  * @brief Read-only configuration facade for the service.
  *
@@ -50,6 +55,7 @@ public:
 
     /** @name S3 parameters */
     ///@{
+    [[nodiscard]] S3Mode s3Mode() const noexcept { return s3ModeValue; }
     [[nodiscard]] const String &s3Bucket() const noexcept { return s3BucketName; }
     [[nodiscard]] const String &s3Endpoint() const noexcept { return s3EndpointUrl; }
     [[nodiscard]] const String &s3Region() const noexcept { return s3RegionName; }
@@ -62,6 +68,7 @@ private:
     std::string stateDirValue;
     ClientIpSource clientIpSourceValue;
     std::string clientIpHeaderNameValue;
+    S3Mode s3ModeValue;
     String s3BucketName;
     String s3EndpointUrl;
     String s3RegionName;

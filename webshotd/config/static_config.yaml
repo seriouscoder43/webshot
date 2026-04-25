@@ -46,6 +46,7 @@ components_manager:
       state_dir: $state_dir
       client_ip_source: $client_ip_source
       client_ip_header_name: $client_ip_header_name
+      s3_mode: $s3_mode
       s3_bucket: $s3_bucket
       s3_endpoint: $s3_endpoint
       s3_region: $s3_region
@@ -53,7 +54,6 @@ components_manager:
       s3_timeout_ms: 3000
     dns-client:
       fs-task-processor: fs-task-processor
-    testsuite-support: {}
     server:
       listener:
         port: 8080
@@ -133,20 +133,7 @@ components_manager:
       max_request_size: *max-data-per-request
       title: Webshot Admin API
       spec-url: /openapi/admin/webshot.yaml
-    browser_probe:
-      path: /tests/browser-probe
-      method: POST
-      monitor-handler: true
-      task_processor: main-task-processor
-      request-timeout-ms: 30000
-      max_request_size: *max-data-per-request
-      devtools_startup_timeout_ms: 10000
-      cdp_handshake_timeout_ms: 10000
-      cdp_command_timeout_ms: 10000
-      devtools_poll_interval_ms: 100
-      browser_stop_timeout_ms: 2000
-      cdp_max_remote_payload_bytes: 33554432
-      local_fixture_rewrite: true
+    # WEBSHOT_TESTSUITE_COMPONENTS
     rapidoc_assets_cache:
       dir: $rapidoc_assets_dir
       update-period: 0s

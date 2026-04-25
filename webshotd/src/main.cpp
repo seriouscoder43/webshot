@@ -2,7 +2,6 @@
  * @file
  * @brief Service entry point wiring userver components and HTTP handlers.
  */
-#include "browser_probe_handler.hpp"
 #include "by_id_handler.hpp"
 #include "by_prefix_handler.hpp"
 #include "config.hpp"
@@ -14,6 +13,7 @@
 #include "handler.hpp"
 #include "job_handler.hpp"
 #include "metrics.hpp"
+#include "test_only_components.hpp"
 #include "ui_replay_handler.hpp"
 #include "userver_namespaces.hpp"
 
@@ -30,7 +30,6 @@
 #include <userver/storages/postgres/component.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/provider_component.hpp>
-#include <userver/testsuite/testsuite_support.hpp>
 #include <userver/utils/daemon_run.hpp>
 
 int main(int argc, char *argv[])
@@ -39,7 +38,6 @@ int main(int argc, char *argv[])
         us::components::MinimalServerComponentList()
             .Append<us::clients::dns::Component>()
             .AppendComponentList(httpc::ComponentList())
-            .Append<us::components::TestsuiteSupport>()
             .Append<us::components::Secdist>()
             .Append<us::components::DefaultSecdistProvider>()
             .Append<us::components::ProcessStarter>()
@@ -59,7 +57,6 @@ int main(int argc, char *argv[])
             .Append<v1::ById>()
             .Append<v1::DocsHandler>()
             .Append<v1::DocsHandler>("docs_admin")
-            .Append<v1::BrowserProbeHandler>()
             .Append<v1::UiReplayHandler>()
             .Append<us::components::FsCache>("rapidoc_assets_cache")
             .Append<us::components::FsCache>("openapi_public_cache")
@@ -78,5 +75,6 @@ int main(int argc, char *argv[])
             .Append<us::server::handlers::HttpHandlerStatic>("web_ui_index_static")
             .Append<us::server::handlers::HttpHandlerStatic>("web_ui_root_static")
             .Append<us::server::handlers::ServerMonitor>();
+    v1::appendTestOnlyComponents(componentList);
     return us::utils::DaemonMain(argc, argv, componentList);
 }

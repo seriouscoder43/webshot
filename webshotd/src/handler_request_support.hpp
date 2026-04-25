@@ -18,6 +18,7 @@
 #include <utility>
 
 #include <userver/engine/task/current_task.hpp>
+#include <userver/http/common_headers.hpp>
 #include <userver/server/http/http_request.hpp>
 #include <userver/server/http/http_response.hpp>
 #include <userver/server/http/http_status.hpp>
@@ -121,6 +122,14 @@ public:
         if (!cooldown)
             return Unex(ClientRequestError::kCrudFailure);
         return *cooldown;
+    }
+
+    [[nodiscard]] std::optional<String> requestHost(const server::http::HttpRequest &request) const
+    {
+        auto host = String::fromBytes(request.GetHeader(us::http::headers::kHost));
+        if (!host)
+            return {};
+        return *host;
     }
 
 private:

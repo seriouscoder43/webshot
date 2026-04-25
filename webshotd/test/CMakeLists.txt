@@ -114,6 +114,10 @@ add_cpp_test(s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist.cpp
 add_cpp_test(s3_refresh_schedule_test SOURCES
              ${CMAKE_CURRENT_SOURCE_DIR}/s3_refresh_schedule.cpp)
 
+add_cpp_test(
+  storage_url_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/storage_url.cpp
+  ${CMAKE_SOURCE_DIR}/src/storage_url.cpp ${CMAKE_SOURCE_DIR}/src/url.cpp)
+
 add_cpp_test(deadline_utils_test SOURCES
              ${CMAKE_CURRENT_SOURCE_DIR}/deadline_utils.cpp)
 
@@ -144,6 +148,32 @@ foreach(tgt IN LISTS WEBSHOT_COVERAGE_TARGETS)
 endforeach()
 
 if(USERVER_FEATURE_TESTSUITE)
+  set(testsuite_static_config_path
+      "${CMAKE_CURRENT_BINARY_DIR}/static_config.testsuite.yaml")
+  set(testsuite_components_config_path
+      "${CMAKE_CURRENT_SOURCE_DIR}/static_config.testsuite_components.yaml.inc")
+  set_property(
+    DIRECTORY
+    APPEND
+    PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_SOURCE_DIR}/config/static_config.yaml"
+             "${testsuite_components_config_path}")
+  set(testsuite_static_config_marker "    # WEBSHOT_TESTSUITE_COMPONENTS")
+  file(READ "${testsuite_components_config_path}" testsuite_components_config)
+  file(READ "${CMAKE_SOURCE_DIR}/config/static_config.yaml"
+       testsuite_static_config)
+  string(FIND "${testsuite_static_config}" "${testsuite_static_config_marker}"
+              testsuite_static_config_marker_pos)
+  if(testsuite_static_config_marker_pos LESS 0)
+    message(
+      FATAL_ERROR
+        "Missing testsuite component marker in config/static_config.yaml")
+  endif()
+  string(REPLACE "${testsuite_static_config_marker}"
+                 "${testsuite_components_config}" testsuite_static_config
+                 "${testsuite_static_config}")
+  file(WRITE "${testsuite_static_config_path}" "${testsuite_static_config}")
+
   add_custom_target(testsuite)
   add_dependencies(testsuite ${PROJECT_NAME})
   set(testsuite_runner_path
@@ -161,7 +191,7 @@ if(USERVER_FEATURE_TESTSUITE)
     PYTEST_ARGS
     -c
     ${CMAKE_CURRENT_SOURCE_DIR}/pytest.ini
-    --service-config=${CMAKE_SOURCE_DIR}/config/static_config.yaml
+    --service-config=${testsuite_static_config_path}
     --service-config-vars=${CMAKE_SOURCE_DIR}/config/config_vars.testsuite.yaml
     --service-binary=${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper
     --service-secdist=${CMAKE_SOURCE_DIR}/secret/test_secdist.json
