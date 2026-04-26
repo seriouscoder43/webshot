@@ -132,21 +132,29 @@ evaluateBoolExpression(crawler::CdpSession &cdpSession, const String &expression
 [[nodiscard]] Expected<std::optional<dto::BrowserProbeFrameState>, String>
 evaluateFrameExpression(crawler::CdpSession &cdpSession, const String &expression)
 {
-    const auto value = evaluateExpression(cdpSession, expression);
-    if (!value)
-        return Unex(value.error());
-    const auto rendered = exu::json::stringify(*value, "expression returned invalid shape"_t);
-    if (!rendered)
-        return Unex(rendered.error());
-    if (*rendered == "null"_t)
-        return std::optional<dto::BrowserProbeFrameState>{};
+    return evaluateExpression(cdpSession, expression)
+        .andThen(
+            [](const auto &value) -> Expected<std::optional<dto::BrowserProbeFrameState>, String> {
+                return exu::json::stringify(value, "expression returned invalid shape"_t)
+                    .andThen(
+                        [&](
+                            const auto &rendered
+                        ) -> Expected<std::optional<dto::BrowserProbeFrameState>, String> {
+                            if (rendered == "null"_t)
+                                return {};
 
-    const auto parsed = exu::json::as<dto::BrowserProbeFrameState>(
-        *value, "expression returned invalid shape"_t
-    );
-    if (!parsed)
-        return Unex(parsed.error());
-    return std::optional<dto::BrowserProbeFrameState>{*parsed};
+                            return exu::json::as<dto::BrowserProbeFrameState>(
+                                       value, "expression returned invalid shape"_t
+                            )
+                                .transform([](auto parsed) {
+                                    return std::optional<dto::BrowserProbeFrameState>{
+                                        std::move(parsed)
+                                    };
+                                });
+                        }
+                    );
+            }
+        );
 }
 
 void cleanupProbeSession(
@@ -223,21 +231,13 @@ void cleanupProbeSession(
         return false;
     };
 
-    if (const auto matched = updateMatchState(); matched) {
-        if (*matched)
-            return {};
-    } else {
-        return Unex(matched.error());
-    }
+    if (TRY(updateMatchState()))
+        return {};
 
     while (!deadline.IsReached()) {
         TRY(drainProbeEvents(cdpSession, console, pageErrors));
-        if (const auto matched = updateMatchState(); matched) {
-            if (*matched)
-                return {};
-        } else {
-            return Unex(matched.error());
-        }
+        if (TRY(updateMatchState()))
+            return {};
 
         const auto eventDeadline = eng::Deadline::FromDuration(
             std::min(
@@ -303,24 +303,16 @@ void cleanupProbeSession(
         if (frame)
             return frame;
         lastError = frame.error();
-        return std::optional<dto::BrowserProbeFrameState>{};
+        return {};
     };
 
-    if (auto frame = updateFrameState(); frame) {
-        if (*frame)
-            return **frame;
-    } else {
-        return Unex(frame.error());
-    }
+    if (auto frame = TRY(updateFrameState()))
+        return *frame;
 
     while (!deadline.IsReached()) {
         TRY(drainProbeEvents(cdpSession, console, pageErrors));
-        if (auto frame = updateFrameState(); frame) {
-            if (*frame)
-                return **frame;
-        } else {
-            return Unex(frame.error());
-        }
+        if (auto frame = TRY(updateFrameState()))
+            return *frame;
 
         const auto eventDeadline = eng::Deadline::FromDuration(
             std::min(

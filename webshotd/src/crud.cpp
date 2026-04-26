@@ -28,6 +28,7 @@
 #include "server_errors.hpp"
 #include "text.hpp"
 #include "text_postgres_formatter.hpp"
+#include "try.hpp"
 #include "uuid_format.hpp"
 
 #include <webshot/sql_queries.hpp>
@@ -625,11 +626,10 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
         "runCrawlJob starting crawler for job {} ({})", id, ctx.link.normalized()
     );
     {
-        const auto ran = runCrawlerForContext(ctx);
-        if (!ran) {
+        TRY_MAP_ERR(runCrawlerForContext(ctx), [&](auto &&error) {
             metrics.accountError(Metrics::Error::kCrawlerRun);
-            return Unex(ran.error());
-        }
+            return std::forward<decltype(error)>(error);
+        });
     }
     LOG_INFO() << std::format(
         "runCrawlJob finished crawler for job {} ({})", id, ctx.link.normalized()
@@ -648,13 +648,11 @@ Expected<datetime::TimePointTz, PgError> Crud::Impl::insertJob(Uuid id, String l
     struct Row {
         pg::TimePointTz createdAt;
     };
-    auto row = sharedReadwrite(
+    auto row = TRY(sharedReadwrite(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); }, sql::kInsertCrawlJob,
         id, link
-    );
-    if (!row)
-        return Unex(std::move(row).error());
-    return datetime::TimePointTz(row->createdAt.GetUnderlying());
+    ));
+    return datetime::TimePointTz(row.createdAt.GetUnderlying());
 }
 
 Expected<std::optional<ClientIpCooldown>, PgError>
@@ -710,14 +708,12 @@ Crud::Impl::markJobSucceeded(Uuid id, Uuid resultCaptureId, const datetime::Time
         Uuid id;
         int64_t durationMs;
     };
-    auto row = sharedReadwrite(
+    auto row = TRY(sharedReadwrite(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
         sql::kUpdateCrawlJobSucceeded, id, pg::TimePointTz(createdAt.GetTimePoint()),
         resultCaptureId
-    );
-    if (!row)
-        return Unex(std::move(row).error());
-    return row->durationMs * 1ms;
+    ));
+    return row.durationMs * 1ms;
 }
 
 Expected<chrono::milliseconds, PgError>
@@ -727,26 +723,26 @@ Crud::Impl::markJobFailed(Uuid id, const String &errorCategory, const String &er
         Uuid id;
         int64_t durationMs;
     };
-    auto row = sharedReadwrite(
+    auto row = TRY(sharedReadwrite(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
         sql::kUpdateCrawlJobFailed, id, errorCategory, errorMessage
-    );
-    if (!row)
-        return Unex(std::move(row).error());
-    return row->durationMs * 1ms;
+    ));
+    return row.durationMs * 1ms;
 }
 
 Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::loadJob(Uuid id)
 {
-    auto rowOpt = sharedReadonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag); },
-        sql::kSelectCrawlJob, id
-    );
-    if (!rowOpt)
-        return Unex(std::move(rowOpt).error());
-    if (!*rowOpt)
-        return {};
-    return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
+    return sharedReadonly(
+               [&](auto &res) {
+                   return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
+               },
+               sql::kSelectCrawlJob, id
+    )
+        .transform([](auto rowOpt) -> std::optional<dto::CaptureJob> {
+            if (!rowOpt)
+                return {};
+            return makeCaptureJob(grabValueOf(rowOpt));
+        });
 }
 
 Expected<Crud::Impl::S3ClientState, std::string> Crud::Impl::fetchS3ClientStateFromSts()
@@ -810,15 +806,17 @@ Expected<void, std::string> Crud::Impl::deleteCaptureObject(std::string_view key
 Expected<std::optional<dto::CaptureJob>, PgError>
 Crud::Impl::findLatestJobForLink(const String &link)
 {
-    auto rowOpt = sharedReadonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag); },
-        sql::kSelectLatestCrawlJobByLink, link
-    );
-    if (!rowOpt)
-        return Unex(std::move(rowOpt).error());
-    if (!*rowOpt)
-        return {};
-    return {makeCaptureJob(grabValueOf(grabValueOf(rowOpt)))};
+    return sharedReadonly(
+               [&](auto &res) {
+                   return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
+               },
+               sql::kSelectLatestCrawlJobByLink, link
+    )
+        .transform([](auto rowOpt) -> std::optional<dto::CaptureJob> {
+            if (!rowOpt)
+                return {};
+            return makeCaptureJob(grabValueOf(rowOpt));
+        });
 }
 
 Expected<CreateCaptureJobResult, PgError>
@@ -1639,11 +1637,10 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
 
 Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noexcept
 {
-    auto inserted = impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t);
-    if (!inserted) {
+    TRY_MAP_ERR(impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t), [&](auto &&error) {
         impl->metrics.accountError(Metrics::Error::kDenylistCheck);
-        return Unex(inserted.error());
-    }
+        return std::forward<decltype(error)>(error);
+    });
 
     LOG_INFO() << std::format("enqueued for prefix {}", prefixKey);
 

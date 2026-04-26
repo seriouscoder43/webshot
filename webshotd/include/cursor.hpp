@@ -10,6 +10,7 @@
 #include "crypto.hpp"
 #include "json.hpp"
 #include "text.hpp"
+#include "try.hpp"
 #include "userver_namespaces.hpp"
 
 #include <chrono>
@@ -46,18 +47,9 @@ using Clock = std::chrono::system_clock;
  */
 template <typename Dto> [[nodiscard]] std::optional<Dto> decodeToken(const String &token)
 {
-    const auto decoded = exu::crypto::base64UrlDecode(token.view(), false);
-    if (!decoded)
-        return {};
-
-    const auto decodedText = String::fromBytes(*decoded);
-    if (!decodedText)
-        return {};
-
-    const auto parsed = exu::json::parse<Dto>(*decodedText, false);
-    if (!parsed)
-        return {};
-    return *parsed;
+    const auto decoded = TRY(exu::crypto::base64UrlDecode(token.view(), false));
+    const auto decodedText = TRY(String::fromBytes(decoded));
+    return TRY(exu::json::parse<Dto>(decodedText, false));
 }
 
 /**

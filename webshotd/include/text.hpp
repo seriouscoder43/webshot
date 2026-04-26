@@ -21,6 +21,7 @@
 #include <uni_algo/norm.h>
 
 #include "expected.hpp"
+#include "try.hpp"
 
 namespace text {
 
@@ -146,12 +147,17 @@ template <typename T> [[nodiscard]] constexpr std::string_view byteView(const T 
     return {value.data(), value.size()};
 }
 
+template <typename Range, typename F>
+using CollectExpectedResult =
+    std::remove_cvref_t<std::invoke_result_t<F, std::ranges::range_reference_t<const Range>>>;
+
 template <std::ranges::input_range Range, typename F>
     requires std::invocable<F, std::ranges::range_reference_t<const Range>>
-[[nodiscard]] auto collectExpected(const Range &range, F &&f)
+[[nodiscard]] auto collectExpected(const Range &range, F &&f) -> Expected<
+    std::vector<typename CollectExpectedResult<Range, F>::value_type>,
+    typename CollectExpectedResult<Range, F>::error_type>
 {
-    using ExpectedResult =
-        std::remove_cvref_t<std::invoke_result_t<F, std::ranges::range_reference_t<const Range>>>;
+    using ExpectedResult = CollectExpectedResult<Range, F>;
     using Value = typename ExpectedResult::value_type;
     using Error = typename ExpectedResult::error_type;
     using Result = Expected<std::vector<Value>, Error>;
@@ -161,10 +167,7 @@ template <std::ranges::input_range Range, typename F>
         out.reserve(std::ranges::size(range));
 
     for (const auto &item : range) {
-        auto converted = std::invoke(f, item);
-        if (!converted)
-            return Result{Unex(std::move(converted).error())};
-        out.push_back(std::move(*converted));
+        out.push_back(TRY(std::invoke(f, item)));
     }
     return Result{std::move(out)};
 }
@@ -187,15 +190,9 @@ stringPairs(const Range &pairs)
     using Result = Expected<Pair, TextError>;
 
     return detail::collectExpected(pairs, [](const auto &pair) -> Result {
-        auto first = String::fromBytes(detail::byteView(pair.first));
-        if (!first)
-            return Result{Unex(std::move(first).error())};
-
-        auto second = String::fromBytes(detail::byteView(pair.second));
-        if (!second)
-            return Result{Unex(std::move(second).error())};
-
-        return Pair{std::move(*first), std::move(*second)};
+        auto first = TRY(String::fromBytes(detail::byteView(pair.first)));
+        auto second = TRY(String::fromBytes(detail::byteView(pair.second)));
+        return Pair{std::move(first), std::move(second)};
     });
 }
 
@@ -206,10 +203,9 @@ optionalString(const std::optional<T> &bytes)
     if (!bytes)
         return std::optional<String>{};
 
-    auto text = String::fromBytes(detail::byteView(*bytes));
-    if (!text)
-        return Unex(std::move(text).error());
-    return std::optional<String>{std::move(*text)};
+    return String::fromBytes(detail::byteView(*bytes)).transform([](String text) {
+        return std::optional<String>{std::move(text)};
+    });
 }
 
 template <std::ranges::input_range Range>

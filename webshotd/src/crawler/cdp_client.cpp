@@ -176,16 +176,14 @@ closeWebSocket(us::websocket::WebSocketConnection &connection)
 {
     using enum CdpError;
     invariant(error.IsObject(), "cdp error payload must be object"_t);
-    const auto parsed = exu::json::as<dto::CdpError, CdpFailure>(
-        error, [](const json::Exception &e) -> CdpFailure {
+    const auto parsed = TRY(
+        exu::json::as<dto::CdpError, CdpFailure>(error, [](const json::Exception &e) -> CdpFailure {
             invariant(
                 text::format("cdp error payload does not match dto::CdpError ({})", e.what())
             );
-        }
+        })
     );
-    if (!parsed)
-        return Unex(parsed.error());
-    auto message = String::fromBytes(parsed->message);
+    auto message = String::fromBytes(parsed.message);
     if (!message)
         return Unex(CdpFailure{.code = kProtocol, .detail = {}});
     return std::move(*message);

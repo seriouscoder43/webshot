@@ -661,9 +661,6 @@ public:
                 });
                 continue;
             }
-            auto body = retainBody(*decodedBody, budget);
-            if (!body)
-                return Unex(std::move(body).error());
             resources.push_back({
                 request.requestUrl,
                 request.method,
@@ -671,7 +668,7 @@ public:
                 response.statusCode,
                 response.statusMessage,
                 response.headers,
-                grabValueOf(body),
+                TRY(retainBody(*decodedBody, budget)),
                 response.timestamp,
             });
         }
