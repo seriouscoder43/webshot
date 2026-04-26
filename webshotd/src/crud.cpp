@@ -121,13 +121,7 @@ struct [[nodiscard]] ClientIpCooldownRow final {
 {
     if (cpuCores == 0_i64 && memoryGib == 0_i64)
         return {};
-
     invariant(cpuCores > 0_i64 && memoryGib > 0_i64, "crawler limits must be both > 0 or both 0"_t);
-    const auto maxI64 = std::numeric_limits<i64>::max();
-    const auto maxMemoryGib = maxI64 / kGiB;
-    invariant(memoryGib <= maxMemoryGib, "memory GiB limit is too large"_t);
-    const auto maxCpuCores = maxI64 / kCpuMaxPeriodUs;
-    invariant(cpuCores <= maxCpuCores, "cpu core limit is too large"_t);
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
 }
 
