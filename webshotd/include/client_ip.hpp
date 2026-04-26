@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include "invariant.hpp"
 #include "ip_utils.hpp"
 #include "text.hpp"
 #include "try.hpp"
@@ -15,6 +16,8 @@
 #include <userver/utils/assert.hpp>
 
 namespace v1::client_ip {
+using text::literals::operator""_t;
+
 [[nodiscard]] inline std::optional<String> makeClientIp(std::string_view raw)
 {
     std::string text{raw};
@@ -33,8 +36,7 @@ resolve(const server::http::HttpRequest &request, const Config &config)
     case ClientIpSource::kTrustedHeader:
         return makeClientIp(request.GetHeader(config.clientIpHeaderName()));
     default:
-        invariant(false, "unknown client IP source");
-        return {};
+        invariant("unknown client IP source"_t);
     }
 }
 } // namespace v1::client_ip

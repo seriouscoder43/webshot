@@ -10,6 +10,7 @@
 #include "s3/sigv4_signer.hpp"
 
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "text.hpp"
 #include "userver_namespaces.hpp"
 
@@ -44,15 +45,15 @@ constexpr std::chrono::seconds kMaxPresignTtl = 604800s;
 EndpointParts parseEndpoint(const String &ep)
 {
     const auto url = parseUrlWithDefaultHttpScheme(ep);
-    invariant(url, "S3 endpoint must parse");
+    invariant(url, "S3 endpoint must parse"_t);
 
-    invariant(url->isHttpOrHttps(), "S3 endpoint must be http or https");
+    invariant(url->isHttpOrHttps(), "S3 endpoint must be http or https"_t);
 
-    invariant(!url->hasSearch(), "S3 endpoint must not include query");
+    invariant(!url->hasSearch(), "S3 endpoint must not include query"_t);
     std::string path{url->pathname().view()};
     if (path.empty())
         path = "/";
-    invariant(path == "/", "S3 endpoint path must be root");
+    invariant(path == "/", "S3 endpoint path must be root"_t);
 
     return {*url, url->host(), url->hostname(), url->hasPort() ? url->port() : String{}, "/"_t};
 }
@@ -382,7 +383,7 @@ S3V4Client::makePathStyleUrl(String path, std::optional<String> protocolOverride
 detail::BuiltUrl S3V4Client::makeVirtualHostUrl(String path, String protocol) const
 {
     const auto bucketValidated = detail::validateVirtualHostBucketName(bucketName);
-    invariant(bucketValidated, "presign requires non-empty bucket");
+    invariant(bucketValidated, "presign requires non-empty bucket"_t);
 
     auto rawPath = buildRawPath(std::move(path), IncludeBucket::kNo);
     const auto hostname = text::format("{}.{}", bucketName, endpoint.hostname);

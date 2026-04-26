@@ -1,4 +1,5 @@
 #include "metrics.hpp"
+#include "invariant.hpp"
 /**
  * @file
  * @brief Service metrics exposed via userver statistics (scraped by ServerMonitor).
@@ -11,6 +12,8 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
+
+using namespace text::literals;
 
 namespace {
 
@@ -65,7 +68,7 @@ void writeErrorMetric(
         return;
     case kCount:
     default:
-        invariant(false, "");
+        invariant(""_t);
     }
 }
 

@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "invariant.hpp"
 /**
  * @file
  * @brief Component that provides typed read-only configuration.
@@ -13,6 +14,7 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
+using namespace text::literals;
 using namespace std::chrono_literals;
 
 namespace {
@@ -36,8 +38,7 @@ Config::Config(
               return ClientIpSource::kPeer;
           if (source == "trusted_header")
               return ClientIpSource::kTrustedHeader;
-          invariant(false, "client_ip_source must be peer or trusted_header");
-          return ClientIpSource::kPeer;
+          invariant("client_ip_source must be peer or trusted_header"_t);
       }()),
       clientIpHeaderNameValue(config["client_ip_header_name"].As<std::string>()),
       s3ModeValue([&config]() {
@@ -46,8 +47,7 @@ Config::Config(
               return S3Mode::kLocal;
           if (mode == "external")
               return S3Mode::kExternal;
-          invariant(false, "s3_mode must be local or external");
-          return S3Mode::kExternal;
+          invariant("s3_mode must be local or external"_t);
       }()),
       s3BucketName(configText(config, "s3_bucket")),
       s3EndpointUrl(configText(config, "s3_endpoint")),
@@ -55,10 +55,10 @@ Config::Config(
       publicBaseUrlValue(configText(config, "public_base_url")),
       s3TimeoutDuration(config["s3_timeout_ms"].As<int>() * 1ms)
 {
-    invariant(!stateDirValue.empty(), "state_dir must not be empty");
+    invariant(!stateDirValue.empty(), "state_dir must not be empty"_t);
     invariant(
         clientIpSourceValue != ClientIpSource::kTrustedHeader || !clientIpHeaderNameValue.empty(),
-        "client_ip_header_name must be set when client_ip_source is trusted_header"
+        "client_ip_header_name must be set when client_ip_source is trusted_header"_t
     );
 }
 

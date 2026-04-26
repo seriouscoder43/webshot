@@ -2,6 +2,7 @@
 
 #include "deadline_utils.hpp"
 #include "grab_value.hpp"
+#include "invariant.hpp"
 #include "json.hpp"
 #include "schema/cdp.hpp"
 #include "try.hpp"
@@ -174,13 +175,12 @@ closeWebSocket(us::websocket::WebSocketConnection &connection)
 [[nodiscard]] Expected<String, CdpFailure> getErrorMessage(const json::Value &error)
 {
     using enum CdpError;
-    invariant(error.IsObject(), "cdp error payload must be object");
+    invariant(error.IsObject(), "cdp error payload must be object"_t);
     const auto parsed = exu::json::as<dto::CdpError, CdpFailure>(
-        error, [](const json::Exception &e) {
+        error, [](const json::Exception &e) -> CdpFailure {
             invariant(
-                false, std::format("cdp error payload does not match dto::CdpError ({})", e.what())
+                text::format("cdp error payload does not match dto::CdpError ({})", e.what())
             );
-            return CdpFailure{.code = kProtocol, .detail = {}};
         }
     );
     if (!parsed)
@@ -412,8 +412,8 @@ Expected<std::unique_ptr<CdpClient>, CdpFailure> CdpClient::connect(
 {
     using enum CdpError;
 
-    invariant(!tracePath.empty(), "cdp trace path must not be empty");
-    invariant(overallDeadline.IsReachable(), "cdp overall deadline must be reachable");
+    invariant(!tracePath.empty(), "cdp trace path must not be empty"_t);
+    invariant(overallDeadline.IsReachable(), "cdp overall deadline must be reachable"_t);
 
     auto traceFd = TRY(openTraceFile(tracePath));
 
@@ -533,7 +533,7 @@ Expected<json::Value, CdpFailure> CdpClient::sendRaw(
         return Unex(makeTimeoutFailure("timed out waiting for cdp response"_t));
     if (waiterState->failure)
         return Unex(*waiterState->failure);
-    invariant(waiterState->result, "cdp waiter completed without result");
+    invariant(waiterState->result, "cdp waiter completed without result"_t);
     return *waiterState->result;
 }
 
@@ -649,7 +649,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
             auto state = sharedState.Lock();
             auto *request = state->pendingRequests.find(id);
             invariant(
-                request != nullptr, std::format("cdp response for unknown request id {}", id)
+                request != nullptr, text::format("cdp response for unknown request id {}", id)
             );
             requestCopy = *request;
             const auto errorValue = value["error"];
@@ -665,7 +665,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
             const auto waiterIt = state->pendingWaiters.find(id);
             invariant(
                 waiterIt != std::end(state->pendingWaiters),
-                std::format("missing cdp waiter for request id {}", id)
+                text::format("missing cdp waiter for request id {}", id)
             );
             waiter = waiterIt->second;
             state->pendingWaiters.erase(waiterIt);
@@ -684,7 +684,7 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
         return {};
     }
 
-    invariant(!value["method"].IsMissing(), "cdp message missing id and method");
+    invariant(!value["method"].IsMissing(), "cdp message missing id and method"_t);
 
     auto eventMessage = TRY(
         exu::json::as<dto::CdpEventMessage>(value, CdpFailure{.code = kProtocol, .detail = {}})
@@ -745,7 +745,7 @@ Expected<CdpEvent, CdpFailure> CdpClient::waitForSessionEvent(
         return Unex(*sessionData->failure);
     if (sessionData->closed)
         return Unex(makeSocketClosedFailure("cdp session is closed"_t));
-    invariant(!sessionData->events.empty(), "cdp session woke without queued event");
+    invariant(!sessionData->events.empty(), "cdp session woke without queued event"_t);
     auto event = std::move(sessionData->events.front());
     sessionData->events.pop_front();
     return event;
@@ -833,15 +833,15 @@ void CdpClient::failTerminal(CdpFailure failure)
 Expected<CdpEvent, CdpFailure>
 CdpSession::waitEvent(eng::Deadline deadline, const String &timeoutMessage)
 {
-    invariant(client != nullptr, "cdp session is not attached");
-    invariant(sessionState != nullptr, "cdp session state is missing");
+    invariant(client != nullptr, "cdp session is not attached"_t);
+    invariant(sessionState != nullptr, "cdp session state is missing"_t);
     return client->waitForSessionEvent(sessionState, deadline, timeoutMessage);
 }
 
 std::vector<CdpEvent> CdpSession::drainAvailableEvents()
 {
-    invariant(client != nullptr, "cdp session is not attached");
-    invariant(sessionState != nullptr, "cdp session state is missing");
+    invariant(client != nullptr, "cdp session is not attached"_t);
+    invariant(sessionState != nullptr, "cdp session state is missing"_t);
     return client->drainSessionEvents(sessionState);
 }
 

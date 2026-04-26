@@ -13,6 +13,7 @@
 #include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "link.hpp"
 #include "metrics.hpp"
 #include "pagination.hpp"
@@ -121,12 +122,12 @@ struct [[nodiscard]] ClientIpCooldownRow final {
     if (cpuCores == 0_i64 && memoryGib == 0_i64)
         return {};
 
-    invariant(cpuCores > 0_i64 && memoryGib > 0_i64, "crawler limits must be both > 0 or both 0");
+    invariant(cpuCores > 0_i64 && memoryGib > 0_i64, "crawler limits must be both > 0 or both 0"_t);
     const auto maxI64 = std::numeric_limits<i64>::max();
     const auto maxMemoryGib = maxI64 / kGiB;
-    invariant(memoryGib <= maxMemoryGib, "memory GiB limit is too large");
+    invariant(memoryGib <= maxMemoryGib, "memory GiB limit is too large"_t);
     const auto maxCpuCores = maxI64 / kCpuMaxPeriodUs;
-    invariant(cpuCores <= maxCpuCores, "cpu core limit is too large");
+    invariant(cpuCores <= maxCpuCores, "cpu core limit is too large"_t);
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
 }
 
@@ -178,7 +179,7 @@ makePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz
         job.error = dto::ErrorEnvelope{err};
     }
     if (job.status == kSucceeded && job.result_created_at) {
-        invariant(row.resultCaptureId, "succeeded job must have result_capture_id");
+        invariant(row.resultCaptureId, "succeeded job must have result_capture_id"_t);
         job.result = dto::UuidWithTimeLink(*row.resultCaptureId, *job.result_created_at, job.link);
     }
     return job;
@@ -497,20 +498,20 @@ public:
                                        crawlerPageExtraDelay + crawlerBehaviorTimeout;
         invariant(
             fixedTimingBudget <= crawlerRunTimeout,
-            "crawler fixed timing budget must be <= crawler_run_timeout_sec"
+            "crawler fixed timing budget must be <= crawler_run_timeout_sec"_t
         );
         invariant(
             crawlJobRetention >= linkCooldown,
-            "crawl_job_retention_sec must be >= link_cooldown_sec"
+            "crawl_job_retention_sec must be >= link_cooldown_sec"_t
         );
         invariant(
             s3CredentialsDuration > s3CredentialsRefreshMargin,
-            "s3_credentials_duration_sec must be greater than s3_credentials_refresh_margin_sec"
+            "s3_credentials_duration_sec must be greater than s3_credentials_refresh_margin_sec"_t
         );
         const auto &secdist = ctx.FindComponent<us::components::Secdist>().Get();
         const auto &creds = secdist.Get<S3CredentialsSecdist>();
         invariant(
-            creds.accessKeyId && creds.secretAccessKey, "missing required S3 secdist credentials"
+            creds.accessKeyId && creds.secretAccessKey, "missing required S3 secdist credentials"_t
         );
         staticAccessKeyId = *creds.accessKeyId;
         staticSecretAccessKey = *creds.secretAccessKey;
@@ -1002,14 +1003,14 @@ Expected<void, errors::CrawlFailure> Crud::Impl::runCrawlerForContext(CrawlConte
     const auto tryStoreSuccess = [&ctx](const CrawlerRunArtifacts &run) -> bool {
         if (!crawler::isAttemptSuccess(run.attempt))
             return false;
-        invariant(run.wacz, "crawler reported wacz_exists=true but did not provide WACZ bytes");
+        invariant(run.wacz, "crawler reported wacz_exists=true but did not provide WACZ bytes"_t);
         invariant(
-            run.contentSha256, "crawler did not provide content hash for a successful capture"
+            run.contentSha256, "crawler did not provide content hash for a successful capture"_t
         );
-        invariant(ssize(*run.contentSha256) == 32_i64, "content hash must be 32 bytes");
-        invariant(run.replayUrl, "crawler did not provide replayUrl for a successful capture");
+        invariant(ssize(*run.contentSha256) == 32_i64, "content hash must be 32 bytes"_t);
+        invariant(run.replayUrl, "crawler did not provide replayUrl for a successful capture"_t);
         const auto replayUrl = Url::fromText(*run.replayUrl);
-        invariant(replayUrl, "replayUrl must parse for a successful capture");
+        invariant(replayUrl, "replayUrl must parse for a successful capture"_t);
         ctx.waczBytes = *run.wacz;
         ctx.contentSha256 = *run.contentSha256;
         ctx.replayUrl = *replayUrl;
@@ -1135,7 +1136,7 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
     const auto prefixKey = prefix::makePrefixKey(ctx.link);
     const auto prefixTree = prefix::makePrefixTree(prefixKey);
     const auto host = ctx.link.host();
-    invariant(ctx.replayUrl, "replayUrl must be set for a successful capture");
+    invariant(ctx.replayUrl, "replayUrl must be set for a successful capture"_t);
 
     const auto allowed = denylist.isAllowedPrefix(prefixKey);
     if (!allowed || !*allowed) {
@@ -1148,9 +1149,9 @@ std::optional<StoredCapture> Crud::Impl::persistMetadataForContext(CrawlContext 
         return {};
     }
 
-    invariant(ctx.waczBytes, "persistMetadataForContext called without WACZ bytes");
-    invariant(ctx.contentSha256, "persistMetadataForContext called without content hash");
-    invariant(ssize(*ctx.contentSha256) == 32_i64, "content hash must be 32 bytes");
+    invariant(ctx.waczBytes, "persistMetadataForContext called without WACZ bytes"_t);
+    invariant(ctx.contentSha256, "persistMetadataForContext called without content hash"_t);
+    invariant(ssize(*ctx.contentSha256) == 32_i64, "content hash must be 32 bytes"_t);
 
     struct ExistingRow {
         Uuid id;
@@ -1381,7 +1382,7 @@ Crud::acquireClientIpCooldown(String clientIp)
 {
     using enum errors::CrudError;
 
-    invariant(!clientIp.empty(), "client IP must not be empty");
+    invariant(!clientIp.empty(), "client IP must not be empty"_t);
     auto acquired = impl->acquireClientIpCooldownLocked(clientIp);
     if (!acquired) {
         us::utils::AbortWithStacktrace(

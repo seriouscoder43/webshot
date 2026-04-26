@@ -5,6 +5,7 @@
 #include "crud.hpp"
 #include "deadline_utils.hpp"
 #include "http_utils.hpp"
+#include "invariant.hpp"
 #include "json.hpp"
 #include "link.hpp"
 #include "text.hpp"
@@ -174,9 +175,8 @@ respondClientRequestError(server::http::HttpResponse &response, ClientRequestErr
     case kCrudFailure:
         return httpu::respondError(response, kInternalServerError, "internal server error"_t);
     default:
-        invariant(false, "");
+        invariant(""_t);
     }
-    return {};
 }
 
 } // namespace v1

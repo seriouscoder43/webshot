@@ -1,6 +1,7 @@
 #include "s3/s3_sts_client.hpp"
 
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "s3/s3_url_utils.hpp"
 #include "s3/sigv4_signer.hpp"
 #include "s3_credentials_types.hpp"
@@ -89,7 +90,7 @@ Expected<StsCredentials, StsError> detail::fetchStsWithExecutor(
     const auto stsUrl = TRY_OK_OR(
         s3v4::parseUrlWithDefaultHttpScheme(stsEndpoint), StsError::kInvalidEndpoint
     );
-    invariant(stsUrl.isHttps(), "STS endpoint must use https scheme");
+    invariant(stsUrl.isHttps(), "STS endpoint must use https scheme"_t);
 
     const auto host = stsUrl.host();
 

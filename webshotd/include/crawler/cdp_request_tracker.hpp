@@ -1,6 +1,7 @@
 #pragma once
 
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "text.hpp"
 
 #include <cstddef>
@@ -12,6 +13,7 @@
 #include <userver/utils/assert.hpp>
 
 namespace v1::crawler {
+using text::literals::operator""_t;
 
 struct [[nodiscard]] CdpPendingRequest final {
     String method;
@@ -62,7 +64,7 @@ public:
     void markIgnoreResponse(i64 id)
     {
         auto *request = find(id);
-        invariant(request != nullptr, "cannot ignore unknown cdp request");
+        invariant(request != nullptr, "cannot ignore unknown cdp request"_t);
         request->ignoreResponse = true;
     }
 
@@ -76,7 +78,7 @@ private:
     void insert(i64 id, CdpPendingRequest request)
     {
         const auto [_, inserted] = requests.emplace(id, std::move(request));
-        invariant(inserted, "duplicate cdp request id");
+        invariant(inserted, "duplicate cdp request id"_t);
     }
 
     std::unordered_map<i64, CdpPendingRequest> requests;

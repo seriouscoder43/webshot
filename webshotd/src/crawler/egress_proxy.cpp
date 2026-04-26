@@ -11,6 +11,7 @@
 #include "crypto.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "ip_utils.hpp"
 
 #include <sys/socket.h>
@@ -276,7 +277,7 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     addr4.sin_family = AF_INET;
     addr4.sin_port = htons(raw(port));
     const auto hostText = std::string(host);
-    invariant(inet_pton(AF_INET, hostText.c_str(), &addr4.sin_addr) == 1, "invalid ipv4 addr");
+    invariant(inet_pton(AF_INET, hostText.c_str(), &addr4.sin_addr) == 1, "invalid ipv4 addr"_t);
     return eng::io::Sockaddr(&addr4);
 }
 
@@ -289,7 +290,7 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     addr6.sin6_family = AF_INET6;
     addr6.sin6_port = htons(raw(port));
     const auto hostText = std::string(candidate);
-    invariant(inet_pton(AF_INET6, hostText.c_str(), &addr6.sin6_addr) == 1, "invalid ipv6 addr");
+    invariant(inet_pton(AF_INET6, hostText.c_str(), &addr6.sin6_addr) == 1, "invalid ipv6 addr"_t);
     return eng::io::Sockaddr(&addr6);
 }
 
@@ -927,15 +928,15 @@ struct EgressProxy::Impl final {
 
 EgressProxy::EgressProxy(EgressProxyConfig config) : impl{std::make_unique<Impl>(std::move(config))}
 {
-    invariant(!impl->config.socketPath.empty(), "proxy socket path must not be empty");
-    invariant(!impl->config.runId.empty(), "proxy runId must not be empty");
+    invariant(!impl->config.socketPath.empty(), "proxy socket path must not be empty"_t);
+    invariant(!impl->config.runId.empty(), "proxy runId must not be empty"_t);
 }
 
 EgressProxy::~EgressProxy() noexcept { close(); }
 
 Expected<void, String> EgressProxy::start(dns::Resolver &resolver, eng::Deadline deadline)
 {
-    invariant(deadline.IsReachable(), "proxy start deadline must be reachable");
+    invariant(deadline.IsReachable(), "proxy start deadline must be reachable"_t);
     if (impl->acceptTask)
         return Unex("proxy already started"_t);
 

@@ -154,6 +154,7 @@ template <std::ranges::input_range Range, typename F>
         std::remove_cvref_t<std::invoke_result_t<F, std::ranges::range_reference_t<const Range>>>;
     using Value = typename ExpectedResult::value_type;
     using Error = typename ExpectedResult::error_type;
+    using Result = Expected<std::vector<Value>, Error>;
 
     std::vector<Value> out;
     if constexpr (std::ranges::sized_range<const Range>)
@@ -162,10 +163,10 @@ template <std::ranges::input_range Range, typename F>
     for (const auto &item : range) {
         auto converted = std::invoke(f, item);
         if (!converted)
-            return Expected<std::vector<Value>, Error>{Unex(std::move(converted).error())};
+            return Result{Unex(std::move(converted).error())};
         out.push_back(std::move(*converted));
     }
-    return Expected<std::vector<Value>, Error>{std::move(out)};
+    return Result{std::move(out)};
 }
 
 } // namespace detail
@@ -182,18 +183,19 @@ template <std::ranges::input_range Range>
 [[nodiscard]] Expected<std::vector<std::pair<String, String>>, TextError>
 stringPairs(const Range &pairs)
 {
-    return detail::collectExpected(pairs, [](const auto &pair) {
+    using Pair = std::pair<String, String>;
+    using Result = Expected<Pair, TextError>;
+
+    return detail::collectExpected(pairs, [](const auto &pair) -> Result {
         auto first = String::fromBytes(detail::byteView(pair.first));
         if (!first)
-            return Expected<std::pair<String, String>, TextError>{Unex(std::move(first).error())};
+            return Result{Unex(std::move(first).error())};
 
         auto second = String::fromBytes(detail::byteView(pair.second));
         if (!second)
-            return Expected<std::pair<String, String>, TextError>{Unex(std::move(second).error())};
+            return Result{Unex(std::move(second).error())};
 
-        return Expected<std::pair<String, String>, TextError>{
-            std::pair<String, String>{std::move(*first), std::move(*second)}
-        };
+        return Pair{std::move(*first), std::move(*second)};
     });
 }
 

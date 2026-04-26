@@ -5,6 +5,7 @@
 #include "crawler/failure.hpp"
 #include "crawler/launch_policy.hpp"
 #include "grab_value.hpp"
+#include "invariant.hpp"
 #include "try.hpp"
 #include "userver_namespaces.hpp"
 #include "uuid_format.hpp"
@@ -85,8 +86,8 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
 
 [[nodiscard]] std::string browserSandboxPath(std::string_view relativePath)
 {
-    invariant(!relativePath.empty(), "browser sandbox path must not be empty");
-    invariant(relativePath.front() != '/', "browser sandbox path must be relative");
+    invariant(!relativePath.empty(), "browser sandbox path must not be empty"_t);
+    invariant(relativePath.front() != '/', "browser sandbox path must be relative"_t);
     return std::format("{}/{}", kBrowserSandboxRoot, relativePath);
 }
 
@@ -733,7 +734,7 @@ struct BrowserSession::Impl final {
 
     [[nodiscard]] Expected<String, String> waitForDevtoolsPath(eng::Deadline deadline)
     {
-        invariant(deadline.IsReachable(), "devtools deadline must be reachable");
+        invariant(deadline.IsReachable(), "devtools deadline must be reachable"_t);
         auto sawCdpSocket = false;
         auto sawWebsocketPath = false;
         while (!deadline.IsReached()) {
@@ -854,14 +855,14 @@ Expected<void, String> BrowserPageSession::createBrowserContext()
     browserContextIdValue = String::fromBytes(browserContext.browserContextId).expect();
     invariant(
         lifecycle.markBrowserContextCreated(),
-        "invalid browser page lifecycle transition after creating browser context"
+        "invalid browser page lifecycle transition after creating browser context"_t
     );
     return {};
 }
 
 Expected<void, String> BrowserPageSession::createBlankTarget()
 {
-    invariant(browserContextIdValue, "browser context must exist before creating a target");
+    invariant(browserContextIdValue, "browser context must exist before creating a target"_t);
 
     dto::TargetCreateTargetParams targetParams{
         .url = "about:blank",
@@ -873,14 +874,14 @@ Expected<void, String> BrowserPageSession::createBlankTarget()
     targetIdValue = String::fromBytes(target.targetId).expect();
     invariant(
         lifecycle.markTargetCreated(),
-        "invalid browser page lifecycle transition after creating target"
+        "invalid browser page lifecycle transition after creating target"_t
     );
     return {};
 }
 
 Expected<void, String> BrowserPageSession::attachToTarget()
 {
-    invariant(targetIdValue, "target must exist before attaching");
+    invariant(targetIdValue, "target must exist before attaching"_t);
 
     dto::TargetAttachToTargetParams attachParams{
         .targetId = text::toBytes(*targetIdValue),
@@ -898,7 +899,8 @@ Expected<void, String> BrowserPageSession::attachToTarget()
     sessionIdValue = std::move(sessionId);
     cdpSessionValue = grabValueOf(cdpSession);
     invariant(
-        lifecycle.markAttached(), "invalid browser page lifecycle transition after attaching target"
+        lifecycle.markAttached(),
+        "invalid browser page lifecycle transition after attaching target"_t
     );
     return {};
 }
@@ -931,7 +933,7 @@ BrowserPageSession::enableBaseDomains(const std::function<void(std::string_view)
 
     invariant(
         lifecycle.markBaseDomainsEnabled(),
-        "invalid browser page lifecycle transition after enabling base CDP domains"
+        "invalid browser page lifecycle transition after enabling base CDP domains"_t
     );
     return {};
 }
@@ -961,7 +963,8 @@ Expected<void, String> BrowserPageSession::detach()
     cdpSessionValue.reset();
     sessionIdValue.reset();
     invariant(
-        lifecycle.markDetached(), "invalid browser page lifecycle transition after detaching target"
+        lifecycle.markDetached(),
+        "invalid browser page lifecycle transition after detaching target"_t
     );
     return {};
 }
@@ -978,7 +981,7 @@ Expected<void, String> BrowserPageSession::disposeBrowserContext()
     targetIdValue.reset();
     invariant(
         lifecycle.markDisposed(),
-        "invalid browser page lifecycle transition after disposing browser context"
+        "invalid browser page lifecycle transition after disposing browser context"_t
     );
     return {};
 }
@@ -989,39 +992,39 @@ Expected<void, String> BrowserPageSession::close()
     TRY(disposeBrowserContext());
     invariant(
         lifecycle.markClosed(),
-        "invalid browser page lifecycle transition after closing page session"
+        "invalid browser page lifecycle transition after closing page session"_t
     );
     return {};
 }
 
 const String &BrowserPageSession::browserContextId() const
 {
-    invariant(browserContextIdValue, "browser context is not created");
+    invariant(browserContextIdValue, "browser context is not created"_t);
     return *browserContextIdValue;
 }
 
 CdpSession &BrowserPageSession::cdpSession() const
 {
-    invariant(cdpSessionValue, "target session is not attached");
+    invariant(cdpSessionValue, "target session is not attached"_t);
     return *cdpSessionValue;
 }
 
 const String &BrowserPageSession::targetId() const
 {
-    invariant(targetIdValue, "target is not created");
+    invariant(targetIdValue, "target is not created"_t);
     return *targetIdValue;
 }
 
 const String &BrowserPageSession::sessionId() const
 {
-    invariant(sessionIdValue, "target is not attached");
+    invariant(sessionIdValue, "target is not attached"_t);
     return *sessionIdValue;
 }
 
 std::string buildBrowserRunsRoot(std::string stateDir)
 {
     auto root = normalizeDirPath(std::move(stateDir));
-    invariant(!root.empty(), "state_dir must not be empty");
+    invariant(!root.empty(), "state_dir must not be empty"_t);
     if (root == "/")
         return "/browser_runs";
     return std::format("{}/browser_runs", root);

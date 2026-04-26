@@ -5,10 +5,12 @@
 #include <utility>
 #include <vector>
 
+#include "invariant.hpp"
 #include "userver_namespaces.hpp"
 
 namespace v1 {
 
+using namespace text::literals;
 using text::toBytes;
 
 namespace {
@@ -56,13 +58,13 @@ String Url::href() const { return String::fromBytes(adaUrl.get_href()).expect();
 
 String Url::origin() const
 {
-    invariant(isHttpOrHttps(), "origin requires http or https url");
+    invariant(isHttpOrHttps(), "origin requires http or https url"_t);
     return text::format("{}://{}", isHttps() ? "https" : "http", host());
 }
 
 String Url::surt() const
 {
-    invariant(isHttpOrHttps(), "surt requires http or https url");
+    invariant(isHttpOrHttps(), "surt requires http or https url"_t);
 
     std::string hostText{hostname().view()};
     std::string portText{port().view()};
@@ -135,28 +137,28 @@ Url Url::stripped(StripOptions options) const
 Url Url::withProtocol(const String &protocol) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_protocol(toBytes(protocol)), "invalid protocol");
+    invariant(parsed.set_protocol(toBytes(protocol)), "invalid protocol"_t);
     return Url::fromParsed(std::move(parsed));
 }
 
 Url Url::withHostname(const String &hostname) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_hostname(toBytes(hostname)), "invalid hostname");
+    invariant(parsed.set_hostname(toBytes(hostname)), "invalid hostname"_t);
     return Url::fromParsed(std::move(parsed));
 }
 
 Url Url::withPort(const String &portValue) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_port(toBytes(portValue)), "invalid port");
+    invariant(parsed.set_port(toBytes(portValue)), "invalid port"_t);
     return Url::fromParsed(std::move(parsed));
 }
 
 Url Url::withPathname(const String &pathnameValue) const
 {
     auto parsed = copyParsed();
-    invariant(parsed.set_pathname(pathnameValue.view()), "invalid pathname");
+    invariant(parsed.set_pathname(pathnameValue.view()), "invalid pathname"_t);
     return Url::fromParsed(std::move(parsed));
 }
 

@@ -6,6 +6,7 @@
 #include "prefix_pagination.hpp"
 
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "schema/public/webshot.hpp"
 #include "text.hpp"
 #include "try.hpp"
@@ -14,6 +15,7 @@
 
 namespace v1::crud {
 
+using namespace text::literals;
 using text::toBytes;
 
 [[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token)
@@ -46,7 +48,7 @@ using text::toBytes;
 
 [[nodiscard]] std::string upperExclusiveBound(String s)
 {
-    invariant(!s.empty(), "cannot be empty");
+    invariant(!s.empty(), "cannot be empty"_t);
     auto view = s.view();
     std::string bytes(view);
     for (i64 i = ssize(bytes) - 1_i64; i >= 0_i64; i--) {

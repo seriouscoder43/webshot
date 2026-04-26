@@ -5,6 +5,7 @@
  * @brief Helpers for externally visible direct S3 object URLs.
  */
 
+#include "invariant.hpp"
 #include "text.hpp"
 #include "try.hpp"
 #include "userver_namespaces.hpp"
@@ -92,8 +93,7 @@ String storageUrlErrorMessage(StorageUrlError error)
     case kInvalidRequestHost:
         return "invalid request Host header"_t;
     default:
-        invariant(false, "");
-        return {};
+        invariant(""_t);
     }
 }
 

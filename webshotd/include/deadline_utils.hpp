@@ -1,6 +1,7 @@
 #pragma once
 
 #include "expected.hpp"
+#include "invariant.hpp"
 #include "try.hpp"
 #include "userver_namespaces.hpp"
 
@@ -14,6 +15,7 @@
 #include <userver/server/request/task_inherited_data.hpp>
 
 namespace v1 {
+using text::literals::operator""_t;
 
 enum class DeadlineError {
     kTimeout,
@@ -94,7 +96,7 @@ sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 {
     using namespace std::chrono_literals;
 
-    invariant(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline");
+    invariant(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline"_t);
 
     const auto remaining = TRY(timeLeftMs(deadline));
     ENSURE(remaining > 0ms, DeadlineError::kTimeout);

@@ -13,6 +13,7 @@
 #include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
+#include "invariant.hpp"
 #include "json.hpp"
 #include "link.hpp"
 #include "prefix_utils.hpp"
@@ -735,7 +736,7 @@ private:
     )
     {
         const auto response = selectMainResponse(state, finalUrl);
-        invariant(response, "missing main response while building exchange");
+        invariant(response, "missing main response while building exchange"_t);
         exchange.statusCode = response->statusCode;
         exchange.statusMessage = response->statusMessage;
         exchange.headers = response->headers;
@@ -759,7 +760,7 @@ private:
     {
         invariant(
             request.statusCode && request.statusMessage && request.headers && request.timestamp,
-            "tracked request missing response"
+            "tracked request missing response"_t
         );
         return {
             request.requestUrl, *request.statusCode, *request.statusMessage,
@@ -851,7 +852,7 @@ private:
         if (isMainFrameDocumentRequest(state, requestWillBeSent)) {
             invariant(
                 state.seedNavigationStarted,
-                "main document request observed before seed navigation started"
+                "main document request observed before seed navigation started"_t
             );
             if (state.mainLoaderId &&
                 !matchesTrackedMainLoader(state, requestWillBeSent.loaderId)) {
@@ -918,8 +919,7 @@ private:
         if (requestIt == std::end(state.activeRequests)) {
             if (state.mainRequestId && *state.mainRequestId == requestIdText) {
                 invariant(
-                    false,
-                    std::format(
+                    text::format(
                         "main document response received for unknown request id {}", requestIdText
                     )
                 );
@@ -962,9 +962,9 @@ private:
             }
         } else if (state.mainRequestId && *state.mainRequestId == requestIdText) {
             invariant(
-                false, std::format(
-                           "main document loading finished for unknown request id {}", requestIdText
-                       )
+                text::format(
+                    "main document loading finished for unknown request id {}", requestIdText
+                )
             );
         }
     }
@@ -979,8 +979,7 @@ private:
         if (requestIt == std::end(state.activeRequests)) {
             if (state.mainRequestId && *state.mainRequestId == requestIdText) {
                 invariant(
-                    false,
-                    std::format(
+                    text::format(
                         "main document loading failed for unknown request id {}", requestIdText
                     )
                 );
@@ -1006,13 +1005,13 @@ private:
     )
     {
         invariant(
-            redirectResponse && redirectResponse->status, "redirect response must include status"
+            redirectResponse && redirectResponse->status, "redirect response must include status"_t
         );
 
         const auto requestIt = state.activeRequests.find(requestId);
         invariant(
             requestIt != std::end(state.activeRequests),
-            std::format("redirect response for unknown request id {}", requestId)
+            text::format("redirect response for unknown request id {}", requestId)
         );
 
         auto request = std::move(requestIt->second);
@@ -1039,7 +1038,7 @@ private:
     {
         invariant(
             hasResponse(request),
-            std::format("main redirect request missing response fields for {}", request.requestUrl)
+            text::format("main redirect request missing response fields for {}", request.requestUrl)
         );
 
         crawler::CapturedMainDocumentRedirect redirect{
@@ -1064,7 +1063,7 @@ private:
     {
         invariant(
             hasResponse(request),
-            std::format(
+            text::format(
                 "resource redirect request missing response fields for {}", request.requestUrl
             )
         );
@@ -1123,7 +1122,7 @@ struct [[nodiscard]] DomState {
 
 Expected<void, String> runSiteBehavior(crawler::CdpSession &cdpSession, eng::Deadline deadline)
 {
-    invariant(deadline.IsReachable(), "site behavior deadline must be reachable");
+    invariant(deadline.IsReachable(), "site behavior deadline must be reachable"_t);
     const auto budget = TRY_ERR_AS(timeLeftMs(deadline), "timed out running site behavior"_t);
 
     dto::RuntimeEvaluateParams params;
@@ -1554,19 +1553,19 @@ private:
 
     [[nodiscard]] crawler::CdpClient &cdpClient() const
     {
-        invariant(cdp, "cdp client is not connected");
+        invariant(cdp, "cdp client is not connected"_t);
         return *cdp;
     }
 
     [[nodiscard]] PageTracker &pageTracker() const
     {
-        invariant(tracker, "page tracker is not attached");
+        invariant(tracker, "page tracker is not attached"_t);
         return *tracker;
     }
 
     [[nodiscard]] crawler::CdpSession &cdpSession() const
     {
-        invariant(pageSession, "cdp session is not attached");
+        invariant(pageSession, "cdp session is not attached"_t);
         return pageSession->cdpSession();
     }
 
@@ -1812,7 +1811,7 @@ private:
                 run, exchange, 0_i64, crawler::ReusedBrowser::kNo
             );
             if (!log)
-                invariant(false, log.error().detail);
+                invariant(String::fromBytes(log.error().detail).expect());
             out.stdoutLog = grabValueOf(log);
         }
         out.stderrLog.clear();
