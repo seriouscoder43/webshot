@@ -36,13 +36,23 @@
     gnused
   ];
 
-  crawlerRuntime = with nix; [
-    ungoogled-chromium
-    bubblewrap
-    socat
-  ];
+  browserSandboxRuntime =
+    shellRuntime
+    ++ (with nix; [
+      ungoogled-chromium
+      socat
+    ]);
 
-  runtimeTools = shellRuntime ++ crawlerRuntime;
+  crawlerRuntime =
+    browserSandboxRuntime
+    ++ (with nix; [
+      bubblewrap
+    ]);
+
+  runtimeTools = crawlerRuntime;
+  browserSandboxClosure = nix.closureInfo {rootPaths = browserSandboxRuntime;};
+  browserSandboxFontconfigFile = "${nix.fontconfig.out}/etc/fonts/fonts.conf";
+  browserSandboxPath = nix.lib.makeBinPath browserSandboxRuntime;
 
   runtime = with nix;
     [

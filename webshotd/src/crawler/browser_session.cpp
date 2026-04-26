@@ -10,6 +10,8 @@
 #include "uuid_format.hpp"
 
 #include <generated/browser_sandbox.sh.hpp>
+#include <generated/browser_sandbox_closure_paths.hpp>
+#include <generated/browser_sandbox_path.hpp>
 
 #include <array>
 #include <chrono>
@@ -32,6 +34,7 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
+#include <userver/utils/text_light.hpp>
 
 #include <absl/strings/ascii.h>
 
@@ -39,6 +42,7 @@ namespace chrono = std::chrono;
 using namespace std::chrono_literals;
 
 using namespace text::literals;
+using integers::toBytes;
 using v1::uuidu::toBytes;
 
 namespace v1::crawler {
@@ -48,6 +52,9 @@ constexpr auto kMaxLogBytes = 64_i64 * 1024_i64;
 constexpr std::string_view kManagedCgroupPrefix{"webshotd-"};
 constexpr std::string_view kManagedCgroupScopeSuffix{".scope"};
 constexpr std::string_view kManagedCgroupServiceSubgroup{"/service"};
+constexpr std::string_view kBrowserSandboxRoot{"/browser"};
+constexpr std::string_view kBwrapStatusWrapperPath{WEBSHOT_BWRAP_STATUS_WRAPPER_PATH};
+constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE};
 
 [[nodiscard]] const std::string &browserSandboxScript()
 {
@@ -55,11 +62,32 @@ constexpr std::string_view kManagedCgroupServiceSubgroup{"/service"};
     return script;
 }
 
+[[nodiscard]] const std::string &browserSandboxClosurePaths()
+{
+    static const std::string paths = us::utils::FindResource(
+        "webshot_browser_sandbox_closure_paths"
+    );
+    return paths;
+}
+
+[[nodiscard]] const std::string &browserSandboxPathEnv()
+{
+    static const std::string path = us::utils::FindResource("webshot_browser_sandbox_path");
+    return path;
+}
+
 [[nodiscard]] std::string normalizeDirPath(std::string value)
 {
     while (value.size() > 1 && value.back() == '/')
         value.pop_back();
     return value;
+}
+
+[[nodiscard]] std::string browserSandboxPath(std::string_view relativePath)
+{
+    invariant(!relativePath.empty(), "browser sandbox path must not be empty");
+    invariant(relativePath.front() != '/', "browser sandbox path must be relative");
+    return std::format("{}/{}", kBrowserSandboxRoot, relativePath);
 }
 
 [[noreturn]] void abortCgroupConfig(std::string_view message) noexcept
@@ -212,6 +240,11 @@ struct [[nodiscard]] BrowserPaths final {
     std::string bwrapStatusFilePath;
     std::string phaseFilePath;
     std::string devNullPath;
+    std::string etcDir;
+    std::string passwdPath;
+    std::string groupPath;
+    std::string nsswitchConfPath;
+    std::string hostsPath;
     std::string localFixtureTrustDbDir;
 };
 
@@ -241,6 +274,11 @@ struct [[nodiscard]] BrowserPaths final {
         .bwrapStatusFilePath = rootDir + "/bwrap-status.jsonl",
         .phaseFilePath = rootDir + "/phase.txt",
         .devNullPath = rootDir + "/devnull",
+        .etcDir = rootDir + "/etc",
+        .passwdPath = rootDir + "/etc/passwd",
+        .groupPath = rootDir + "/etc/group",
+        .nsswitchConfPath = rootDir + "/etc/nsswitch.conf",
+        .hostsPath = rootDir + "/etc/hosts",
         .localFixtureTrustDbDir = rootDir + "/.pki/nssdb",
     };
     us::fs::blocking::CreateDirectories(paths.rootDir);
@@ -251,6 +289,7 @@ struct [[nodiscard]] BrowserPaths final {
              paths.xdgConfigHome,
              paths.xdgCacheHome,
              paths.crashpadDir,
+             paths.etcDir,
          }) {
         us::fs::blocking::CreateDirectories(path);
     }
@@ -258,6 +297,15 @@ struct [[nodiscard]] BrowserPaths final {
          std::array{paths.phaseFilePath, paths.cdpTracePath, paths.devNullPath}) {
         us::fs::blocking::RewriteFileContents(path, {});
     }
+    us::fs::blocking::RewriteFileContents(
+        paths.passwdPath, "root:x:0:0:root:/browser:/bin/sh\n"
+                          "webshot:x:1000:1000:webshot:/browser:/bin/sh\n"
+    );
+    us::fs::blocking::RewriteFileContents(paths.groupPath, "root:x:0:\nwebshot:x:1000:\n");
+    us::fs::blocking::RewriteFileContents(
+        paths.nsswitchConfPath, "passwd: files\ngroup: files\nhosts: files dns\n"
+    );
+    us::fs::blocking::RewriteFileContents(paths.hostsPath, "127.0.0.1 localhost\n::1 localhost\n");
     return paths;
 }
 
@@ -411,7 +459,7 @@ void removeBrowserRunDir(const std::string &path) noexcept
     const auto cgroupName = std::format("{}_{}", cgroupNamePrefix, paths.runId);
 
     auto chromiumArgs = buildChromiumArgs(
-        paths.userDataDir, paths.netlogPath, useLocalFixtureTrustDb
+        browserSandboxPath("profile"), browserSandboxPath("netlog.json"), useLocalFixtureTrustDb
     );
     std::vector<std::string> bwrapArgs{
         "bwrap",
@@ -422,65 +470,91 @@ void removeBrowserRunDir(const std::string &path) noexcept
         "--unshare-net",
         "--unshare-pid",
         "--unshare-ipc",
+        "--clearenv",
         "--proc",
         "/proc",
         "--dev",
         "/dev",
-        "--ro-bind",
-        "/",
-        "/",
-        "--bind",
-        "/sys/fs/cgroup",
-        "/sys/fs/cgroup",
-        "--tmpfs",
-        "/tmp",
-        "--chmod",
-        "1777",
-        "/tmp",
-        "--bind",
-        paths.rootDir,
-        paths.rootDir,
-        "--bind",
-        paths.devNullPath,
-        "/dev/null",
-        "--setenv",
-        "HOME",
-        paths.rootDir,
-        "--setenv",
-        "TMPDIR",
-        "/tmp",
-        "--setenv",
-        "XDG_CONFIG_HOME",
-        paths.xdgConfigHome,
-        "--setenv",
-        "XDG_CACHE_HOME",
-        paths.xdgCacheHome,
-        "--setenv",
-        "BREAKPAD_DUMP_LOCATION",
-        paths.crashpadDir,
-        "--chdir",
-        paths.rootDir,
-        "bash",
-        "browser_sandbox.sh",
-        paths.proxySocketPath,
-        paths.cdpSocketPath,
-        paths.websocketPathFilePath,
-        std::format("{}", kProxyListenPort),
-        std::format("{}", kDevtoolsPort),
-        std::string(cgroupRootPath),
-        cgroupName,
-        std::format("{}", cpuCores),
-        std::format("{}", memoryBytes),
-        "--",
-        "chromium",
+        "--dir",
+        "/nix",
+        "--dir",
+        "/nix/store",
     };
+    for (const auto &closurePath : us::utils::text::Split(browserSandboxClosurePaths(), "\n")) {
+        if (closurePath.empty())
+            continue;
+        bwrapArgs.insert(std::end(bwrapArgs), {"--ro-bind", closurePath, closurePath});
+    }
+    bwrapArgs.insert(
+        std::end(bwrapArgs), {
+                                 "--dir",
+                                 "/etc",
+                                 "--ro-bind",
+                                 paths.passwdPath,
+                                 "/etc/passwd",
+                                 "--ro-bind",
+                                 paths.groupPath,
+                                 "/etc/group",
+                                 "--ro-bind",
+                                 paths.nsswitchConfPath,
+                                 "/etc/nsswitch.conf",
+                                 "--ro-bind",
+                                 paths.hostsPath,
+                                 "/etc/hosts",
+                                 "--tmpfs",
+                                 "/tmp",
+                                 "--chmod",
+                                 "1777",
+                                 "/tmp",
+                                 "--bind",
+                                 paths.rootDir,
+                                 std::string(kBrowserSandboxRoot),
+                                 "--bind",
+                                 paths.devNullPath,
+                                 "/dev/null",
+                                 "--setenv",
+                                 "FONTCONFIG_FILE",
+                                 std::string(kBrowserSandboxFontconfigFile),
+                                 "--setenv",
+                                 "PATH",
+                                 browserSandboxPathEnv(),
+                                 "--setenv",
+                                 "HOME",
+                                 std::string(kBrowserSandboxRoot),
+                                 "--setenv",
+                                 "TMPDIR",
+                                 "/tmp",
+                                 "--setenv",
+                                 "XDG_CONFIG_HOME",
+                                 browserSandboxPath("xdg-config"),
+                                 "--setenv",
+                                 "XDG_CACHE_HOME",
+                                 browserSandboxPath("xdg-cache"),
+                                 "--setenv",
+                                 "BREAKPAD_DUMP_LOCATION",
+                                 browserSandboxPath("crashpad"),
+                                 "--chdir",
+                                 std::string(kBrowserSandboxRoot),
+                                 "bash",
+                                 "browser_sandbox.sh",
+                                 browserSandboxPath("proxy.sock"),
+                                 browserSandboxPath("cdp.sock"),
+                                 browserSandboxPath("websocket_path.txt"),
+                                 toBytes(kProxyListenPort),
+                                 toBytes(kDevtoolsPort),
+                                 "--",
+                                 "chromium",
+                             }
+    );
     bwrapArgs.insert(std::end(bwrapArgs), std::begin(chromiumArgs), std::end(chromiumArgs));
 
     std::vector<std::string> args{
-        "-c",
-        std::string(kBwrapStatusWrapperScript),
-        "bash",
+        std::string(kBwrapStatusWrapperPath),
         paths.bwrapStatusFilePath,
+        std::string(cgroupRootPath),
+        cgroupName,
+        toBytes(cpuCores),
+        toBytes(memoryBytes),
     };
     args.insert(std::end(args), std::begin(bwrapArgs), std::end(bwrapArgs));
     return spawnProcess(processStarter, "bash", args, paths.stdoutLogPath, paths.stderrLogPath);

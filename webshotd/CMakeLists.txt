@@ -32,6 +32,18 @@ set(WEBSHOT_RAPIDOC_ASSETS_DIR
 set(WEBSHOT_WEB_UI_VENDOR_DIR
     ""
     CACHE STRING "Absolute path to pinned web UI vendor assets")
+set(WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE
+    ""
+    CACHE
+      STRING
+      "Absolute path to newline-delimited browser sandbox runtime closure paths"
+)
+set(WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE
+    ""
+    CACHE STRING "Absolute path to the browser sandbox fontconfig file")
+set(WEBSHOT_BROWSER_SANDBOX_PATH
+    ""
+    CACHE STRING "PATH visible inside the browser bubblewrap sandbox")
 
 set(CMAKE_LINKER_TYPE MOLD)
 
@@ -179,15 +191,33 @@ set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME webshotd)
 set(WEBSHOT_RUNTIME_WRAPPER_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/webshotd_wrapper.sh")
 set(WEBSHOT_RUNTIME_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/webshotd_wrapper.sh")
+set(WEBSHOT_BWRAP_STATUS_WRAPPER_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/bwrap_status_wrapper.sh")
+set(WEBSHOT_BWRAP_STATUS_WRAPPER
+    "${CMAKE_CURRENT_BINARY_DIR}/bwrap_status_wrapper.sh")
 set_property(
   DIRECTORY
   APPEND
-  PROPERTY CMAKE_CONFIGURE_DEPENDS "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}")
+  PROPERTY CMAKE_CONFIGURE_DEPENDS "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}"
+           "${WEBSHOT_BWRAP_STATUS_WRAPPER_SOURCE}")
 file(COPY_FILE "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}" "${WEBSHOT_RUNTIME_WRAPPER}"
      ONLY_IF_DIFFERENT)
+file(COPY_FILE "${WEBSHOT_BWRAP_STATUS_WRAPPER_SOURCE}"
+     "${WEBSHOT_BWRAP_STATUS_WRAPPER}" ONLY_IF_DIFFERENT)
 file(
   CHMOD
   "${WEBSHOT_RUNTIME_WRAPPER}"
+  PERMISSIONS
+  OWNER_READ
+  OWNER_WRITE
+  OWNER_EXECUTE
+  GROUP_READ
+  GROUP_EXECUTE
+  WORLD_READ
+  WORLD_EXECUTE)
+file(
+  CHMOD
+  "${WEBSHOT_BWRAP_STATUS_WRAPPER}"
   PERMISSIONS
   OWNER_READ
   OWNER_WRITE
@@ -218,6 +248,9 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
           "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd_wrapper"
   COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_BWRAP_STATUS_WRAPPER}"
+    "${CMAKE_INSTALL_PREFIX}/webshotd/bwrap_status_wrapper"
+  COMMAND
     ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/CMakeCache.txt"
     "${CMAKE_INSTALL_PREFIX}/webshotd/CMakeCache.txt"
   DEPENDS ${PROJECT_NAME} "${CMAKE_BINARY_DIR}/CMakeCache.txt"
@@ -230,6 +263,17 @@ if(WEBSHOT_RAPIDOC_ASSETS_DIR STREQUAL "")
 endif()
 if(WEBSHOT_WEB_UI_VENDOR_DIR STREQUAL "")
   message(FATAL_ERROR "WEBSHOT_WEB_UI_VENDOR_DIR must be configured")
+endif()
+if(WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE STREQUAL "")
+  message(
+    FATAL_ERROR "WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE must be configured")
+endif()
+if(WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE STREQUAL "")
+  message(
+    FATAL_ERROR "WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE must be configured")
+endif()
+if(WEBSHOT_BROWSER_SANDBOX_PATH STREQUAL "")
+  message(FATAL_ERROR "WEBSHOT_BROWSER_SANDBOX_PATH must be configured")
 endif()
 
 target_precompile_headers(${PROJECT_NAME}_objs PRIVATE include/webshotd_pch.hpp)
@@ -252,15 +296,51 @@ userver_embed_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/browser_sandbox.sh"
   HPP_FILENAME
   "browser_sandbox.sh")
+userver_embed_file(
+  webshotd_browser_sandbox_closure_paths
+  NAME
+  "webshot_browser_sandbox_closure_paths"
+  FILEPATH
+  "${WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE}"
+  HPP_FILENAME
+  "browser_sandbox_closure_paths")
+set(_webshot_browser_sandbox_path_file
+    "${CMAKE_CURRENT_BINARY_DIR}/browser_sandbox_path.txt")
+file(WRITE "${_webshot_browser_sandbox_path_file}"
+     "${WEBSHOT_BROWSER_SANDBOX_PATH}")
+userver_embed_file(
+  webshotd_browser_sandbox_path
+  NAME
+  "webshot_browser_sandbox_path"
+  FILEPATH
+  "${_webshot_browser_sandbox_path_file}"
+  HPP_FILENAME
+  "browser_sandbox_path")
 set(_webshot_browser_sandbox_embed_hpp
     "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox.sh.hpp"
+)
+set(_webshot_browser_sandbox_closure_paths_embed_hpp
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox_closure_paths.hpp"
+)
+set(_webshot_browser_sandbox_path_embed_hpp
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded/include/generated/browser_sandbox_path.hpp"
 )
 set_source_files_properties(
   src/crawler/runner.cpp src/crawler/browser_session.cpp
   src/browser_probe_handler.cpp
-  PROPERTIES OBJECT_DEPENDS "${_webshot_browser_sandbox_embed_hpp}")
+  PROPERTIES
+    OBJECT_DEPENDS
+    "${_webshot_browser_sandbox_embed_hpp};${_webshot_browser_sandbox_closure_paths_embed_hpp};${_webshot_browser_sandbox_path_embed_hpp}"
+)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE webshotd_browser_sandbox_sh)
 target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_sh)
+target_link_libraries(${PROJECT_NAME}_objs
+                      PRIVATE webshotd_browser_sandbox_closure_paths)
+target_link_libraries(${PROJECT_NAME}
+                      PRIVATE webshotd_browser_sandbox_closure_paths)
+target_link_libraries(${PROJECT_NAME}_objs
+                      PRIVATE webshotd_browser_sandbox_path)
+target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_path)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE sml::sml)
 target_compile_definitions(${PROJECT_NAME}_objs
                            PRIVATE BOOST_SML_CFG_DISABLE_MIN_SIZE)
@@ -272,6 +352,14 @@ find_package(absl CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE absl::strings)
 target_link_libraries(${PROJECT_NAME}_objs
                       PUBLIC userver::core userver::postgresql userver::s3api)
+set_property(
+  SOURCE src/crawler/browser_session.cpp
+  APPEND
+  PROPERTY
+    COMPILE_DEFINITIONS
+    WEBSHOT_BWRAP_STATUS_WRAPPER_PATH="${CMAKE_INSTALL_PREFIX}/webshotd/bwrap_status_wrapper"
+    WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE="${WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE}"
+)
 
 if(CMAKE_CXX_INCLUDE_WHAT_YOU_USE)
   set(_webshot_iwyu_cmd ${CMAKE_CXX_INCLUDE_WHAT_YOU_USE})
@@ -373,6 +461,10 @@ target_include_directories(
           ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "webshotd")
+install(
+  PROGRAMS "${WEBSHOT_BWRAP_STATUS_WRAPPER_SOURCE}"
+  DESTINATION "webshotd"
+  RENAME "bwrap_status_wrapper")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/config/"
         DESTINATION "webshotd/config")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/sql/schema/"

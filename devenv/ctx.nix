@@ -148,6 +148,9 @@
     "-DUSERVER_DEBUG_INFO_COMPRESSION=z"
     "-DWEBSHOT_RAPIDOC_ASSETS_DIR=${drv.rapidoc}"
     "-DWEBSHOT_WEB_UI_VENDOR_DIR=${drv.webUi}"
+    "-DWEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE=${sets.browserSandboxClosure}/store-paths"
+    "-DWEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE=${sets.browserSandboxFontconfigFile}"
+    "-DWEBSHOT_BROWSER_SANDBOX_PATH=${sets.browserSandboxPath}"
   ];
 
   mkUserverNoVenvFlags = pythonPath: [

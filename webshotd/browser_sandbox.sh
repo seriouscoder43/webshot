@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 11 ]]; then
-  echo "usage: $0 <proxy-upstream-socket> <cdp-socket> <websocket-path-file> <proxy-listen-port> <devtools-port> <cgroup-root> <cgroup-name> <cpu-cores> <memory-bytes> -- <browser-bin> <browser-args...>" >&2
+if [[ $# -lt 7 ]]; then
+  echo "usage: $0 <proxy-upstream-socket> <cdp-socket> <websocket-path-file> <proxy-listen-port> <devtools-port> -- <browser-bin> <browser-args...>" >&2
   exit 2
 fi
 
@@ -11,11 +11,7 @@ cdp_socket=$2
 websocket_path_file=$3
 proxy_listen_port=$4
 devtools_port=$5
-cgroup_root=$6
-cgroup_name=$7
-cpu_cores=$8
-memory_bytes=$9
-shift 9
+shift 5
 
 if [[ ${1-} != "--" ]]; then
   echo "missing -- separator before browser command" >&2
@@ -32,7 +28,6 @@ proxy_pid=''
 cdp_pid=''
 browser_pid=''
 chromium_stderr_path='chromium-stderr.log'
-browser_cgroup_dir=''
 devtools_active_port_file=''
 
 for arg in "$@"; do
@@ -76,16 +71,6 @@ cleanup() {
     kill "$cdp_pid" 2>/dev/null || true
   fi
   wait 2>/dev/null || true
-  if [[ -n $browser_cgroup_dir ]]; then
-    printf '%s\n' "$$" >"$cgroup_root/cgroup.procs" 2>/dev/null || true
-    for _ in {1..50}; do
-      if rmdir "$browser_cgroup_dir" 2>/dev/null; then
-        break
-      fi
-      [[ -d $browser_cgroup_dir ]] || break
-      sleep 0.1
-    done
-  fi
   exit "$rc"
 }
 
@@ -94,44 +79,6 @@ trap 'cleanup' EXIT INT TERM
 rm -f "$chromium_stderr_path"
 rm -f "$cdp_socket"
 rm -f "$websocket_path_file"
-
-if [[ $cpu_cores != 0 ]]; then
-  if [[ $cgroup_root != /* ]]; then
-    echo "managed cgroup root must be absolute: $cgroup_root" >&2
-    exit 2
-  fi
-  if [[ ! -f $cgroup_root/cgroup.controllers ]]; then
-    echo "managed cgroup root is not available in the sandbox: $cgroup_root" >&2
-    exit 2
-  fi
-
-  browser_cgroup_dir=$cgroup_root/$cgroup_name
-  mkdir -p "$browser_cgroup_dir"
-  printf '%s\n' 0 >"$browser_cgroup_dir/cgroup.procs"
-
-  controllers=$(cat "$cgroup_root/cgroup.controllers")
-  for controller in cpu memory; do
-    if [[ " $controllers " != *" $controller "* ]]; then
-      echo "cgroup controller '$controller' is not available" >&2
-      exit 2
-    fi
-  done
-
-  enabled=$(cat "$cgroup_root/cgroup.subtree_control")
-  enable_args=()
-  for controller in cpu memory; do
-    if [[ " $enabled " != *" $controller "* ]]; then
-      enable_args+=("+$controller")
-    fi
-  done
-  if (( ${#enable_args[@]} > 0 )); then
-    printf '%s\n' "${enable_args[*]}" >"$cgroup_root/cgroup.subtree_control"
-  fi
-
-  quota_us=$(( cpu_cores * 100000 ))
-  printf '%s %s\n' "$quota_us" "100000" >"$browser_cgroup_dir/cpu.max"
-  printf '%s\n' "$memory_bytes" >"$browser_cgroup_dir/memory.max"
-fi
 
 socat \
   TCP-LISTEN:"${proxy_listen_port}",bind=127.0.0.1,reuseaddr,fork \
