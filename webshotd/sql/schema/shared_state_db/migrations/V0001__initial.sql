@@ -43,6 +43,8 @@ create table crawl_job (
 
 create index if not exists crawl_job_status_created_idx
 on crawl_job (status, created_at asc, id);
+create index if not exists crawl_job_link_created_idx
+on crawl_job (link, created_at desc, id desc);
 
 create table client_ip_cooldown (
     client_ip text collate "C" primary key,
