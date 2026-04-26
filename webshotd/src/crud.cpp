@@ -93,7 +93,6 @@ using chrono::system_clock;
 namespace {
 constexpr auto kCrawlerSeedAttemptsMax = 2;
 constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;
-constexpr i64 kCpuMaxPeriodUs = 100000_i64;
 
 struct [[nodiscard]] CaptureJobRow final {
     Uuid uuid;

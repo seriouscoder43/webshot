@@ -12,7 +12,8 @@
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "invariant.hpp"
-#include "ip_utils.hpp"
+#include "ip.hpp"
+#include "try.hpp"
 
 #include <sys/socket.h>
 
@@ -28,6 +29,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <userver/clients/dns/exception.hpp>
@@ -64,6 +66,8 @@ constexpr std::array kLocalFixtureHosts = {
 };
 constexpr auto kLocalHttpPort = 18080_u16;
 constexpr auto kLocalHttpsPort = 18443_u16;
+constexpr auto kTestsuiteServicePort = 8080_u16;
+constexpr auto kTestsuiteS3Port = 8333_u16;
 constexpr std::string_view kHttpScheme = "http://";
 constexpr std::string_view kSlashPath = "/";
 constexpr std::string_view kUnsupportedRequestTarget = "unsupported request target";
@@ -222,6 +226,7 @@ struct [[nodiscard]] Authority final {
 
 struct [[nodiscard]] ResolvedTcpAddress final {
     eng::io::Sockaddr sockaddr;
+    Ip ip;
     std::string label;
 };
 
@@ -271,27 +276,46 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     return Authority{.host = host, .port = *port};
 }
 
-[[nodiscard]] eng::io::Sockaddr sockaddrFromIpv4(std::string_view host, u16 port)
+[[nodiscard]] eng::io::Sockaddr sockaddrFromIp4(const Ip4 &ip, u16 port)
 {
     sockaddr_in addr4{};
     addr4.sin_family = AF_INET;
     addr4.sin_port = htons(raw(port));
-    const auto hostText = std::string(host);
-    invariant(inet_pton(AF_INET, hostText.c_str(), &addr4.sin_addr) == 1, "invalid ipv4 addr"_t);
+    const auto &bytes = ip.GetBytes();
+    std::memcpy(&addr4.sin_addr.s_addr, bytes.data(), bytes.size());
     return eng::io::Sockaddr(&addr4);
 }
 
-[[nodiscard]] eng::io::Sockaddr sockaddrFromIpv6(std::string_view host, u16 port)
+[[nodiscard]] eng::io::Sockaddr sockaddrFromIp6(const Ip6 &ip, u16 port)
 {
-    auto candidate = host;
-    if (!candidate.empty() && candidate.front() == '[' && candidate.back() == ']')
-        candidate = candidate.substr(1, candidate.size() - 2);
     sockaddr_in6 addr6{};
     addr6.sin6_family = AF_INET6;
     addr6.sin6_port = htons(raw(port));
-    const auto hostText = std::string(candidate);
-    invariant(inet_pton(AF_INET6, hostText.c_str(), &addr6.sin6_addr) == 1, "invalid ipv6 addr"_t);
+    const auto &bytes = ip.GetBytes();
+    std::memcpy(addr6.sin6_addr.s6_addr, bytes.data(), bytes.size());
     return eng::io::Sockaddr(&addr6);
+}
+
+[[nodiscard]] eng::io::Sockaddr sockaddrFromIp(const Ip &ip, u16 port)
+{
+    if (std::holds_alternative<Ip4>(ip))
+        return sockaddrFromIp4(std::get<Ip4>(ip), port);
+    return sockaddrFromIp6(std::get<Ip6>(ip), port);
+}
+
+[[nodiscard]] std::optional<Ip> ipFromSockaddr(const eng::io::Sockaddr &addr) noexcept
+{
+    if (addr.Domain() == eng::io::AddrDomain::kInet) {
+        Ip4::BytesType bytes{};
+        std::memcpy(bytes.data(), &addr.As<sockaddr_in>()->sin_addr.s_addr, bytes.size());
+        return Ip{Ip4{bytes}};
+    }
+    if (addr.Domain() == eng::io::AddrDomain::kInet6) {
+        Ip6::BytesType bytes{};
+        std::memcpy(bytes.data(), addr.As<sockaddr_in6>()->sin6_addr.s6_addr, bytes.size());
+        return Ip{Ip6{bytes}};
+    }
+    return {};
 }
 
 [[nodiscard]] std::string describeSockaddr(const eng::io::Sockaddr &addr)
@@ -303,27 +327,26 @@ parseAuthority(std::string_view authority, u16 defaultPort, PortMode portMode) n
     return std::format("{}:{}", addr.PrimaryAddressString(), addr.Port());
 }
 
-[[nodiscard]] Expected<std::vector<ResolvedTcpAddress>, String>
-resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadline deadline)
+[[nodiscard]] Expected<std::vector<ResolvedTcpAddress>, String> resolveTcp(
+    dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadline deadline,
+    bool allowNonPublicIp
+)
 {
     const auto hostText = std::string(host);
-    if (isIpv4Address(hostText)) {
-        auto addr = sockaddrFromIpv4(hostText, port);
-        return std::vector<ResolvedTcpAddress>{
-            ResolvedTcpAddress{
-                .sockaddr = addr,
-                .label = describeSockaddr(addr),
-            },
-        };
-    }
-    if (isIpv6Address(hostText)) {
-        auto addr = sockaddrFromIpv6(hostText, port);
-        return std::vector<ResolvedTcpAddress>{
-            ResolvedTcpAddress{
-                .sockaddr = addr,
-                .label = describeSockaddr(addr),
-            },
-        };
+    if (auto hostString = String::fromBytes(hostText)) {
+        if (auto ip = parseIp(*hostString)) {
+            if (!allowNonPublicIp && !isPublicRoutable(*ip))
+                return Unex(text::format("ip address not public-routable for {}", hostText));
+
+            auto addr = sockaddrFromIp(*ip, port);
+            return std::vector<ResolvedTcpAddress>{
+                ResolvedTcpAddress{
+                    .sockaddr = addr,
+                    .ip = *ip,
+                    .label = describeSockaddr(addr),
+                },
+            };
+        }
     }
 
     try {
@@ -335,13 +358,22 @@ resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadli
         resolved.reserve(addrs.size());
         for (auto &addr : addrs) {
             addr.SetPort(raw(port));
+            auto ip = ipFromSockaddr(addr);
+            invariant(ip, "dns resolver returned non-IP address"_t);
+            if (!allowNonPublicIp && !isPublicRoutable(*ip))
+                continue;
             resolved.push_back(
                 ResolvedTcpAddress{
                     .sockaddr = addr,
+                    .ip = *ip,
                     .label = describeSockaddr(addr),
                 }
             );
         }
+        if (resolved.empty())
+            return Unex(
+                text::format("dns resolve returned no public-routable addresses for {}", hostText)
+            );
         return resolved;
     } catch (const dns::ResolverException &) {
         return Unex(text::format("dns resolve failed for {}", hostText));
@@ -351,6 +383,7 @@ resolveTcp(dns::Resolver &resolver, std::string_view host, u16 port, eng::Deadli
 struct [[nodiscard]] UpstreamTarget final {
     std::string connectHost;
     u16 connectPort{0};
+    bool allowNonPublicIp{false};
 };
 
 [[nodiscard]] UpstreamTarget
@@ -359,16 +392,39 @@ rewriteLocalFixtureIfNeeded(const EgressProxyConfig &cfg, std::string_view host,
     if (!cfg.enableLocalFixtureRewrite)
         return UpstreamTarget{.connectHost = std::string(host), .connectPort = port};
 
+    const auto isTestsuiteLoopbackHost = host == "127.0.0.1" || host == "localhost" ||
+                                         host == "::1";
+    const auto isTestsuiteLoopbackPort = port == kTestsuiteServicePort || port == kTestsuiteS3Port;
+    if (isTestsuiteLoopbackHost && isTestsuiteLoopbackPort) {
+        return UpstreamTarget{
+            .connectHost = std::string(host),
+            .connectPort = port,
+            .allowNonPublicIp = true,
+        };
+    }
+
     const auto isLocalHost = std::ranges::contains(kLocalFixtureHosts, host);
     if (!isLocalHost)
         return UpstreamTarget{.connectHost = std::string(host), .connectPort = port};
 
     if (port == 80_u16)
-        return UpstreamTarget{.connectHost = "127.0.0.1", .connectPort = kLocalHttpPort};
+        return UpstreamTarget{
+            .connectHost = "127.0.0.1",
+            .connectPort = kLocalHttpPort,
+            .allowNonPublicIp = true,
+        };
     if (port == 443_u16)
-        return UpstreamTarget{.connectHost = "127.0.0.1", .connectPort = kLocalHttpsPort};
+        return UpstreamTarget{
+            .connectHost = "127.0.0.1",
+            .connectPort = kLocalHttpsPort,
+            .allowNonPublicIp = true,
+        };
     if (port == kLocalHttpPort || port == kLocalHttpsPort)
-        return UpstreamTarget{.connectHost = "127.0.0.1", .connectPort = port};
+        return UpstreamTarget{
+            .connectHost = "127.0.0.1",
+            .connectPort = port,
+            .allowNonPublicIp = true,
+        };
     return UpstreamTarget{.connectHost = std::string(host), .connectPort = port};
 }
 
@@ -623,13 +679,14 @@ struct EgressProxy::Impl final {
     )
     {
         const auto upstream = rewriteLocalFixtureIfNeeded(config, host, port);
-        auto addrs = resolveTcp(resolver, upstream.connectHost, upstream.connectPort, deadline);
-        if (!addrs)
-            return Unex(std::move(addrs).error());
+        auto addrs = TRY(resolveTcp(
+            resolver, upstream.connectHost, upstream.connectPort, deadline,
+            upstream.allowNonPublicIp
+        ));
 
         std::vector<std::string> errors{};
-        errors.reserve(addrs->size());
-        for (const auto &addr : *addrs) {
+        errors.reserve(addrs.size());
+        for (const auto &addr : addrs) {
             eng::io::Socket socket{addr.sockaddr.Domain(), eng::io::SocketType::kStream};
             try {
                 socket.Connect(addr.sockaddr, deadline);

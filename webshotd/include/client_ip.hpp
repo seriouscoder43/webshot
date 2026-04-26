@@ -2,7 +2,7 @@
 
 #include "config.hpp"
 #include "invariant.hpp"
-#include "ip_utils.hpp"
+#include "ip.hpp"
 #include "text.hpp"
 #include "try.hpp"
 #include "userver_namespaces.hpp"
@@ -22,9 +22,10 @@ using text::literals::operator""_t;
 {
     std::string text{raw};
     absl::StripAsciiWhitespace(&text);
-    if (!isIpLiteralHostname(text))
+    auto ipText = TRY(String::fromBytes(text));
+    if (!isIpLiteralHostname(ipText))
         return {};
-    return TRY(String::fromBytes(text));
+    return ipText;
 }
 
 [[nodiscard]] inline std::optional<String>

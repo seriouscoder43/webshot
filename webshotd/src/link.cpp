@@ -6,7 +6,7 @@
  * Contains helpers to sanitize user input, enforce scheme/host rules, and
  * produce a stable scheme-less key for storage and lookups.
  */
-#include "ip_utils.hpp"
+#include "ip.hpp"
 #include "text.hpp"
 
 #include <format>
@@ -64,26 +64,28 @@ Expected<Link, LinkError> fromTextImpl(const String &text, usize urlBytesMax)
     auto url = ada::parse<ada::url_aggregator>(in);
     if (!url)
         return Unex(LinkError{.code = LinkError::Code::kFailedToParse});
-    if (url->type != ada::scheme::type::HTTP && url->type != ada::scheme::type::HTTPS)
+    auto parsedUrl = Url::fromParsed(std::move(*url));
+    if (!parsedUrl.isHttpOrHttps())
         return Unex(LinkError{.code = LinkError::Code::kUnsupportedScheme});
-    if (!url->has_hostname() || url->get_hostname().empty())
+    if (!parsedUrl.hasHostname())
         return Unex(LinkError{.code = LinkError::Code::kMissingHostname});
 
-    if (isIpLiteralHostname(url->get_hostname()))
+    if (isIpLiteralHostname(parsedUrl.hostname()))
         return Unex(LinkError{.code = LinkError::Code::kIpAddressNotAllowed});
 
-    if (!url->has_valid_domain())
+    if (!parsedUrl.hasValidDomain())
         return Unex(LinkError{.code = LinkError::Code::kInvalidHost});
 
-    url->set_username("");
-    url->set_password("");
-    url->clear_hash();
-    url->clear_port();
+    auto normalized = parsedUrl.copyParsed();
+    normalized.set_username("");
+    normalized.set_password("");
+    normalized.clear_hash();
+    normalized.clear_port();
 
-    if (auto hostname = url->get_hostname(); !hostname.empty() && hostname.back() == '.')
-        url->set_hostname(std::string(begin(hostname), end(hostname) - 1));
+    if (auto hostname = normalized.get_hostname(); !hostname.empty() && hostname.back() == '.')
+        normalized.set_hostname(std::string(begin(hostname), end(hostname) - 1));
 
-    return Link{Url::fromParsed(std::move(*url))};
+    return Link{Url::fromParsed(std::move(normalized))};
 }
 
 } // namespace

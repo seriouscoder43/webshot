@@ -83,7 +83,7 @@ set(${PROJECT_NAME}_headers
     include/client_ip.hpp
     include/error_utils.hpp
     include/http_utils.hpp
-    include/ip_utils.hpp
+    include/ip.hpp
     src/denylist.hpp
     include/link.hpp
     include/uuid_utils.hpp

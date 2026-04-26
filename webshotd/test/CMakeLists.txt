@@ -108,6 +108,8 @@ add_cpp_test(integers_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/integers.cpp)
 
 add_cpp_test(text_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
 
+add_cpp_test(ip_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ip.cpp)
+
 add_cpp_test(s3_secdist_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/s3_secdist.cpp
              LIBS userver::core)
 

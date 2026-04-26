@@ -120,6 +120,8 @@ UTEST(LinkFromText, RejectsIPv6Host) { EXPECT_FALSE(canParseLink("http://[::1]/"
 
 UTEST(LinkFromText, RejectsIPv4Host) { EXPECT_FALSE(canParseLink("http://192.0.2.1/")); }
 
+UTEST(LinkFromText, RejectsPublicIPv4Host) { EXPECT_FALSE(canParseLink("http://8.8.8.8/")); }
+
 UTEST(LinkFromText, KeepsEscapedSlashInPath)
 {
     EXPECT_EQ(normalizeKey("https://example.com/a%2Fb"), std::string{"example.com/a%2Fb"});
