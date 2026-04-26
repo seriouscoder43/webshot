@@ -8,22 +8,13 @@ pg_capture_meta_db_dsn:
 pg_shared_state_db_dsn:
 crawler_run_timeout_sec: 10
 crawler_job_overhead_timeout_sec: 6
-crawler_post_load_delay_sec: 1
-crawler_net_idle_wait_sec: 0
-crawler_page_extra_delay_sec: 1
-crawler_behavior_timeout_sec: 1
 crawler_devtools_startup_timeout_sec: 8
 crawler_cdp_handshake_timeout_sec: 5
 crawler_cdp_command_timeout_sec: 5
 crawler_size_limit_mib: 8
-crawler_network_down_bytes_ratio_max: 10
 crawler_local_fixture_rewrite: true
-crawler_devtools_poll_interval_ms: 100
 crawler_browser_stop_timeout_ms: 400
 crawler_proxy_stop_timeout_ms: 200
 link_cooldown_sec: 60
 ip_cooldown_ms: 0
 client_ip_source: peer
-client_ip_header_name: ""
-crawler_cpu_cores: 1
-crawler_memory_gib: 1
