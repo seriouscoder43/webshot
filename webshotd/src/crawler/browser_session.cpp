@@ -54,6 +54,9 @@ constexpr std::string_view kManagedCgroupPrefix{"webshotd-"};
 constexpr std::string_view kManagedCgroupScopeSuffix{".scope"};
 constexpr std::string_view kManagedCgroupServiceSubgroup{"/service"};
 constexpr std::string_view kBrowserSandboxRoot{"/browser"};
+constexpr std::string_view kBrowserSandboxHostname{"webshot-browser"};
+constexpr std::string_view kBrowserSandboxUid{"1000"};
+constexpr std::string_view kBrowserSandboxGid{"1000"};
 constexpr std::string_view kBwrapStatusWrapperPath{WEBSHOT_BWRAP_STATUS_WRAPPER_PATH};
 constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE};
 
@@ -467,10 +470,19 @@ void removeBrowserRunDir(const std::string &path) noexcept
         "--json-status-fd",
         "3",
         "--die-with-parent",
+        "--new-session",
         "--unshare-user",
         "--unshare-net",
         "--unshare-pid",
         "--unshare-ipc",
+        "--unshare-uts",
+        "--disable-userns",
+        "--uid",
+        std::string(kBrowserSandboxUid),
+        "--gid",
+        std::string(kBrowserSandboxGid),
+        "--hostname",
+        std::string(kBrowserSandboxHostname),
         "--clearenv",
         "--proc",
         "/proc",
