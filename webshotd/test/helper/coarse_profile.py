@@ -7,7 +7,6 @@ import os
 import pathlib
 import resource
 import time
-from collections.abc import Callable
 from contextlib import suppress
 from urllib.parse import urlsplit
 
@@ -15,25 +14,32 @@ import pytest
 from pytest_userver import client as userver_client
 from pytest_userver.plugins import service_client as service_client_plugin
 
-_PROFILE_SCHEMA_VERSION = 1
+_PROFILE_SCHEMA_VERSION = 2
 _PROC_CLK_TCK = os.sysconf("SC_CLK_TCK")
-_DEV_STATE_DIR = pathlib.Path("/tmp/webshot/dev")
-_S6_SCAN_DIR = _DEV_STATE_DIR / "s6-scan"
 _PROFILE_PATH_NAME = "coarse_profile.json"
 _PROFILE_TEXT_PATH_NAME = "coarse_profile.txt"
-_S6_STATUS_PID_OFFSET = 28
-_S6_STATUS_PID_SIZE = 4
-_BUCKET_WEBSHOTD = "webshotd"
-_BUCKET_CHROMIUM = "chromium"
-_S6_SERVICE_BUCKET_PREFIX = "s6_service:"
 
 
 @dataclasses.dataclass(frozen=True)
 class _ProcInfo:
     pid: int
     ppid: int
+    start_time_ticks: int
     cpu_ms: int
     args: tuple[str, ...]
+    cwd: pathlib.Path | None
+
+
+@dataclasses.dataclass(frozen=True)
+class _ProcessKey:
+    pid: int
+    start_time_ticks: int
+
+
+@dataclasses.dataclass(frozen=True)
+class _ProcessObservation:
+    label: str
+    cpu_ms: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,7 +47,7 @@ class _Snapshot:
     wall_ms: int
     python_cpu_user_ms: int
     python_cpu_sys_ms: int
-    cpu_ms_by_bucket: dict[str, int]
+    process_cpu_ms: dict[str, int]
 
 
 @dataclasses.dataclass
@@ -49,9 +55,12 @@ class _TestRecord:
     nodeid: str
     outcome: str = "unknown"
     wall_ms: int = 0
+    setup_wall_ms: int = 0
+    call_wall_ms: int = 0
+    teardown_wall_ms: int = 0
     python_cpu_user_ms: int = 0
     python_cpu_sys_ms: int = 0
-    cpu_ms_by_bucket: dict[str, int] = dataclasses.field(default_factory=dict)
+    process_cpu_ms: dict[str, int] = dataclasses.field(default_factory=dict)
     capture_job_wall_ms: int = 0
     _counted_capture_job_ids: set[str] = dataclasses.field(default_factory=set)
 
@@ -60,42 +69,17 @@ class _TestRecord:
             "nodeid": self.nodeid,
             "outcome": self.outcome,
             "wall_ms": self.wall_ms,
+            "setup_wall_ms": self.setup_wall_ms,
+            "call_wall_ms": self.call_wall_ms,
+            "teardown_wall_ms": self.teardown_wall_ms,
             "python_cpu_user_ms": self.python_cpu_user_ms,
             "python_cpu_sys_ms": self.python_cpu_sys_ms,
-            **_cpu_json_fields(self.cpu_ms_by_bucket),
+            "process_cpu_ms": dict(sorted(self.process_cpu_ms.items())),
             "capture_job_wall_ms": self.capture_job_wall_ms,
         }
 
 
-def _s6_service_bucket(name: str) -> str:
-    return f"{_S6_SERVICE_BUCKET_PREFIX}{name}"
-
-
-def _bucket_service_name(bucket: str) -> str | None:
-    if not bucket.startswith(_S6_SERVICE_BUCKET_PREFIX):
-        return None
-    return bucket[len(_S6_SERVICE_BUCKET_PREFIX) :]
-
-
-def _named_cpu_ms(cpu_ms_by_bucket: dict[str, int], bucket: str) -> int:
-    return cpu_ms_by_bucket.get(bucket, 0)
-
-
-def _cpu_json_fields(cpu_ms_by_bucket: dict[str, int]) -> dict[str, object]:
-    service_cpu_ms: dict[str, int] = {}
-    for bucket, value in sorted(cpu_ms_by_bucket.items()):
-        service_name = _bucket_service_name(bucket)
-        if service_name is None:
-            continue
-        service_cpu_ms[service_name] = value
-    return {
-        "webshotd_cpu_ms": _named_cpu_ms(cpu_ms_by_bucket, _BUCKET_WEBSHOTD),
-        "chromium_cpu_ms": _named_cpu_ms(cpu_ms_by_bucket, _BUCKET_CHROMIUM),
-        "service_cpu_ms": service_cpu_ms,
-    }
-
-
-def _parse_proc_stat(raw: str) -> tuple[int, int, int] | None:
+def _parse_proc_stat(raw: str) -> tuple[int, int, int, int] | None:
     close_paren = raw.rfind(")")
     if close_paren == -1:
         return None
@@ -103,34 +87,18 @@ def _parse_proc_stat(raw: str) -> tuple[int, int, int] | None:
     if not pid_text:
         return None
     parts = raw[close_paren + 2 :].split()
-    if len(parts) <= 12:
+    if len(parts) <= 19:
         return None
     try:
         pid = int(pid_text)
         ppid = int(parts[1])
         utime = int(parts[11])
         stime = int(parts[12])
+        start_time_ticks = int(parts[19])
     except ValueError:
         return None
     cpu_ms = ((utime + stime) * 1000) // _PROC_CLK_TCK
-    return pid, ppid, cpu_ms
-
-
-def _parse_cgroup_cpu_ms(cpu_stat_path: pathlib.Path) -> int | None:
-    try:
-        lines = cpu_stat_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    prefix = "usage_usec "
-    for line in lines:
-        if not line.startswith(prefix):
-            continue
-        value = line[len(prefix) :].strip()
-        try:
-            return int(value) // 1000
-        except ValueError:
-            return None
-    return None
+    return pid, ppid, start_time_ticks, cpu_ms
 
 
 def _parse_iso8601_ms(value: str) -> int | None:
@@ -144,106 +112,97 @@ def _parse_iso8601_ms(value: str) -> int | None:
     return int(parsed.timestamp() * 1000)
 
 
-class _CpuTracker:
-    def __init__(
-        self,
-        *,
-        name: str,
-        pid_resolver: Callable[[_CoarseProfiler, dict[int, _ProcInfo]], int | None],
-        include_descendants: bool,
-    ) -> None:
-        self.name = name
-        self._pid_resolver = pid_resolver
-        self._include_descendants = include_descendants
-        self._current_pid: int | None = None
-        self._current_pid_cpu_ms = 0
-        self._completed_cpu_ms = 0
+def _worker_id(config: pytest.Config) -> str:
+    worker_input = getattr(config, "workerinput", None)
+    if isinstance(worker_input, dict):
+        worker = worker_input.get("workerid")
+        if isinstance(worker, str) and worker:
+            return worker
+    env_worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if env_worker:
+        return env_worker
+    return "master"
 
-    @property
-    def current_pid(self) -> int | None:
-        return self._current_pid
+
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    return getattr(config, "workerinput", None) is not None
+
+
+def _pytest_dist_mode(args: list[str]) -> str | None:
+    for idx, arg in enumerate(args):
+        if arg == "--dist" and idx + 1 < len(args):
+            return args[idx + 1]
+        if arg.startswith("--dist="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _int_value(value: object) -> int:
+    return value if isinstance(value, int) else 0
+
+
+def _test_cpu_ms(test: dict[str, object], key: str) -> int:
+    return _int_value(test.get(key))
+
+
+def _test_python_cpu_ms(test: dict[str, object]) -> int:
+    return _test_cpu_ms(test, "python_cpu_user_ms") + _test_cpu_ms(test, "python_cpu_sys_ms")
+
+
+class _ProcessCpuAccumulator:
+    def __init__(self) -> None:
+        self._current_cpu_ms_by_key: dict[_ProcessKey, int] = {}
+        self._label_by_key: dict[_ProcessKey, str] = {}
+        self._completed_cpu_ms_by_label: dict[str, int] = {}
+        self._completed_cpu_ms_by_key: dict[_ProcessKey, int] = {}
+        self._completed_label_by_key: dict[_ProcessKey, str] = {}
 
     def snapshot_cpu_ms(
-        self,
-        proc_table: dict[int, _ProcInfo],
-        children_by_ppid: dict[int, list[int]],
-        profiler: _CoarseProfiler,
-    ) -> int:
-        pid = self._pid_resolver(profiler, proc_table)
-        if pid is None:
-            if self._current_pid is not None:
-                self._completed_cpu_ms += self._current_pid_cpu_ms
-                self._current_pid = None
-                self._current_pid_cpu_ms = 0
-            return self._completed_cpu_ms
+        self, observations: dict[_ProcessKey, _ProcessObservation]
+    ) -> dict[str, int]:
+        missing_keys = set(self._current_cpu_ms_by_key) - set(observations)
+        for key in missing_keys:
+            self._complete_process(key)
 
-        if self._current_pid is not None and self._current_pid != pid:
-            self._completed_cpu_ms += self._current_pid_cpu_ms
-            self._current_pid_cpu_ms = 0
+        for key, observation in observations.items():
+            self._restore_completed_process(key)
+            previous_label = self._label_by_key.get(key)
+            if previous_label is not None and previous_label != observation.label:
+                self._complete_process(key)
 
-        self._current_pid = pid
-        current_cpu_ms = self._resolve_current_cpu_ms(proc_table, children_by_ppid, pid)
-        if current_cpu_ms is None:
-            return self._completed_cpu_ms
+            previous_cpu_ms = self._current_cpu_ms_by_key.get(key, 0)
+            self._current_cpu_ms_by_key[key] = max(previous_cpu_ms, observation.cpu_ms)
+            self._label_by_key[key] = observation.label
 
-        self._current_pid_cpu_ms = max(self._current_pid_cpu_ms, current_cpu_ms)
-        return self._completed_cpu_ms + self._current_pid_cpu_ms
+        result = dict(self._completed_cpu_ms_by_label)
+        for key, cpu_ms in self._current_cpu_ms_by_key.items():
+            label = self._label_by_key[key]
+            result[label] = result.get(label, 0) + cpu_ms
+        return {label: cpu_ms for label, cpu_ms in sorted(result.items()) if cpu_ms > 0}
 
-    def _resolve_current_cpu_ms(
-        self,
-        proc_table: dict[int, _ProcInfo],
-        children_by_ppid: dict[int, list[int]],
-        pid: int,
-    ) -> int | None:
-        proc = proc_table.get(pid)
-        if proc is None:
-            return None
-        if not self._include_descendants:
-            return proc.cpu_ms
-
-        total_cpu_ms = 0
-        pending = [pid]
-        while pending:
-            current_pid = pending.pop()
-            current_proc = proc_table.get(current_pid)
-            if current_proc is None:
-                continue
-            total_cpu_ms += current_proc.cpu_ms
-            pending.extend(children_by_ppid.get(current_pid, ()))
-        return total_cpu_ms
-
-
-def _resolve_s6_service_pid(
-    *,
-    profiler: _CoarseProfiler,
-    service_name: str,
-    status_path: pathlib.Path,
-) -> int | None:
-    try:
-        raw = status_path.read_bytes()
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        profiler.record_error_once(
-            f"read_s6_status_failed_{service_name}",
-            f"coarse_profile: failed to read {status_path}: {exc}",
+    def _complete_process(self, key: _ProcessKey) -> None:
+        cpu_ms = self._current_cpu_ms_by_key.pop(key, 0)
+        label = self._label_by_key.pop(key, None)
+        if label is None or cpu_ms <= 0:
+            return
+        self._completed_cpu_ms_by_label[label] = (
+            self._completed_cpu_ms_by_label.get(label, 0) + cpu_ms
         )
-        return None
+        self._completed_cpu_ms_by_key[key] = cpu_ms
+        self._completed_label_by_key[key] = label
 
-    required_len = _S6_STATUS_PID_OFFSET + _S6_STATUS_PID_SIZE
-    if len(raw) < required_len:
-        profiler.record_error_once(
-            f"short_s6_status_{service_name}",
-            f"coarse_profile: short s6 status file for {service_name}: {status_path}",
-        )
-        return None
-
-    pid = int.from_bytes(
-        raw[_S6_STATUS_PID_OFFSET : _S6_STATUS_PID_OFFSET + _S6_STATUS_PID_SIZE],
-        byteorder="big",
-        signed=False,
-    )
-    return pid or None
+    def _restore_completed_process(self, key: _ProcessKey) -> None:
+        cpu_ms = self._completed_cpu_ms_by_key.pop(key, None)
+        label = self._completed_label_by_key.pop(key, None)
+        if cpu_ms is None or label is None:
+            return
+        remaining_cpu_ms = self._completed_cpu_ms_by_label.get(label, 0) - cpu_ms
+        if remaining_cpu_ms > 0:
+            self._completed_cpu_ms_by_label[label] = remaining_cpu_ms
+        else:
+            self._completed_cpu_ms_by_label.pop(label, None)
+        self._current_cpu_ms_by_key[key] = cpu_ms
+        self._label_by_key[key] = label
 
 
 class _CoarseProfiler:
@@ -258,6 +217,12 @@ class _CoarseProfiler:
         basetemp = (
             pathlib.Path(str(basetemp_option)).resolve() if basetemp_option else pathlib.Path.cwd()
         )
+        self.worker_id = _worker_id(config)
+        self._is_worker = _is_xdist_worker(config)
+        self._own_pid = os.getpid()
+        self._has_worker_tmp_dir = basetemp_option is not None
+        self._worker_tmp_dir = basetemp
+        self._service_config_path = basetemp / "webshotd_wrapper" / "config.yaml"
         self.output_path = basetemp / _PROFILE_PATH_NAME
         self.summary_path = basetemp / _PROFILE_TEXT_PATH_NAME
         self._errors: list[str] = []
@@ -271,14 +236,7 @@ class _CoarseProfiler:
         self._session_end_snapshot: _Snapshot | None = None
         self._session_started_at = dt.datetime.now(dt.UTC)
         self._session_finished_at: dt.datetime | None = None
-        self._chromium_cpu_ms = 0
-        self._bucket_trackers: dict[str, _CpuTracker] = {
-            _BUCKET_WEBSHOTD: _CpuTracker(
-                name=_BUCKET_WEBSHOTD,
-                pid_resolver=self._resolve_webshotd_pid,
-                include_descendants=False,
-            ),
-        }
+        self._process_cpu = _ProcessCpuAccumulator()
 
     def start_session(self) -> None:
         self._session_start_snapshot = self._snapshot()
@@ -312,6 +270,8 @@ class _CoarseProfiler:
             if summary_written and self._errors:
                 with suppress(OSError):
                     self.summary_path.write_text(self._build_summary_text(), encoding="utf-8")
+        if not self._is_worker:
+            self._write_aggregate_profile(payload)
 
     def start_test(self, nodeid: str) -> None:
         self._current_test_nodeid = nodeid
@@ -332,13 +292,20 @@ class _CoarseProfiler:
         record.wall_ms = delta.wall_ms
         record.python_cpu_user_ms = delta.python_cpu_user_ms
         record.python_cpu_sys_ms = delta.python_cpu_sys_ms
-        record.cpu_ms_by_bucket = dict(delta.cpu_ms_by_bucket)
+        record.process_cpu_ms = dict(delta.process_cpu_ms)
         self._current_test_nodeid = None
 
     def record_test_outcome(self, report: pytest.TestReport) -> None:
         record = self._test_records.get(report.nodeid)
         if record is None:
             return
+        duration_ms = max(0, int(report.duration * 1000))
+        if report.when == "setup":
+            record.setup_wall_ms = duration_ms
+        elif report.when == "call":
+            record.call_wall_ms = duration_ms
+        elif report.when == "teardown":
+            record.teardown_wall_ms = duration_ms
         if report.when == "call":
             record.outcome = report.outcome
             return
@@ -411,17 +378,16 @@ class _CoarseProfiler:
             "session: "
             f"wall={session_summary['wall_ms']} ms "
             f"python={python_cpu_ms} ms "
-            f"webshotd={session_summary['webshotd_cpu_ms']} ms "
-            f"chromium={session_summary['chromium_cpu_ms']} ms "
+            f"processes={self._sum_process_cpu_ms(session_summary.get('process_cpu_ms'))} ms "
             f"capture_jobs={session_summary['capture_job_wall_ms']} ms"
         )
-        services_line = self._format_services_line(session_summary["service_cpu_ms"])
-        if services_line is not None:
-            lines.append(services_line)
+        process_line = self._format_processes_line(session_summary.get("process_cpu_ms"))
+        if process_line is not None:
+            lines.append(process_line)
 
         for title, key in (
             ("top wall", "wall_ms"),
-            ("top chromium", "chromium_cpu_ms"),
+            ("top process CPU", "_process_cpu_ms"),
             ("top python", "_python_cpu_ms"),
         ):
             lines.extend(self._format_top_lines(title=title, key=key))
@@ -443,8 +409,8 @@ class _CoarseProfiler:
             record = self._test_records[nodeid]
             if key == "_python_cpu_ms":
                 value = record.python_cpu_user_ms + record.python_cpu_sys_ms
-            elif key == "chromium_cpu_ms":
-                value = _named_cpu_ms(record.cpu_ms_by_bucket, _BUCKET_CHROMIUM)
+            elif key == "_process_cpu_ms":
+                value = self._sum_process_cpu_ms(record.process_cpu_ms)
             else:
                 value = getattr(record, key)
             if value <= 0:
@@ -460,23 +426,34 @@ class _CoarseProfiler:
         return formatted
 
     @staticmethod
-    def _format_services_line(service_cpu_ms: object) -> str | None:
-        if not isinstance(service_cpu_ms, dict):
+    def _sum_process_cpu_ms(process_cpu_ms: object) -> int:
+        if not isinstance(process_cpu_ms, dict):
+            return 0
+        return sum(value for value in process_cpu_ms.values() if isinstance(value, int))
+
+    @staticmethod
+    def _format_processes_line(process_cpu_ms: object) -> str | None:
+        if not isinstance(process_cpu_ms, dict):
             return None
         items = [
             (str(name), value)
-            for name, value in sorted(service_cpu_ms.items())
+            for name, value in process_cpu_ms.items()
             if isinstance(value, int) and value > 0
         ]
         if not items:
             return None
+        items.sort(key=lambda item: (-item[1], item[0]))
         rendered = ", ".join(f"{name}={value} ms" for name, value in items)
-        return f"services: {rendered}"
+        return f"processes: {rendered}"
 
     def _build_json_payload(self) -> dict[str, object]:
         return {
             "meta": {
                 "schema_version": _PROFILE_SCHEMA_VERSION,
+                "aggregate": False,
+                "worker_id": self.worker_id,
+                "xdist_worker_count": os.environ.get("PYTEST_XDIST_WORKER_COUNT"),
+                "xdist_scheduler": _pytest_dist_mode(list(self._config.invocation_params.args)),
                 "pytest_argv": list(self._config.invocation_params.args),
                 "testsuite_working_dir": str(pathlib.Path.cwd()),
                 "started_at": self._session_started_at.isoformat(),
@@ -500,7 +477,7 @@ class _CoarseProfiler:
                 "wall_ms": 0,
                 "python_cpu_user_ms": 0,
                 "python_cpu_sys_ms": 0,
-                **_cpu_json_fields({}),
+                "process_cpu_ms": {},
                 "capture_job_wall_ms": 0,
             }
 
@@ -510,11 +487,262 @@ class _CoarseProfiler:
             "wall_ms": delta.wall_ms,
             "python_cpu_user_ms": delta.python_cpu_user_ms,
             "python_cpu_sys_ms": delta.python_cpu_sys_ms,
-            **_cpu_json_fields(delta.cpu_ms_by_bucket),
+            "process_cpu_ms": dict(sorted(delta.process_cpu_ms.items())),
             "capture_job_wall_ms": sum(
                 self._test_records[nodeid].capture_job_wall_ms for nodeid in self._test_order
             ),
         }
+
+    def _write_aggregate_profile(self, master_payload: dict[str, object]) -> None:
+        worker_payloads = self._read_worker_payloads()
+        if not worker_payloads:
+            return
+
+        aggregate = self._build_aggregate_payload(master_payload, worker_payloads)
+        try:
+            self.output_path.write_text(
+                json.dumps(aggregate, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            self.summary_path.write_text(
+                self._build_aggregate_summary_text(aggregate), encoding="utf-8"
+            )
+        except OSError as exc:
+            self.record_error_once(
+                "write_aggregate_failed",
+                f"coarse_profile: failed to write aggregate profile: {exc}",
+            )
+
+    def _read_worker_payloads(self) -> list[dict[str, object]]:
+        payloads: list[dict[str, object]] = []
+        for path in sorted(self.output_path.parent.glob("popen-gw*/" + _PROFILE_PATH_NAME)):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                self.record_error_once(
+                    f"read_worker_profile_failed_{path.parent.name}",
+                    f"coarse_profile: failed to read worker profile {path}: {exc}",
+                )
+                continue
+            if isinstance(payload, dict):
+                payloads.append(payload)
+        return payloads
+
+    def _build_aggregate_payload(
+        self, master_payload: dict[str, object], worker_payloads: list[dict[str, object]]
+    ) -> dict[str, object]:
+        tests: list[dict[str, object]] = []
+        workers: list[dict[str, object]] = []
+        profiling_errors = list(self._errors)
+
+        for index, payload in enumerate(worker_payloads):
+            meta = payload.get("meta")
+            if not isinstance(meta, dict):
+                meta = {}
+            worker = meta.get("worker_id")
+            worker_id = worker if isinstance(worker, str) and worker else f"worker-{index}"
+            session = payload.get("session")
+            if not isinstance(session, dict):
+                session = {}
+            worker_tests = payload.get("tests")
+            if not isinstance(worker_tests, list):
+                worker_tests = []
+
+            workers.append(
+                {
+                    "worker_id": worker_id,
+                    "output_path": meta.get("output_path"),
+                    "summary_path": meta.get("summary_path"),
+                    "session": session,
+                    "test_count": len(worker_tests),
+                }
+            )
+            for test in worker_tests:
+                if not isinstance(test, dict):
+                    continue
+                item = dict(test)
+                item["worker_id"] = worker_id
+                tests.append(item)
+
+            errors = payload.get("profiling_errors")
+            if isinstance(errors, list):
+                for error in errors:
+                    if isinstance(error, str):
+                        profiling_errors.append(f"{worker_id}: {error}")
+
+        master_session = master_payload.get("session")
+        if not isinstance(master_session, dict):
+            master_session = {}
+        session = self._aggregate_session(master_session, worker_payloads, tests)
+        meta = {
+            "schema_version": _PROFILE_SCHEMA_VERSION,
+            "aggregate": True,
+            "worker_id": self.worker_id,
+            "worker_count": len(workers),
+            "xdist_worker_count": os.environ.get("PYTEST_XDIST_WORKER_COUNT"),
+            "xdist_scheduler": _pytest_dist_mode(list(self._config.invocation_params.args)),
+            "pytest_argv": list(self._config.invocation_params.args),
+            "testsuite_working_dir": str(pathlib.Path.cwd()),
+            "started_at": self._session_started_at.isoformat(),
+            "finished_at": (
+                self._session_finished_at.isoformat()
+                if self._session_finished_at is not None
+                else None
+            ),
+            "output_path": str(self.output_path),
+            "summary_path": str(self.summary_path),
+        }
+        return {
+            "meta": meta,
+            "profiling_errors": profiling_errors,
+            "session": session,
+            "workers": workers,
+            "tests": tests,
+        }
+
+    @staticmethod
+    def _aggregate_session(
+        master_session: dict[str, object],
+        worker_payloads: list[dict[str, object]],
+        tests: list[dict[str, object]],
+    ) -> dict[str, object]:
+        process_cpu_ms: dict[str, int] = {}
+        python_cpu_user_ms = 0
+        python_cpu_sys_ms = 0
+        capture_job_wall_ms = 0
+        worker_wall_ms = 0
+
+        for payload in worker_payloads:
+            session = payload.get("session")
+            if not isinstance(session, dict):
+                continue
+            worker_wall_ms = max(worker_wall_ms, _int_value(session.get("wall_ms")))
+            python_cpu_user_ms += _int_value(session.get("python_cpu_user_ms"))
+            python_cpu_sys_ms += _int_value(session.get("python_cpu_sys_ms"))
+            capture_job_wall_ms += _int_value(session.get("capture_job_wall_ms"))
+            worker_processes = session.get("process_cpu_ms")
+            if isinstance(worker_processes, dict):
+                for label, value in worker_processes.items():
+                    if not isinstance(label, str):
+                        continue
+                    process_cpu_ms[label] = process_cpu_ms.get(label, 0) + _int_value(value)
+
+        return {
+            "test_count": len(tests),
+            "wall_ms": max(_int_value(master_session.get("wall_ms")), worker_wall_ms),
+            "python_cpu_user_ms": python_cpu_user_ms,
+            "python_cpu_sys_ms": python_cpu_sys_ms,
+            "process_cpu_ms": dict(sorted(process_cpu_ms.items())),
+            "capture_job_wall_ms": capture_job_wall_ms,
+        }
+
+    @staticmethod
+    def _build_aggregate_summary_text(payload: dict[str, object]) -> str:
+        meta = payload.get("meta")
+        session = payload.get("session")
+        tests = payload.get("tests")
+        workers = payload.get("workers")
+        errors = payload.get("profiling_errors")
+        if not isinstance(meta, dict):
+            meta = {}
+        if not isinstance(session, dict):
+            session = {}
+        if not isinstance(tests, list):
+            tests = []
+        if not isinstance(workers, list):
+            workers = []
+        if not isinstance(errors, list):
+            errors = []
+
+        python_cpu_ms = _int_value(session.get("python_cpu_user_ms")) + _int_value(
+            session.get("python_cpu_sys_ms")
+        )
+        lines = [
+            f"json: {meta.get('output_path')}",
+            "aggregate: "
+            f"workers={len(workers)} "
+            f"tests={_int_value(session.get('test_count'))} "
+            f"scheduler={meta.get('xdist_scheduler')}",
+            "session: "
+            f"wall={_int_value(session.get('wall_ms'))} ms "
+            f"python={python_cpu_ms} ms "
+            f"processes={_CoarseProfiler._sum_process_cpu_ms(session.get('process_cpu_ms'))} ms "
+            f"capture_jobs={_int_value(session.get('capture_job_wall_ms'))} ms",
+        ]
+        process_line = _CoarseProfiler._format_processes_line(session.get("process_cpu_ms"))
+        if process_line is not None:
+            lines.append(process_line)
+
+        lines.extend(_CoarseProfiler._format_worker_top_lines(workers))
+        for title, key in (
+            ("top wall", "wall_ms"),
+            ("top setup", "setup_wall_ms"),
+            ("top call", "call_wall_ms"),
+            ("top teardown", "teardown_wall_ms"),
+            ("top capture jobs", "capture_job_wall_ms"),
+            ("top process CPU", "_process_cpu_ms"),
+            ("top python", "_python_cpu_ms"),
+        ):
+            lines.extend(_CoarseProfiler._format_json_top_lines(tests, title=title, key=key))
+
+        clean_errors = [error for error in errors if isinstance(error, str)]
+        if clean_errors:
+            lines.append("warnings:")
+            for message in clean_errors:
+                lines.append(f"  {message}")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _format_worker_top_lines(workers: list[object]) -> list[str]:
+        ranked: list[tuple[int, str, int]] = []
+        for worker in workers:
+            if not isinstance(worker, dict):
+                continue
+            session = worker.get("session")
+            if not isinstance(session, dict):
+                continue
+            worker_id = worker.get("worker_id")
+            name = worker_id if isinstance(worker_id, str) else "unknown"
+            ranked.append(
+                (_int_value(session.get("wall_ms")), name, _int_value(worker.get("test_count")))
+            )
+        ranked.sort(reverse=True)
+        if not ranked:
+            return ["slow workers: none"]
+        lines = ["slow workers:"]
+        for wall_ms, worker_id, test_count in ranked[:8]:
+            lines.append(f"  {wall_ms} ms  {worker_id} tests={test_count}")
+        return lines
+
+    @staticmethod
+    def _format_json_top_lines(tests: list[object], *, title: str, key: str) -> list[str]:
+        ranked: list[tuple[int, dict[str, object]]] = []
+        for test in tests:
+            if not isinstance(test, dict):
+                continue
+            if key == "_python_cpu_ms":
+                value = _test_python_cpu_ms(test)
+            elif key == "_process_cpu_ms":
+                value = _CoarseProfiler._sum_process_cpu_ms(test.get("process_cpu_ms"))
+            else:
+                value = _int_value(test.get(key))
+            if value <= 0:
+                continue
+            ranked.append((value, test))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        if not ranked:
+            return [f"{title}: none"]
+
+        lines = [f"{title}:"]
+        for value, test in ranked[:8]:
+            worker = test.get("worker_id")
+            worker_text = worker if isinstance(worker, str) else "unknown"
+            nodeid = test.get("nodeid")
+            nodeid_text = nodeid if isinstance(nodeid, str) else "<unknown>"
+            outcome = test.get("outcome")
+            outcome_text = outcome if isinstance(outcome, str) else "unknown"
+            lines.append(f"  {value} ms  {worker_text}  {nodeid_text} ({outcome_text})")
+        return lines
 
     def _snapshot(self) -> _Snapshot:
         proc_table = self._read_proc_table()
@@ -522,125 +750,102 @@ class _CoarseProfiler:
         for proc in proc_table.values():
             children_by_ppid.setdefault(proc.ppid, []).append(proc.pid)
 
-        self._refresh_s6_service_trackers()
-        cpu_ms_by_bucket = {
-            bucket: tracker.snapshot_cpu_ms(proc_table, children_by_ppid, self)
-            for bucket, tracker in sorted(self._bucket_trackers.items())
-        }
-        cpu_ms_by_bucket[_BUCKET_CHROMIUM] = self._snapshot_chromium_cpu_ms()
+        process_cpu_ms = self._process_cpu.snapshot_cpu_ms(
+            self._worker_process_observations(proc_table, children_by_ppid)
+        )
 
         usage = resource.getrusage(resource.RUSAGE_SELF)
         return _Snapshot(
             wall_ms=time.monotonic_ns() // 1_000_000,
             python_cpu_user_ms=int(usage.ru_utime * 1000),
             python_cpu_sys_ms=int(usage.ru_stime * 1000),
-            cpu_ms_by_bucket=cpu_ms_by_bucket,
+            process_cpu_ms=process_cpu_ms,
         )
 
-    def _refresh_s6_service_trackers(self) -> None:
-        if not _S6_SCAN_DIR.is_dir():
-            return
-        try:
-            entries = sorted(_S6_SCAN_DIR.iterdir(), key=lambda path: path.name)
-        except OSError as exc:
-            self.record_error_once(
-                "iter_s6_scan_failed",
-                f"coarse_profile: failed to read {_S6_SCAN_DIR}: {exc}",
+    def _worker_process_observations(
+        self,
+        proc_table: dict[int, _ProcInfo],
+        children_by_ppid: dict[int, list[int]],
+    ) -> dict[_ProcessKey, _ProcessObservation]:
+        scoped_pids = self._worker_scoped_pids(proc_table, children_by_ppid)
+        observations: dict[_ProcessKey, _ProcessObservation] = {}
+        for pid in scoped_pids:
+            if pid == self._own_pid:
+                continue
+            proc = proc_table.get(pid)
+            if proc is None:
+                continue
+            key = _ProcessKey(pid=proc.pid, start_time_ticks=proc.start_time_ticks)
+            observations[key] = _ProcessObservation(
+                label=self._process_label(proc),
+                cpu_ms=proc.cpu_ms,
             )
-            return
+        return observations
 
-        for entry in entries:
-            if not entry.is_dir() or entry.name.startswith(".") or entry.name == "webshotd":
+    def _worker_scoped_pids(
+        self,
+        proc_table: dict[int, _ProcInfo],
+        children_by_ppid: dict[int, list[int]],
+    ) -> set[int]:
+        root_pids = self._worker_root_pids(proc_table)
+        scoped_pids: set[int] = set()
+        pending = list(root_pids)
+        while pending:
+            pid = pending.pop()
+            if pid in scoped_pids:
                 continue
-            bucket = _s6_service_bucket(entry.name)
-            if bucket in self._bucket_trackers:
+            if pid not in proc_table:
                 continue
-            status_path = entry / "supervise" / "status"
+            scoped_pids.add(pid)
+            pending.extend(children_by_ppid.get(pid, ()))
+        return scoped_pids
 
-            def resolve_pid(
-                profiler: _CoarseProfiler,
-                _proc_table: dict[int, _ProcInfo],
-                *,
-                status_path: pathlib.Path = status_path,
-                service_name: str = entry.name,
-            ) -> int | None:
-                return _resolve_s6_service_pid(
-                    profiler=profiler,
-                    service_name=service_name,
-                    status_path=status_path,
+    def _worker_root_pids(self, proc_table: dict[int, _ProcInfo]) -> set[int]:
+        service_matches = [
+            proc for proc in proc_table.values() if self._is_service_binary_proc(proc)
+        ]
+        roots = {proc.pid for proc in service_matches if self._proc_references_worker_tmp(proc)}
+
+        tmp_reference_roots = {
+            proc.pid for proc in proc_table.values() if self._proc_references_worker_tmp(proc)
+        }
+        roots.update(tmp_reference_roots)
+
+        if roots:
+            service_roots = sorted(proc.pid for proc in service_matches if proc.pid in roots)
+            if len(service_roots) > 1:
+                self.record_error_once(
+                    "multiple_worker_service_pids",
+                    "coarse_profile: multiple service PIDs reference this worker: "
+                    f"{service_roots!r}",
                 )
+            return roots
 
-            self._bucket_trackers[bucket] = _CpuTracker(
-                name=bucket,
-                pid_resolver=resolve_pid,
-                include_descendants=True,
+        if len(service_matches) == 1:
+            return {service_matches[0].pid}
+        if len(service_matches) > 1:
+            self.record_error_once(
+                "multiple_unscoped_service_pids",
+                "coarse_profile: multiple service PIDs exist but none references this worker: "
+                f"{sorted(proc.pid for proc in service_matches)!r}",
             )
+        return set()
 
-    def _snapshot_chromium_cpu_ms(self) -> int:
-        webshotd_pid = self._bucket_trackers[_BUCKET_WEBSHOTD].current_pid
-        if webshotd_pid is None:
-            return self._chromium_cpu_ms
-        cgroup_root = self._resolve_cgroup_root_path_from_pid(webshotd_pid)
-        if cgroup_root is None:
-            return self._chromium_cpu_ms
+    def _is_service_binary_proc(self, proc: _ProcInfo) -> bool:
+        if not self._service_binary_candidates or not proc.args:
+            return False
         try:
-            entries = list(cgroup_root.iterdir())
-        except OSError as exc:
-            self.record_error_once(
-                "chromium_cgroup_iter_failed",
-                f"coarse_profile: failed to read crawler cgroup root {cgroup_root}: {exc}",
-            )
-            return self._chromium_cpu_ms
+            binary = pathlib.Path(proc.args[0]).resolve()
+        except OSError:
+            return False
+        return binary in self._service_binary_candidates
 
-        total_cpu_ms = 0
-        found_any = False
-        for entry in entries:
-            if not entry.is_dir() or not entry.name.startswith("webshotd_crawler_"):
-                continue
-            cpu_ms = _parse_cgroup_cpu_ms(entry / "cpu.stat")
-            if cpu_ms is None:
-                continue
-            found_any = True
-            total_cpu_ms += cpu_ms
-        if found_any:
-            self._chromium_cpu_ms = max(self._chromium_cpu_ms, total_cpu_ms)
-        return self._chromium_cpu_ms
-
-    def _resolve_cgroup_root_path_from_pid(self, pid: int) -> pathlib.Path | None:
-        proc_cgroup_path = pathlib.Path("/proc") / str(pid) / "cgroup"
-        try:
-            lines = proc_cgroup_path.read_text(encoding="utf-8").splitlines()
-        except OSError as exc:
-            self.record_error_once(
-                "read_proc_cgroup_failed",
-                f"coarse_profile: failed to read {proc_cgroup_path}: {exc}",
-            )
-            return None
-
-        current_path: str | None = None
-        for line in lines:
-            if not line.startswith("0::"):
-                continue
-            current_path = line[3:].strip()
-            break
-        if current_path is None or not current_path.startswith("/"):
-            self.record_error_once(
-                "missing_proc_cgroup_path",
-                f"coarse_profile: missing cgroup v2 path in {proc_cgroup_path}",
-            )
-            return None
-        if current_path == "/":
-            self.record_error_once(
-                "invalid_proc_cgroup_root",
-                "coarse_profile: webshotd is running in '/' cgroup; "
-                "crawler cgroups are not attributable",
-            )
-            return None
-
-        parent_path = pathlib.Path(current_path).parent
-        if str(parent_path) == "/":
-            return pathlib.Path("/sys/fs/cgroup")
-        return pathlib.Path("/sys/fs/cgroup") / str(parent_path).lstrip("/")
+    @staticmethod
+    def _process_label(proc: _ProcInfo) -> str:
+        if not proc.args:
+            return f"pid:{proc.pid}"
+        name = pathlib.Path(proc.args[0]).name
+        return name or f"pid:{proc.pid}"
 
     def _read_proc_table(self) -> dict[int, _ProcInfo]:
         proc_table: dict[int, _ProcInfo] = {}
@@ -659,33 +864,36 @@ class _CoarseProfiler:
             parsed_stat = _parse_proc_stat(stat_raw)
             if parsed_stat is None:
                 continue
-            pid, ppid, cpu_ms = parsed_stat
+            pid, ppid, start_time_ticks, cpu_ms = parsed_stat
             args = tuple(
                 part.decode("utf-8", "replace") for part in cmdline_raw.split(b"\0") if part
             )
-            proc_table[pid] = _ProcInfo(pid=pid, ppid=ppid, cpu_ms=cpu_ms, args=args)
+            try:
+                cwd = (entry / "cwd").resolve()
+            except OSError:
+                cwd = None
+            proc_table[pid] = _ProcInfo(
+                pid=pid,
+                ppid=ppid,
+                start_time_ticks=start_time_ticks,
+                cpu_ms=cpu_ms,
+                args=args,
+                cwd=cwd,
+            )
         return proc_table
 
-    def _resolve_webshotd_pid(
-        self,
-        profiler: _CoarseProfiler,
-        proc_table: dict[int, _ProcInfo],
-    ) -> int | None:
-        if not self._service_binary_candidates:
-            return None
-        matches = [
-            proc.pid
-            for proc in proc_table.values()
-            if proc.args and pathlib.Path(proc.args[0]).resolve() in self._service_binary_candidates
-        ]
-        if len(matches) > 1:
-            profiler.record_error_once(
-                "multiple_webshotd_pids",
-                f"coarse_profile: multiple candidate PIDs for webshotd: {sorted(matches)!r}",
-            )
-        if not matches:
-            return None
-        return min(matches)
+    def _proc_references_worker_tmp(self, proc: _ProcInfo) -> bool:
+        config_path = str(self._service_config_path)
+        if any(config_path in arg for arg in proc.args):
+            return True
+        if not self._has_worker_tmp_dir:
+            return False
+        tmp_dir = str(self._worker_tmp_dir)
+        if any(tmp_dir in arg for arg in proc.args):
+            return True
+        return proc.cwd is not None and (
+            proc.cwd == self._worker_tmp_dir or self._worker_tmp_dir in proc.cwd.parents
+        )
 
     @staticmethod
     def _build_service_binary_candidates(
@@ -702,16 +910,14 @@ class _CoarseProfiler:
 
     @staticmethod
     def _diff_snapshots(start: _Snapshot, end: _Snapshot) -> _Snapshot:
-        bucket_names = set(start.cpu_ms_by_bucket) | set(end.cpu_ms_by_bucket)
+        process_labels = set(start.process_cpu_ms) | set(end.process_cpu_ms)
         return _Snapshot(
             wall_ms=max(0, end.wall_ms - start.wall_ms),
             python_cpu_user_ms=max(0, end.python_cpu_user_ms - start.python_cpu_user_ms),
             python_cpu_sys_ms=max(0, end.python_cpu_sys_ms - start.python_cpu_sys_ms),
-            cpu_ms_by_bucket={
-                bucket: max(
-                    0, end.cpu_ms_by_bucket.get(bucket, 0) - start.cpu_ms_by_bucket.get(bucket, 0)
-                )
-                for bucket in sorted(bucket_names)
+            process_cpu_ms={
+                label: max(0, end.process_cpu_ms.get(label, 0) - start.process_cpu_ms.get(label, 0))
+                for label in sorted(process_labels)
             },
         )
 
