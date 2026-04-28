@@ -487,7 +487,7 @@ properties:
   request-timeout-ms:
     type: integer
     minimum: 1
-    description: Upper bound for /tests/browser-probe handler in milliseconds
+    description: Upper bound for /tests/browser_probe handler in milliseconds
   devtools_startup_timeout_ms:
     type: integer
     minimum: 1

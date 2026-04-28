@@ -295,7 +295,7 @@ def browser_probe(monitor_client):
         if frame_expression is not None:
             payload["frame_expression"] = frame_expression
         resp = await monitor_client.post(
-            "/tests/browser-probe",
+            "/tests/browser_probe",
             json=payload,
         )
         assert resp.status == 200, resp.text

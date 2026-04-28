@@ -1,6 +1,6 @@
     testsuite-support: {}
     browser_probe:
-      path: /tests/browser-probe
+      path: /tests/browser_probe
       method: POST
       monitor-handler: true
       task_processor: main-task-processor
