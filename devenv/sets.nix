@@ -19,7 +19,10 @@
   ];
 
   devTools = with nix; [
+    git
+    gdb
     rsync
+    ty
   ];
 
   cmakePrefix = with nix; [

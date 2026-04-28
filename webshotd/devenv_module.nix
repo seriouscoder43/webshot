@@ -30,12 +30,7 @@ in {
       ctx.drv.pgmigrate
     ]
     ++ ctx.sets.userverLibs
-    ++ [ctx.drv.testCov]
-    ++ (with ctx.nix; [
-      git
-      gdb
-      ty
-    ]);
+    ++ [ctx.drv.testCov];
 
   env.CMAKE_PREFIX_PATH = ctx.paths.cmakePrefix;
 
