@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-_DEFAULT_POLL_DELAY = 0.1
+_DEFAULT_POLL_DELAY = 0.25
 _DEFAULT_JOB_TIMEOUT = 20.0
 _DEFAULT_PURGE_TIMEOUT = 8.0
 

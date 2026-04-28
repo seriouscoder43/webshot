@@ -34,6 +34,10 @@ def main() -> int:
         sys.executable,
         str(runner_path),
         "--service-logs-pretty",
+        "-n",
+        "auto",
+        "--dist",
+        "loadfile",
         "-vv",
     ]
     if args.fail_fast:

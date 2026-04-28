@@ -2,15 +2,24 @@ import uuid
 
 import pytest
 from helper.constants import TEST_HOST
+from helper.s3_gate_config import enable_s3_gate
 from helper.waiters import wait_for_job_status
+
+pytestmark = pytest.mark.uservice_oneshot(config_hooks=[enable_s3_gate])
+
+
+@pytest.fixture
+async def service_client_with_s3_gate(s3_gate_ready, service_client):
+    return service_client
 
 
 @pytest.mark.asyncio
-async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
+async def test_s3_outage_marks_job_failed(service_client_with_s3_gate, s3_gate, pgsql):
     await s3_gate.sockets_close()
     await s3_gate.stop_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-failure"
+    service_client = service_client_with_s3_gate
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]
@@ -29,11 +38,12 @@ async def test_s3_outage_marks_job_failed(service_client, s3_gate, pgsql):
 
 
 @pytest.mark.asyncio
-async def test_recent_failed_job_is_reused_during_cooldown(service_client, s3_gate):
+async def test_recent_failed_job_is_reused_during_cooldown(service_client_with_s3_gate, s3_gate):
     await s3_gate.sockets_close()
     await s3_gate.stop_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-failed-reuse"
+    service_client = service_client_with_s3_gate
     resp1 = await service_client.post("/v1/capture", json={"link": link})
     assert resp1.status == 202
     job1_id = resp1.json()["uuid"]
@@ -53,12 +63,13 @@ async def test_recent_failed_job_is_reused_during_cooldown(service_client, s3_ga
 
 
 @pytest.mark.asyncio
-async def test_s3_recovers_after_outage(service_client, s3_gate):
+async def test_s3_recovers_after_outage(service_client_with_s3_gate, s3_gate):
     await s3_gate.to_server_pass()
     await s3_gate.to_client_pass()
     s3_gate.start_accepting()
 
     link = f"https://{TEST_HOST}/chaos-s3-recover"
+    service_client = service_client_with_s3_gate
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202
     job_id = resp.json()["uuid"]

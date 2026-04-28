@@ -33,7 +33,7 @@ UTEST(StorageUrl, ExternalModePreservesConfiguredBase)
 UTEST(StorageUrl, LocalModeUsesRequestHostnameAndConfiguredS3Port)
 {
     const auto url = buildCaptureDownloadUrl(
-        sampleUuid(), kLocal, "http://localhost:8333/webshot"_t, "client.example:8080"_t
+        sampleUuid(), kLocal, "http://127.0.0.1:8333/webshot"_t, "client.example:8080"_t
     );
 
     ASSERT_TRUE(url);
@@ -46,7 +46,7 @@ UTEST(StorageUrl, LocalModeUsesRequestHostnameAndConfiguredS3Port)
 UTEST(StorageUrl, LocalModeHandlesBracketedIpv6RequestHost)
 {
     const auto url = buildCaptureDownloadUrl(
-        sampleUuid(), kLocal, "http://localhost:8333/webshot"_t, "[2001:db8::1]:8080"_t
+        sampleUuid(), kLocal, "http://127.0.0.1:8333/webshot"_t, "[2001:db8::1]:8080"_t
     );
 
     ASSERT_TRUE(url);
@@ -58,7 +58,7 @@ UTEST(StorageUrl, LocalModeHandlesBracketedIpv6RequestHost)
 UTEST(StorageUrl, LocalModeRejectsMissingRequestHost)
 {
     const auto url = buildCaptureDownloadUrl(
-        sampleUuid(), kLocal, "http://localhost:8333/webshot"_t, {}
+        sampleUuid(), kLocal, "http://127.0.0.1:8333/webshot"_t, {}
     );
 
     ASSERT_FALSE(url);
@@ -68,7 +68,7 @@ UTEST(StorageUrl, LocalModeRejectsMissingRequestHost)
 UTEST(StorageUrl, LocalModeRejectsInvalidRequestHost)
 {
     const auto url = buildCaptureDownloadUrl(
-        sampleUuid(), kLocal, "http://localhost:8333/webshot"_t, "client.example/path"_t
+        sampleUuid(), kLocal, "http://127.0.0.1:8333/webshot"_t, "client.example/path"_t
     );
 
     ASSERT_FALSE(url);

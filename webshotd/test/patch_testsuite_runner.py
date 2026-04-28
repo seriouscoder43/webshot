@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import ast
+import pprint
 from pathlib import Path
 
 _MARKER = "# webshot testsuite port guard"
+_PYTEST_ARGS_NAME = "TESTSUITE_PYTEST_ARGS"
 
 
 def _guard_block(service_port: int, monitor_port: int) -> str:
@@ -21,9 +24,9 @@ def _ensure_webshot_testsuite_ports_available():
             sock.settimeout(0.2)
             if sock.connect_ex(("127.0.0.1", port)) == 0:
                 raise SystemExit(
-                    "testsuite requires exclusive localhost ports "
+                    "testsuite refuses to run while localhost ports "
                     f"{{_WEBSHOT_TESTSUITE_PORTS[0]}}/{{_WEBSHOT_TESTSUITE_PORTS[1]}}; "
-                    "stop any running webshot stack first"
+                    "stop any running webshot dev stack first"
                 )
 
 
@@ -31,9 +34,38 @@ _ensure_webshot_testsuite_ports_available()
 """.lstrip()
 
 
+def _without_fixed_service_log(content: str) -> str:
+    tree = ast.parse(content)
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == _PYTEST_ARGS_NAME
+            for target in node.targets
+        ):
+            continue
+        pytest_args = ast.literal_eval(node.value)
+        filtered_args = [
+            arg
+            for arg in pytest_args
+            if not (isinstance(arg, str) and arg.startswith("--service-logs-file="))
+        ]
+        if filtered_args == pytest_args:
+            return content
+
+        lines = content.splitlines(keepends=True)
+        replacement = f"{_PYTEST_ARGS_NAME} = {pprint.pformat(filtered_args)}\n"
+        lines[node.lineno - 1 : node.end_lineno] = [replacement]
+        return "".join(lines)
+
+    raise RuntimeError(f"failed to find {_PYTEST_ARGS_NAME} in generated testsuite runner")
+
+
 def _patch_runner(runner_path: Path, service_port: int, monitor_port: int) -> None:
     content = runner_path.read_text(encoding="utf-8")
+    content = _without_fixed_service_log(content)
     if _MARKER in content:
+        runner_path.write_text(content, encoding="utf-8")
         return
 
     anchor = "import pytest\n"

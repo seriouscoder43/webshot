@@ -72,6 +72,7 @@ in
     pyPkgs.py
     pyPkgs.psycopg2
     pyPkgs.pytest
+    pyPkgs.pytest-xdist
     pyPkgs.requests
     # userver testsuite currently requires websockets < 13.
     websocketsCompatible

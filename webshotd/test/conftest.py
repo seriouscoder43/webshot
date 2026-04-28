@@ -8,14 +8,14 @@ import psycopg2
 import psycopg2.extras
 import pytest
 import yaml
+from helper.s3_gate_config import set_s3_gate_port
 from pytest_userver import chaos
 from testsuite.databases.pgsql import discover
 
 from s6.s3_bucket import ensure_s3_bucket_exists
 
-_S3_GATE_HOST = "localhost"
-_SERVICE_PORT = 8080
-_MONITOR_PORT = 8081
+_S3_GATE_HOST = "127.0.0.1"
+_TESTSUITE_S3_TIMEOUT_MS = 2000
 _DEV_RUNTIME_STATE_ROOT = pathlib.Path("/tmp/webshot/dev")
 _DEV_WEBSHOTD_TEST_PKI_DIR = pathlib.Path("/tmp/webshot/dev/webshotd/test_pki")
 _TESTSUITE_STATE_ROOT = pathlib.Path("/tmp/webshot/testsuite")
@@ -26,10 +26,35 @@ pytest_plugins = [
     "pytest_userver.plugins.config",
     "pytest_userver.chaos",
     "helper.sql_loader",
+    "helper.capture_flow",
     "helper.coarse_profile",
 ]
 
 psycopg2.extras.register_uuid()
+
+
+def pytest_collection_modifyitems(items):
+    normal_items = []
+    chaos_s3_items = []
+
+    for item in items:
+        path = pathlib.Path(str(item.fspath))
+        if path.name == "chaos_s3.py":
+            chaos_s3_items.append(item)
+        else:
+            normal_items.append(item)
+
+    items[:] = normal_items + chaos_s3_items
+
+
+def _testsuite_worker_prefix(worker_id: str) -> str:
+    return "master" if worker_id == "master" else worker_id
+
+
+def _pgsql_service_name(worker_id: str) -> str | None:
+    if worker_id == "master":
+        return None
+    return f"webshot_{_testsuite_worker_prefix(worker_id)}"
 
 
 def _require_cmake_cache_string(path: pathlib.Path, key: str) -> str:
@@ -57,8 +82,15 @@ def _require_service_binary_path(pytestconfig) -> pathlib.Path:
     return pathlib.Path(binary).resolve()
 
 
+def _require_service_listener_port(config_yaml) -> int:
+    port = config_yaml["components_manager"]["components"]["server"]["listener"]["port"]
+    if not isinstance(port, int):
+        raise RuntimeError(f"service listener port must be resolved before testsuite run: {port!r}")
+    return port
+
+
 def _prepare_testsuite_webshotd_state_dir(
-    service_binary: pathlib.Path, service_source_dir: pathlib.Path
+    service_binary: pathlib.Path, service_source_dir: pathlib.Path, worker_id: str
 ) -> pathlib.Path:
     del service_binary
     del service_source_dir
@@ -67,20 +99,15 @@ def _prepare_testsuite_webshotd_state_dir(
         raise RuntimeError(f"missing runtime-generated test PKI: {_DEV_WEBSHOTD_TEST_PKI_DIR}")
 
     _TESTSUITE_STATE_ROOT.mkdir(parents=True, exist_ok=True)
-    state_dir = pathlib.Path(tempfile.mkdtemp(prefix="ws-", dir=_TESTSUITE_STATE_ROOT))
+    state_dir = pathlib.Path(
+        tempfile.mkdtemp(
+            prefix=f"ws-{_testsuite_worker_prefix(worker_id)}-",
+            dir=_TESTSUITE_STATE_ROOT,
+        )
+    )
     target_test_pki_dir = state_dir / "test_pki"
     shutil.copytree(_DEV_WEBSHOTD_TEST_PKI_DIR, target_test_pki_dir)
     return state_dir
-
-
-@pytest.fixture(scope="session")
-def service_port() -> int:
-    return _SERVICE_PORT
-
-
-@pytest.fixture(scope="session")
-def monitor_port() -> int:
-    return _MONITOR_PORT
 
 
 @pytest.fixture(scope="session")
@@ -90,9 +117,9 @@ def service_binary(pytestconfig) -> pathlib.Path:
 
 @pytest.fixture(scope="session")
 def testsuite_webshotd_state_dir(
-    service_binary: pathlib.Path, service_source_dir: pathlib.Path
+    service_binary: pathlib.Path, service_source_dir: pathlib.Path, worker_id: str
 ) -> pathlib.Path:
-    return _prepare_testsuite_webshotd_state_dir(service_binary, service_source_dir)
+    return _prepare_testsuite_webshotd_state_dir(service_binary, service_source_dir, worker_id)
 
 
 @pytest.fixture(scope="session")
@@ -103,16 +130,16 @@ def test_target_payload_dir() -> pathlib.Path:
 
 
 @pytest.fixture(scope="session")
-def pgsql_local(pgsql_local_create, service_source_dir: pathlib.Path):
+def pgsql_local(pgsql_local_create, service_source_dir: pathlib.Path, worker_id: str):
     schemas = discover.find_schemas(
-        None,
+        _pgsql_service_name(worker_id),
         [service_source_dir / "sql" / "schema"],
     )
     return pgsql_local_create(list(schemas.values()))
 
 
 @pytest.fixture(scope="session")
-async def pg_gate(pgsql_local):
+async def pg_gate(pgsql_local, worker_id: str):
     # Assume all test databases share the same host/port.
     any_conn = next(iter(pgsql_local.values()))
     uri = any_conn.get_uri()
@@ -121,7 +148,7 @@ async def pg_gate(pgsql_local):
     port = parsed.port or 5432
 
     route = chaos.GateRoute(
-        name="postgres",
+        name=f"postgres-{_testsuite_worker_prefix(worker_id)}",
         host_to_server=host,
         port_to_server=port,
     )
@@ -135,10 +162,10 @@ async def pg_gate(pgsql_local):
 
 
 @pytest.fixture(scope="session")
-async def s3_gate(s3_gate_port):
+async def s3_gate(s3_gate_port, worker_id: str):
     # Proxy between service and local S3 (SeaweedFS) through a per-run local port.
     route = chaos.GateRoute(
-        name="s3",
+        name=f"s3-{_testsuite_worker_prefix(worker_id)}",
         host_to_server=_S3_GATE_HOST,
         port_to_server=8333,
         host_for_client=_S3_GATE_HOST,
@@ -155,7 +182,26 @@ async def s3_gate(s3_gate_port):
 
 @pytest.fixture(scope="session")
 def s3_gate_port(choose_free_port):
-    return choose_free_port(8334)
+    port = choose_free_port(8334)
+    set_s3_gate_port(port)
+    return port
+
+
+@pytest.fixture(scope="session")
+def s3_bucket_name(worker_id: str) -> str:
+    if worker_id == "master":
+        return "webshot"
+    return f"webshot-{_testsuite_worker_prefix(worker_id)}"
+
+
+@pytest.fixture(scope="session")
+def s3_bucket_ready(service_source_dir: pathlib.Path, s3_bucket_name: str) -> None:
+    secrets_path = service_source_dir / "secret" / "test_secdist.json"
+    ensure_s3_bucket_exists(
+        secrets_path=secrets_path,
+        s3_url="127.0.0.1:8333",
+        bucket=s3_bucket_name,
+    )
 
 
 @pytest.fixture
@@ -167,13 +213,16 @@ async def pg_gate_ready(pg_gate):
 
 
 @pytest.fixture
-async def s3_gate_ready(s3_gate, service_source_dir: pathlib.Path):
+async def s3_gate_ready(s3_gate, s3_bucket_ready):
     await s3_gate.to_server_pass()
     await s3_gate.to_client_pass()
     s3_gate.start_accepting()
-    secrets_path = service_source_dir / "secret" / "test_secdist.json"
-    ensure_s3_bucket_exists(secrets_path=secrets_path, s3_url="localhost:8333", bucket="webshot")
-    yield s3_gate
+    try:
+        yield s3_gate
+    finally:
+        await s3_gate.to_server_pass()
+        await s3_gate.to_client_pass()
+        s3_gate.start_accepting()
 
 
 @pytest.fixture(scope="session")
@@ -214,9 +263,10 @@ def service_env(service_source_dir: pathlib.Path):
 
 @pytest.fixture(scope="session")
 def allowed_url_prefixes_extra(s3_gate_port):
-    # Permit S3 uploads through the local chaos gate and Chromium devtools
+    # Permit direct local S3, S3 through the local chaos gate, and Chromium devtools
     # loopback URLs reached over the Unix socket transport in tests.
     return [
+        "http://127.0.0.1:8333/",
         f"http://{_S3_GATE_HOST}:{s3_gate_port}/",
         "http://localhost/",
         "ws://localhost/",
@@ -225,11 +275,16 @@ def allowed_url_prefixes_extra(s3_gate_port):
 
 @pytest.fixture(scope="session")
 def patch_s3_config(s3_gate_port):
+    del s3_gate_port
+
     def _patch(config_yaml, _config_vars):
         components = config_yaml["components_manager"]["components"]
         cfg = components["config"]
-        cfg["s3_endpoint"] = f"http://{_S3_GATE_HOST}:{s3_gate_port}"
-        cfg["s3_timeout_ms"] = 3000
+        cfg["s3_timeout_ms"] = _TESTSUITE_S3_TIMEOUT_MS
+        http_client_core = components["http-client-core"]
+        if http_client_core is None:
+            raise RuntimeError("http-client-core component config must be present")
+        http_client_core["testsuite-timeout"] = "2s"
 
     return _patch
 
@@ -241,6 +296,7 @@ def service_config_path_temp(
     service_binary: pathlib.Path,
     service_source_dir: pathlib.Path,
     testsuite_webshotd_state_dir: pathlib.Path,
+    s3_bucket_name: str,
 ) -> pathlib.Path:
     dst_path = service_tmpdir / "config.yaml"
     config_yaml = dict(_service_config_hooked.config_yaml)
@@ -255,12 +311,21 @@ def service_config_path_temp(
     config_vars["web_ui_dir"] = str(service_binary.parent.parent / "web_ui")
     config_vars["web_ui_vendor_dir"] = str(service_binary.parent.parent / "web_ui" / "vendor")
     config_vars["state_dir"] = str(testsuite_webshotd_state_dir)
+    config_vars["s3_bucket"] = s3_bucket_name
+    config_vars["public_base_url"] = f"http://127.0.0.1:8333/{s3_bucket_name}"
 
     components = config_yaml["components_manager"]["components"]
-    http_client_core = components["http-client-core"]
-    if http_client_core is None:
-        raise RuntimeError("http-client-core component config must be present")
-    http_client_core["testsuite-timeout"] = "5s"
+    dynamic_config_defaults = components["dynamic-config"]["defaults"]
+    dynamic_config_defaults["POSTGRES_CONNECTION_POOL_SETTINGS"] = {
+        "__default__": {
+            "min_pool_size": 1,
+            "max_pool_size": 2,
+            "max_queue_size": 200,
+            "connecting_limit": 1,
+        }
+    }
+    browser_probe = components["browser_probe"]
+    browser_probe["testsuite_loopback_ports"] = [_require_service_listener_port(config_yaml)]
 
     if not config_vars:
         config_yaml.pop("config_vars", None)
@@ -274,8 +339,8 @@ def service_config_path_temp(
 
 
 @pytest.fixture
-def extra_client_deps(pg_gate_ready, s3_gate_ready):
-    return [pg_gate_ready, s3_gate_ready]
+def extra_client_deps(pg_gate_ready, s3_bucket_ready):
+    return [pg_gate_ready]
 
 
 @pytest.fixture

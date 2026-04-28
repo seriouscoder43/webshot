@@ -13,3 +13,4 @@
       browser_stop_timeout_ms: 2000
       cdp_max_remote_payload_bytes: 33554432
       local_fixture_rewrite: true
+      testsuite_loopback_ports: []
