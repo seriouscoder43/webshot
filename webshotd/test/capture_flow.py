@@ -90,7 +90,7 @@ async def _capture_and_wait(
     return job_id, job
 
 
-def _wacz_cdxj_statuses_for_url(wacz: bytes, url: str) -> set[int]:
+def _wacz_cdx_statuses_for_url(wacz: bytes, url: str) -> set[int]:
     statuses: set[int] = set()
     for record in _wacz_cdx_records(wacz):
         if record.get("url") != url:
@@ -111,10 +111,10 @@ def _root_url_variants(url: str) -> set[str]:
     return {base, f"{base}/"}
 
 
-def _wacz_cdxj_statuses_for_root_url(wacz: bytes, url: str) -> set[int]:
+def _wacz_cdx_statuses_for_root_url(wacz: bytes, url: str) -> set[int]:
     statuses: set[int] = set()
     for variant in _root_url_variants(url):
-        statuses.update(_wacz_cdxj_statuses_for_url(wacz, variant))
+        statuses.update(_wacz_cdx_statuses_for_url(wacz, variant))
     return statuses
 
 
@@ -372,8 +372,8 @@ async def test_capture_depth_fetches_additional_resources(
 
     wacz = await download_wacz(job_id)
     archive_text = _wacz_archive_text(wacz)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/style.css")
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/script.js")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/style.css")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/script.js")
     assert "WARC-Target-URI: https://test-target/style.css" in archive_text
     assert "WARC-Target-URI: https://test-target/script.js" in archive_text
     assert 'console.log("ok");' in archive_text
@@ -421,8 +421,8 @@ async def test_capture_records_main_document_redirect_in_wacz(
 
     wacz = await download_wacz(job_id)
     archive_text = _wacz_archive_text(wacz)
-    assert 302 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-seed")
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-final")
+    assert 302 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-seed")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-final")
     assert "HTTP/1.1 302 " in archive_text
     assert "location: /redirect-final" in archive_text
     assert "WARC-Target-URI: https://test-target/redirect-final" in archive_text
@@ -436,7 +436,7 @@ async def test_capture_preserves_post_subresource_requests(service_client, downl
 
     wacz = await download_wacz(job_id)
     submit_url = f"https://{TEST_HOST}/submit?source=page"
-    submit_statuses = _wacz_cdxj_statuses_for_url(wacz, submit_url)
+    submit_statuses = _wacz_cdx_statuses_for_url(wacz, submit_url)
     assert 200 in submit_statuses
 
     archive_text = _wacz_archive_text(wacz)
@@ -451,7 +451,7 @@ async def test_capture_preserves_head_subresource_requests(service_client, downl
 
     wacz = await download_wacz(job_id)
     metadata_url = f"https://{TEST_HOST}/metadata?source=page"
-    metadata_statuses = _wacz_cdxj_statuses_for_url(wacz, metadata_url)
+    metadata_statuses = _wacz_cdx_statuses_for_url(wacz, metadata_url)
     assert 200 in metadata_statuses
 
     archive_text = _wacz_archive_text(wacz)
@@ -470,8 +470,8 @@ async def test_capture_preserves_redirected_subresource_hops(
 
     wacz = await download_wacz(job_id)
     archive_text = _wacz_archive_text(wacz)
-    assert 302 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-script.js")
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/script-final.js")
+    assert 302 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/redirect-script.js")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/script-final.js")
     assert "location: /script-final.js" in archive_text
     assert "window.__redirectedAssetLoaded = true;" in archive_text
 
@@ -537,8 +537,8 @@ async def test_allowlist_only_fetches_allowlisted_subresources(
     assert any("ok" in entry for entry in replay["console"])
 
     wacz = await download_wacz(job_id)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, style)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, script)
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, style)
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, script)
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_allowlist_only])
@@ -558,7 +558,7 @@ async def test_allowlist_only_blocks_non_allowlisted_subresources(
     assert not any("asset" in entry for entry in replay["console"])
 
     wacz = await download_wacz(job_id)
-    assert 403 in _wacz_cdxj_statuses_for_url(wacz, asset_script)
+    assert 403 in _wacz_cdx_statuses_for_url(wacz, asset_script)
 
 
 @pytest.mark.asyncio
@@ -594,7 +594,7 @@ async def test_https_only_blocks_http_subresource_fetch(
     assert not any("ok" in entry for entry in replay["console"])
 
     wacz = await download_wacz(job_id)
-    assert not _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/script.js")
+    assert not _wacz_cdx_statuses_for_url(wacz, f"http://{TEST_HOST}/script.js")
 
 
 @pytest.mark.asyncio
@@ -653,8 +653,8 @@ async def test_https_first_succeeds_when_http_fails(service_client, browser_prob
     await _probe_replay(browser_probe, job_id)
 
     wacz = await download_wacz(job_id)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
-    assert not _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/https-first-http-fails")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
+    assert not _wacz_cdx_statuses_for_url(wacz, f"http://{TEST_HOST}/https-first-http-fails")
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_https_only])
@@ -673,8 +673,8 @@ async def test_https_only_accepts_http_seed_and_crawls_https(
     await _probe_replay(browser_probe, job_id)
 
     wacz = await download_wacz(job_id)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
-    assert not _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/https-first-http-fails")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/https-first-http-fails")
+    assert not _wacz_cdx_statuses_for_url(wacz, f"http://{TEST_HOST}/https-first-http-fails")
 
 
 @pytest.mark.asyncio
@@ -692,8 +692,8 @@ async def test_https_first_falls_back_to_http_when_https_no_response(
     await _probe_replay(browser_probe, job_id)
 
     wacz = await download_wacz(job_id)
-    assert 200 in _wacz_cdxj_statuses_for_url(wacz, f"http://{TEST_HOST}/http-fallback-success")
-    assert not _wacz_cdxj_statuses_for_url(wacz, f"https://{TEST_HOST}/http-fallback-success")
+    assert 200 in _wacz_cdx_statuses_for_url(wacz, f"http://{TEST_HOST}/http-fallback-success")
+    assert not _wacz_cdx_statuses_for_url(wacz, f"https://{TEST_HOST}/http-fallback-success")
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_https_only])
@@ -743,8 +743,8 @@ async def test_capture_downgrades_untrusted_https_certificate_to_http(
 
     wacz = await download_wacz(job_id)
     archive_text = _wacz_archive_text(wacz)
-    assert 200 in _wacz_cdxj_statuses_for_root_url(wacz, f"http://{UNTRUSTED_TEST_HOST}/")
-    assert not _wacz_cdxj_statuses_for_root_url(wacz, f"https://{UNTRUSTED_TEST_HOST}/")
+    assert 200 in _wacz_cdx_statuses_for_root_url(wacz, f"http://{UNTRUSTED_TEST_HOST}/")
+    assert not _wacz_cdx_statuses_for_root_url(wacz, f"https://{UNTRUSTED_TEST_HOST}/")
     assert "WARC-Target-URI: http://untrusted.test-target/" in archive_text
     assert "untrusted" in archive_text
 
