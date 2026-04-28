@@ -15,7 +15,7 @@
 #include <userver/server/http/http_request.hpp>
 #include <userver/utils/assert.hpp>
 
-namespace v1::client_ip {
+namespace v1::client::ip {
 using text::literals::operator""_t;
 
 [[nodiscard]] inline std::optional<String> makeClientIp(std::string_view raw)
@@ -23,9 +23,8 @@ using text::literals::operator""_t;
     std::string text{raw};
     absl::StripAsciiWhitespace(&text);
     auto ipText = TRY(String::fromBytes(text));
-    if (!isIpLiteralHostname(ipText))
-        return {};
-    return ipText;
+    auto ip = TRY(parseIp(ipText));
+    return toCanonicalIpText(ip);
 }
 
 [[nodiscard]] inline std::optional<String>
@@ -40,4 +39,4 @@ resolve(const server::http::HttpRequest &request, const Config &config)
         invariant("unknown client IP source"_t);
     }
 }
-} // namespace v1::client_ip
+} // namespace v1::client::ip

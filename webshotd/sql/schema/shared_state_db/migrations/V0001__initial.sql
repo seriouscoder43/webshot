@@ -61,7 +61,7 @@ create index if not exists crawl_job_link_created_idx
 on crawl_job (link, created_at desc, id desc);
 
 create table client_ip_cooldown (
-    client_ip text collate "C" primary key,
+    client_ip inet primary key,
     expires_at timestamptz not null,
     updated_at timestamptz not null default now()
 );

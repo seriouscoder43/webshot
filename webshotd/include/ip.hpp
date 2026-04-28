@@ -20,7 +20,7 @@ using Ip4 = us::utils::ip::AddressV4;
 using Ip6 = us::utils::ip::AddressV6;
 using Ip = std::variant<Ip4, Ip6>;
 
-namespace ip_detail {
+namespace ip::detail {
 
 [[nodiscard]] inline bool inIpv4Range(uint32_t ip, uint32_t network, uint32_t mask) noexcept
 {
@@ -34,7 +34,17 @@ namespace ip_detail {
            uint32_t{b[3]};
 }
 
-} // namespace ip_detail
+[[nodiscard]] inline std::optional<String>
+canonicalIpTextFromBytes(int family, const void *source) noexcept
+{
+    std::array<char, INET6_ADDRSTRLEN> text{};
+    if (inet_ntop(family, source, text.data(), text.size()) == nullptr)
+        return {};
+
+    return String::fromBytes(text.data()).expect("inet_ntop produced invalid UTF-8");
+}
+
+} // namespace ip::detail
 
 [[nodiscard]] inline std::optional<Ip4> parseIp4(const String &text) noexcept
 {
@@ -79,6 +89,27 @@ namespace ip_detail {
     return {};
 }
 
+[[nodiscard]] inline std::optional<String> toCanonicalIpText(const Ip4 &addr) noexcept
+{
+    in_addr native{};
+    const auto &bytes = addr.GetBytes();
+    std::memcpy(&native.s_addr, bytes.data(), bytes.size());
+    return ip::detail::canonicalIpTextFromBytes(AF_INET, &native);
+}
+
+[[nodiscard]] inline std::optional<String> toCanonicalIpText(const Ip6 &addr) noexcept
+{
+    in6_addr native{};
+    const auto &bytes = addr.GetBytes();
+    std::memcpy(native.s6_addr, bytes.data(), bytes.size());
+    return ip::detail::canonicalIpTextFromBytes(AF_INET6, &native);
+}
+
+[[nodiscard]] inline std::optional<String> toCanonicalIpText(const Ip &addr) noexcept
+{
+    return std::visit([](const auto &typed) { return toCanonicalIpText(typed); }, addr);
+}
+
 [[nodiscard]] inline bool isIpLiteralHostname(const String &host) noexcept
 {
     return static_cast<bool>(parseIp(host));
@@ -86,27 +117,27 @@ namespace ip_detail {
 
 [[nodiscard]] inline bool isPublicRoutable(const Ip4 &addr) noexcept
 {
-    const auto ip = ip_detail::ipv4HostOrder(addr);
+    const auto ip = ip::detail::ipv4HostOrder(addr);
 
-    if (ip_detail::inIpv4Range(ip, 0x00000000u, 0xFF000000u)) // 0.0.0.0/8
+    if (ip::detail::inIpv4Range(ip, 0x00000000u, 0xFF000000u)) // 0.0.0.0/8
         return false;
-    if (ip_detail::inIpv4Range(ip, 0x0A000000u, 0xFF000000u)) // 10.0.0.0/8
+    if (ip::detail::inIpv4Range(ip, 0x0A000000u, 0xFF000000u)) // 10.0.0.0/8
         return false;
-    if (ip_detail::inIpv4Range(ip, 0x64400000u, 0xFFC00000u)) // 100.64.0.0/10
+    if (ip::detail::inIpv4Range(ip, 0x64400000u, 0xFFC00000u)) // 100.64.0.0/10
         return false;
-    if (ip_detail::inIpv4Range(ip, 0x7F000000u, 0xFF000000u)) // 127.0.0.0/8
+    if (ip::detail::inIpv4Range(ip, 0x7F000000u, 0xFF000000u)) // 127.0.0.0/8
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xA9FE0000u, 0xFFFF0000u)) // 169.254.0.0/16
+    if (ip::detail::inIpv4Range(ip, 0xA9FE0000u, 0xFFFF0000u)) // 169.254.0.0/16
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xAC100000u, 0xFFF00000u)) // 172.16.0.0/12
+    if (ip::detail::inIpv4Range(ip, 0xAC100000u, 0xFFF00000u)) // 172.16.0.0/12
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xC0A80000u, 0xFFFF0000u)) // 192.168.0.0/16
+    if (ip::detail::inIpv4Range(ip, 0xC0A80000u, 0xFFFF0000u)) // 192.168.0.0/16
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xC6120000u, 0xFFFE0000u)) // 198.18.0.0/15
+    if (ip::detail::inIpv4Range(ip, 0xC6120000u, 0xFFFE0000u)) // 198.18.0.0/15
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xE0000000u, 0xF0000000u)) // 224.0.0.0/4
+    if (ip::detail::inIpv4Range(ip, 0xE0000000u, 0xF0000000u)) // 224.0.0.0/4
         return false;
-    if (ip_detail::inIpv4Range(ip, 0xF0000000u, 0xF0000000u)) // 240.0.0.0/4
+    if (ip::detail::inIpv4Range(ip, 0xF0000000u, 0xF0000000u)) // 240.0.0.0/4
         return false;
     return true;
 }

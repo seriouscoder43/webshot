@@ -40,6 +40,15 @@ UTEST(Ip, ParsesIpLiteralsIntoTypedValues)
     EXPECT_TRUE(std::holds_alternative<v1::Ip6>(parseIpStrict("2001:db8::1"_t)));
 }
 
+UTEST(Ip, FormatsCanonicalIpText)
+{
+    EXPECT_EQ(*v1::toCanonicalIpText(parseIpStrict("203.0.113.1"_t)), "203.0.113.1"_t);
+    EXPECT_EQ(*v1::toCanonicalIpText(parseIpStrict("[2001:db8::1]"_t)), "2001:db8::1"_t);
+    EXPECT_EQ(
+        *v1::toCanonicalIpText(parseIpStrict("::ffff:198.51.100.9"_t)), "::ffff:198.51.100.9"_t
+    );
+}
+
 UTEST(Ip, RejectsInvalidIpText)
 {
     EXPECT_FALSE(v1::parseIp(""_t));

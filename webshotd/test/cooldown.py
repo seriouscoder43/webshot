@@ -7,6 +7,8 @@ _CLIENT_IP_HEADER = "X-Test-Client-IP"
 _CLIENT_IP = "198.51.100.9"
 _OTHER_CLIENT_IP = "198.51.100.10"
 _THIRD_CLIENT_IP = "198.51.100.11"
+_CLIENT_IPV6 = "2001:db8::9"
+_CLIENT_IPV6_BRACKETED = f"[{_CLIENT_IPV6}]"
 
 
 def _enable_ip_cooldown(_config_yaml, config_vars):
@@ -67,9 +69,38 @@ async def test_create_capture_rejects_same_ip_during_cooldown(service_client, pg
 
     db = pgsql["shared_state_db"]
     with db.cursor() as cur:
-        cur.execute("select count(*) from client_ip_cooldown where client_ip = %s", (_CLIENT_IP,))
-        (cnt,) = cur.fetchone()
+        cur.execute(
+            "select count(*), pg_typeof(client_ip)::text "
+            "from client_ip_cooldown where client_ip = %s::inet "
+            "group by pg_typeof(client_ip)::text",
+            (_CLIENT_IP,),
+        )
+        cnt, client_ip_type = cur.fetchone()
     assert cnt == 1
+    assert client_ip_type == "inet"
+
+
+@pytest.mark.uservice_oneshot(config_hooks=[_enable_ip_cooldown])
+async def test_create_capture_accepts_ipv6_client_ip(service_client, pgsql):
+    first_link = f"https://{TEST_HOST}/ip-cooldown-ipv6-first"
+    second_link = f"https://{TEST_HOST}/ip-cooldown-ipv6-second"
+    headers = {_CLIENT_IP_HEADER: _CLIENT_IPV6_BRACKETED}
+
+    resp1 = await service_client.post("/v1/capture", json={"link": first_link}, headers=headers)
+    assert resp1.status == 202
+
+    resp2 = await service_client.post("/v1/capture", json={"link": second_link}, headers=headers)
+    assert resp2.status == 429
+    assert resp2.json()["error"]["message"] == "client IP in cooldown"
+
+    db = pgsql["shared_state_db"]
+    with db.cursor() as cur:
+        cur.execute(
+            "select host(client_ip) from client_ip_cooldown where client_ip = %s::inet",
+            (_CLIENT_IPV6,),
+        )
+        (stored_client_ip,) = cur.fetchone()
+    assert stored_client_ip == _CLIENT_IPV6
 
 
 @pytest.mark.uservice_oneshot(config_hooks=[_enable_ip_cooldown])
@@ -85,7 +116,7 @@ async def test_create_capture_ip_cooldown_expires(service_client, pgsql):
     with db.cursor() as cur:
         cur.execute(
             "update client_ip_cooldown set expires_at = now() - interval '1 second' "
-            "where client_ip = %s",
+            "where client_ip = %s::inet",
             (_CLIENT_IP,),
         )
 

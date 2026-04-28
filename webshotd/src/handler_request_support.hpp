@@ -115,7 +115,7 @@ public:
     [[nodiscard]] Expected<std::optional<ClientIpCooldown>, ClientRequestError>
     checkClientIpCooldown(const server::http::HttpRequest &request) const
     {
-        auto clientIp = client_ip::resolve(request, config);
+        auto clientIp = client::ip::resolve(request, config);
         if (!clientIp)
             return Unex(ClientRequestError::kInvalidClientIp);
 
