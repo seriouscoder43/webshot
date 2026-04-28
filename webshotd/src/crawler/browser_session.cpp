@@ -15,6 +15,7 @@
 #include <generated/browser_sandbox_path.hpp>
 
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <format>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include <userver/engine/sleep.hpp>
+#include <userver/fs/blocking/file_descriptor.hpp>
 #include <userver/fs/blocking/read.hpp>
 #include <userver/fs/blocking/temp_directory.hpp>
 #include <userver/fs/blocking/write.hpp>
@@ -38,6 +40,7 @@
 #include <userver/utils/text_light.hpp>
 
 #include <absl/strings/ascii.h>
+#include <seccomp.h>
 
 namespace chrono = std::chrono;
 using namespace std::chrono_literals;
@@ -225,6 +228,60 @@ copyFileContents(const std::string &sourcePath, const std::string &destinationPa
     };
 }
 
+class [[nodiscard]] SeccompFilter final {
+public:
+    explicit SeccompFilter(uint32_t defaultAction) : ctx(seccomp_init(defaultAction))
+    {
+        invariant(ctx != nullptr, "failed to initialize browser seccomp filter"_t);
+    }
+    SeccompFilter(const SeccompFilter &) = delete;
+    SeccompFilter(SeccompFilter &&) = delete;
+    SeccompFilter &operator=(const SeccompFilter &) = delete;
+    SeccompFilter &operator=(SeccompFilter &&) = delete;
+    ~SeccompFilter() { seccomp_release(ctx); }
+
+    [[nodiscard]] scmp_filter_ctx get() const noexcept { return ctx; }
+
+private:
+    scmp_filter_ctx ctx;
+};
+
+void denyBrowserSyscall(SeccompFilter &filter, const char *name)
+{
+    const auto syscall = seccomp_syscall_resolve_name(name);
+    invariant(syscall >= 0, text::format("browser seccomp syscall is unknown: {}", name));
+
+    const auto rc = seccomp_rule_add(filter.get(), SCMP_ACT_ERRNO(EPERM), syscall, 0);
+    invariant(rc == 0, text::format("failed to deny browser syscall {}: {}", name, rc));
+}
+
+void writeBrowserSeccompPolicy(const std::string &path)
+{
+    auto filter = SeccompFilter{SCMP_ACT_ALLOW};
+    for (const auto *name : std::array{
+             "bpf",
+             "perf_event_open",
+             "ptrace",
+             "process_vm_readv",
+             "process_vm_writev",
+             "add_key",
+             "request_key",
+             "keyctl",
+         }) {
+        denyBrowserSyscall(filter, name);
+    }
+
+    auto fd = us::fs::blocking::FileDescriptor::Open(
+        path, us::fs::blocking::OpenMode{
+                  us::fs::blocking::OpenFlag::kWrite,
+                  us::fs::blocking::OpenFlag::kCreateIfNotExists,
+                  us::fs::blocking::OpenFlag::kTruncate,
+              }
+    );
+    const auto rc = seccomp_export_bpf(filter.get(), fd.GetNative());
+    invariant(rc == 0, text::format("failed to export browser seccomp policy: {}", rc));
+}
+
 struct [[nodiscard]] BrowserPaths final {
     std::string rootDir;
     std::string runId;
@@ -242,6 +299,7 @@ struct [[nodiscard]] BrowserPaths final {
     std::string stderrLogPath;
     std::string chromiumStderrLogPath;
     std::string bwrapStatusFilePath;
+    std::string seccompBpfPath;
     std::string phaseFilePath;
     std::string devNullPath;
     std::string etcDir;
@@ -276,6 +334,7 @@ struct [[nodiscard]] BrowserPaths final {
         .stderrLogPath = rootDir + "/stderr.log",
         .chromiumStderrLogPath = rootDir + "/chromium-stderr.log",
         .bwrapStatusFilePath = rootDir + "/bwrap-status.jsonl",
+        .seccompBpfPath = rootDir + "/seccomp.bpf",
         .phaseFilePath = rootDir + "/phase.txt",
         .devNullPath = rootDir + "/devnull",
         .etcDir = rootDir + "/etc",
@@ -287,6 +346,7 @@ struct [[nodiscard]] BrowserPaths final {
     };
     us::fs::blocking::CreateDirectories(paths.rootDir);
     us::fs::blocking::RewriteFileContents(rootDir + "/browser_sandbox.sh", browserSandboxScript());
+    writeBrowserSeccompPolicy(paths.seccompBpfPath);
 
     for (const auto &path : std::array{
              paths.userDataDir,
@@ -471,6 +531,8 @@ void removeBrowserRunDir(const std::string &path) noexcept
         "3",
         "--die-with-parent",
         "--new-session",
+        "--seccomp",
+        "4",
         "--unshare-user",
         "--unshare-net",
         "--unshare-pid",
@@ -548,6 +610,9 @@ void removeBrowserRunDir(const std::string &path) noexcept
                                  browserSandboxPath("crashpad"),
                                  "--chdir",
                                  std::string(kBrowserSandboxRoot),
+                                 "setpriv",
+                                 "--no-new-privs",
+                                 "--",
                                  "bash",
                                  "browser_sandbox.sh",
                                  browserSandboxPath("proxy.sock"),
@@ -568,6 +633,7 @@ void removeBrowserRunDir(const std::string &path) noexcept
         cgroupName,
         toBytes(cpuCores),
         toBytes(memoryBytes),
+        paths.seccompBpfPath,
     };
     args.insert(std::end(args), std::begin(bwrapArgs), std::end(bwrapArgs));
     return spawnProcess(processStarter, "bash", args, paths.stdoutLogPath, paths.stderrLogPath);

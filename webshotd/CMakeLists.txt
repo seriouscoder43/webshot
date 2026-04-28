@@ -322,8 +322,10 @@ if(WEBSHOT_ENABLE_COVERAGE)
 endif()
 
 find_package(Boost CONFIG REQUIRED COMPONENTS context)
+find_package(PkgConfig REQUIRED)
 find_package(sml CONFIG REQUIRED)
 find_package(userver CONFIG REQUIRED COMPONENTS core postgresql chaotic s3api)
+pkg_check_modules(LibSeccomp REQUIRED IMPORTED_TARGET libseccomp)
 include("${userver_DIR}/UserverEmbedFile.cmake")
 userver_embed_file(
   webshotd_browser_sandbox_sh
@@ -378,6 +380,8 @@ target_link_libraries(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}_objs
                       PRIVATE webshotd_browser_sandbox_path)
 target_link_libraries(${PROJECT_NAME} PRIVATE webshotd_browser_sandbox_path)
+target_link_libraries(${PROJECT_NAME}_objs PRIVATE PkgConfig::LibSeccomp)
+target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::LibSeccomp)
 target_link_libraries(${PROJECT_NAME}_objs PRIVATE sml::sml)
 target_compile_definitions(${PROJECT_NAME}_objs
                            PRIVATE BOOST_SML_CFG_DISABLE_MIN_SIZE)

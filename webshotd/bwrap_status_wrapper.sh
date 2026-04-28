@@ -6,8 +6,10 @@ cgroup_root=$2
 cgroup_name=$3
 cpu_cores=$4
 memory_bytes=$5
-shift 5
+seccomp_bpf_path=$6
+shift 6
 exec 3>"$status_path"
+exec 4<"$seccomp_bpf_path"
 
 bwrap_pid=''
 browser_cgroup_dir=''

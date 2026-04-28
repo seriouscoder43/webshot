@@ -147,6 +147,10 @@
       if failFast
       then " --fail-fast"
       else "";
+    runTests = ''
+      python3 devenv/run_unit_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
+      python3 devenv/run_testsuite_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
+    '';
     testScript = ''
       set -euo pipefail
       ${mkBuild {
@@ -159,8 +163,7 @@
       }
       trap cleanup EXIT
       ${up}
-      python3 devenv/run_unit_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
-      python3 devenv/run_testsuite_tests.py --mode ${lib.escapeShellArg mode}${failFastArg}
+      ${runTests}
     '';
     remoteTestScript = ''
       set -euo pipefail
@@ -176,23 +179,7 @@
       }
       trap cleanup EXIT
       ${up}
-      build_dir=${lib.escapeShellArg modes.${mode}.buildDir}
-      log_dir="$build_dir/Testing/Temporary"
-      mkdir -p "$log_dir"
-      ctest \
-        --progress \
-        --output-on-failure \
-        -V \
-        -E '^testsuite-testsuite-tests$' \
-        --no-tests=error \
-        --output-log "$log_dir/unit_tests.log" \
-        --test-dir "$build_dir"${lib.optionalString failFast " --stop-on-failure"}
-      testsuite_dir="$build_dir/test"
-      python3 "$testsuite_dir/runtests-testsuite-tests" \
-        --service-logs-pretty \
-        -vv${lib.optionalString failFast " -x"} \
-        >"$log_dir/testsuite.log" \
-        2>&1
+      ${runTests}
     '';
   in
     mkTask ''

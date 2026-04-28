@@ -12,6 +12,7 @@
     boost183
     libarchive
     libarchive.dev
+    libseccomp.dev
     openssl.dev
     jemalloc
     mold
@@ -41,6 +42,7 @@
     ++ (with nix; [
       ungoogled-chromium
       socat
+      util-linux
     ]);
 
   crawlerRuntime =
@@ -71,11 +73,12 @@
   sharedLibs = with nix; [
     drv.unialgo
     libarchive
+    libseccomp
   ];
 
   userverLibs = drv.userverLibs;
   userver = userverLibs ++ [drv.repoPy];
   buildInputsFor = userverPkg: [userverPkg] ++ sharedLibs ++ userver;
   rpathLibsFor = userverPkg: [userverPkg] ++ sharedLibs ++ userver ++ [nix.stdenv.cc.cc.lib];
-  testLibs = userver ++ [nix.libarchive nix.stdenv.cc.cc];
+  testLibs = userver ++ [nix.libarchive nix.libseccomp nix.stdenv.cc.cc];
 }
