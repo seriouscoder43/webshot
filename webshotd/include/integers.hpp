@@ -216,31 +216,6 @@ inline constexpr SSizeFn ssize{};
 // NOLINTNEXTLINE(readability-identifier-naming)
 inline constexpr USizeFn usz{};
 
-[[nodiscard]] inline std::string toBytes(const u16 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string toBytes(const u32 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string toBytes(const i32 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string toBytes(const u64 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
-[[nodiscard]] inline std::string toBytes(const i64 &value)
-{
-    return std::to_string(integers::raw(value));
-}
-
 } // namespace integers
 
 namespace integers::literals {

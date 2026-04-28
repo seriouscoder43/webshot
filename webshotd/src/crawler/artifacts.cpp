@@ -625,7 +625,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
         if (const auto it = exchange.headers.find("content-type"); it != std::end(exchange.headers))
             contentType = it->second;
         const auto urlDigest = sha256Bytes(exchange.finalUrl.view());
-        const auto status = toBytes(exchange.statusCode);
+        const auto status = std::format("{}", exchange.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto contentTypeDigest = sha256Bytes(contentType);
         const auto bodyDigest = sha256Bytes(exchange.body);
@@ -644,7 +644,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
         if (const auto it = redirect.headers.find("location"); it != std::end(redirect.headers))
             location = it->second;
         const auto urlDigest = sha256Bytes(redirect.redirectUrl.view());
-        const auto status = toBytes(redirect.statusCode);
+        const auto status = std::format("{}", redirect.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto locationDigest = sha256Bytes(location);
         itemDigests.emplace_back(sha256Bytes({
@@ -664,7 +664,7 @@ std::string computeContentSha256(const CapturedExchange &exchange)
             contentType = it->second;
         const auto urlDigest = sha256Bytes(resource.resourceUrl.view());
         const auto methodDigest = sha256Bytes(method);
-        const auto status = toBytes(resource.statusCode);
+        const auto status = std::format("{}", resource.statusCode);
         const auto statusDigest = sha256Bytes(status);
         const auto resourceTypeDigest = sha256Bytes(resourceType);
         const auto contentTypeDigest = sha256Bytes(contentType);

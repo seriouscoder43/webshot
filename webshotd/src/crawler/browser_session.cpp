@@ -618,8 +618,8 @@ void removeBrowserRunDir(const std::string &path) noexcept
                                  browserSandboxPath("proxy.sock"),
                                  browserSandboxPath("cdp.sock"),
                                  browserSandboxPath("websocket_path.txt"),
-                                 toBytes(kProxyListenPort),
-                                 toBytes(kDevtoolsPort),
+                                 std::format("{}", kProxyListenPort),
+                                 std::format("{}", kDevtoolsPort),
                                  "--",
                                  "chromium",
                              }
@@ -631,8 +631,8 @@ void removeBrowserRunDir(const std::string &path) noexcept
         paths.bwrapStatusFilePath,
         std::string(cgroupRootPath),
         cgroupName,
-        toBytes(cpuCores),
-        toBytes(memoryBytes),
+        std::format("{}", cpuCores),
+        std::format("{}", memoryBytes),
         paths.seccompBpfPath,
     };
     args.insert(std::end(args), std::begin(bwrapArgs), std::end(bwrapArgs));
