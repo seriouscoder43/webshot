@@ -7,6 +7,7 @@
 #include "userver_namespaces.hpp"
 
 #include <concepts>
+#include <exception>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -16,7 +17,6 @@
 #include <userver/formats/json.hpp>
 #include <userver/formats/json/value.hpp>
 #include <userver/formats/json/value_builder.hpp>
-#include <userver/utils/traceful_exception.hpp>
 
 namespace v1::exu {
 
@@ -69,10 +69,10 @@ template <typename Exception, typename E, typename F>
 }
 
 template <typename E, typename F, typename G>
-    requires detail::SupportedErrorMapper<us::utils::TracefulException, E, F, G>
+    requires detail::SupportedErrorMapper<std::exception, E, F, G>
 [[nodiscard]] auto catchUserver(F &&f, G &&mapError) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return detail::catchExceptionImpl<us::utils::TracefulException, E>(
+    return detail::catchExceptionImpl<std::exception, E>(
         std::forward<F>(f), std::forward<G>(mapError)
     );
 }
@@ -81,7 +81,7 @@ template <typename E, typename F>
     requires std::invocable<F> && std::copy_constructible<E>
 [[nodiscard]] auto catchUserver(F &&f, E error) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return catchException<us::utils::TracefulException, E>(std::forward<F>(f), std::move(error));
+    return catchException<std::exception, E>(std::forward<F>(f), std::move(error));
 }
 
 namespace json {
@@ -126,9 +126,8 @@ template <typename T, typename E>
 }
 
 template <typename T, typename E, typename G>
-    requires std::invocable<G, const us::utils::TracefulException &> &&
-             std::constructible_from<
-                 E, std::invoke_result_t<G, const us::utils::TracefulException &>>
+    requires std::invocable<G, const std::exception &> &&
+             std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
 [[nodiscard]] Expected<::json::Value, E> valueOf(const T &value, G &&mapError)
 {
     return catchUserver<E>(
@@ -146,9 +145,8 @@ template <typename T, typename E>
 }
 
 template <typename E, typename G>
-    requires std::invocable<G, const us::utils::TracefulException &> &&
-             std::constructible_from<
-                 E, std::invoke_result_t<G, const us::utils::TracefulException &>>
+    requires std::invocable<G, const std::exception &> &&
+             std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
 [[nodiscard]] Expected<std::string, E> stringifyBytes(::json::Value value, G &&mapError)
 {
     return catchUserver<E>(
@@ -179,9 +177,8 @@ template <typename T, typename E>
 }
 
 template <typename E, typename G>
-    requires std::invocable<G, const us::utils::TracefulException &> &&
-             std::constructible_from<
-                 E, std::invoke_result_t<G, const us::utils::TracefulException &>>
+    requires std::invocable<G, const std::exception &> &&
+             std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
 [[nodiscard]] Expected<String, E> stringify(::json::Value value, G &&mapError)
 {
     auto jsonBytes = TRY(stringifyBytes<E>(std::move(value), std::forward<G>(mapError)));

@@ -30,6 +30,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <exception>
 #include <format>
 #include <functional>
 #include <limits>
@@ -51,9 +52,9 @@
 #include <userver/engine/async.hpp>
 #include <userver/engine/condition_variable.hpp>
 #include <userver/engine/deadline.hpp>
-#include <userver/engine/exception.hpp>
 #include <userver/engine/sleep.hpp>
 #include <userver/engine/subprocess/process_starter.hpp>
+#include <userver/engine/task/cancel.hpp>
 #include <userver/formats/json.hpp>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/fs/blocking/read.hpp>
@@ -64,7 +65,6 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
-#include <userver/utils/traceful_exception.hpp>
 namespace chrono = std::chrono;
 namespace dns = us::clients::dns;
 
@@ -1175,6 +1175,7 @@ public:
                   .cdpMaxRemotePayloadBytes = computeCdpMaxRemotePayloadBytes(maxArchiveBytesIn),
                   .proxyRequireAuth = true,
                   .enableLocalFixtureRewrite = tunablesIn.enableLocalFixtureRewrite,
+                  .testsuiteLoopbackPorts = {},
                   .cgroupNamePrefix = "webshotd_crawler",
               }
           )
@@ -1912,7 +1913,9 @@ private:
         out.pagesJsonl = std::move(pages);
         out.replayUrl = exchange.finalUrl;
         return out;
-    } catch (const us::utils::TracefulException &e) {
+    } catch (const std::exception &e) {
+        if (eng::current_task::IsCancelRequested())
+            throw;
         out.attempt.exitCode = 9;
         out.attempt.waczExists = false;
         out.attempt.seedProbe.reset();

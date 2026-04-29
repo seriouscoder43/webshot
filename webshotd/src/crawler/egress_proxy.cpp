@@ -23,6 +23,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <format>
 #include <optional>
 #include <span>
@@ -41,7 +42,6 @@
 #include <userver/engine/task/task_with_result.hpp>
 #include <userver/engine/wait_all_checked.hpp>
 #include <userver/utils/assert.hpp>
-#include <userver/utils/traceful_exception.hpp>
 
 #include <absl/strings/ascii.h>
 #include <absl/strings/match.h>
@@ -394,7 +394,9 @@ rewriteLocalFixtureIfNeeded(const EgressProxyConfig &cfg, std::string_view host,
 
     const auto isTestsuiteLoopbackHost = host == "127.0.0.1" || host == "localhost" ||
                                          host == "::1";
-    const auto isTestsuiteLoopbackPort = port == kTestsuiteServicePort || port == kTestsuiteS3Port;
+    const auto isTestsuiteLoopbackPort = port == kTestsuiteServicePort ||
+                                         port == kTestsuiteS3Port ||
+                                         std::ranges::contains(cfg.testsuiteLoopbackPorts, port);
     if (isTestsuiteLoopbackHost && isTestsuiteLoopbackPort) {
         return UpstreamTarget{
             .connectHost = std::string(host),
@@ -619,7 +621,7 @@ struct EgressProxy::Impl final {
             const auto sent = sock.SendAll(bytes.data(), numericCast<size_t>(allowed), deadline);
             accountDownBytes(i64{sent});
             return usize{sent};
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
             return 0_uz;
         }
     }
@@ -633,7 +635,7 @@ struct EgressProxy::Impl final {
         try {
             static_cast<void>(sock.SendAll(bytes.data(), bytes.size(), deadline));
             return true;
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
             return false;
         }
     }
@@ -659,11 +661,11 @@ struct EgressProxy::Impl final {
     {
         try {
             a.Close();
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
         }
         try {
             b.Close();
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
         }
     }
 
@@ -691,7 +693,7 @@ struct EgressProxy::Impl final {
             try {
                 socket.Connect(addr.sockaddr, deadline);
                 return socket;
-            } catch (const utils::TracefulException &e) {
+            } catch (const std::exception &e) {
                 errors.push_back(std::format("{} ({})", addr.label, e.what()));
             }
         }
@@ -729,7 +731,7 @@ struct EgressProxy::Impl final {
                     return;
                 }
             }
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
             return;
         }
     }
@@ -756,7 +758,7 @@ struct EgressProxy::Impl final {
                     pending = pending.subspan(raw(sent));
                 }
             }
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
             return;
         }
     }
@@ -798,7 +800,7 @@ struct EgressProxy::Impl final {
             auto received = 0_uz;
             try {
                 received = usize{client.RecvSome(buffer.data(), want, deadline)};
-            } catch (const utils::TracefulException &) {
+            } catch (const std::exception &) {
                 break;
             }
             if (received == 0_uz)
@@ -904,7 +906,7 @@ struct EgressProxy::Impl final {
                     return;
                 header.append(buffer.data(), raw(received));
             }
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
             return;
         }
 
@@ -941,7 +943,7 @@ struct EgressProxy::Impl final {
             eng::io::Socket client;
             try {
                 client = listener.Accept(deadline);
-            } catch (const utils::TracefulException &) {
+            } catch (const std::exception &) {
                 return;
             }
             if (isClosed())
@@ -978,7 +980,7 @@ struct EgressProxy::Impl final {
         try {
             if (listener.IsValid())
                 listener.Close();
-        } catch (const utils::TracefulException &) {
+        } catch (const std::exception &) {
         }
     }
 };
@@ -1002,7 +1004,7 @@ Expected<void, String> EgressProxy::start(dns::Resolver &resolver, eng::Deadline
         auto addr = eng::io::Sockaddr::MakeUnixSocketAddress(impl->config.socketPath);
         impl->listener.Bind(addr);
         impl->listener.Listen();
-    } catch (const utils::TracefulException &e) {
+    } catch (const std::exception &e) {
         return Unex(text::format("proxy bind then listen failed: {}", e.what()));
     }
 

@@ -63,6 +63,7 @@ struct [[nodiscard]] ProbeConfig final {
     chrono::milliseconds browserStopTimeout;
     i64 cdpMaxRemotePayloadBytes;
     bool localFixtureRewrite;
+    std::vector<u16> testsuiteLoopbackPorts;
 };
 
 [[nodiscard]] Expected<dto::BrowserProbeRequest, String> parseProbeRequest(const String &body)
@@ -75,6 +76,16 @@ struct [[nodiscard]] ProbeConfig final {
         "invalid request body"_t
     );
     return request;
+}
+
+[[nodiscard]] std::vector<u16>
+parseTestsuiteLoopbackPorts(const us::components::ComponentConfig &config)
+{
+    std::vector<u16> ports;
+    for (const auto port : config["testsuite_loopback_ports"].As<std::vector<int64_t>>()) {
+        ports.emplace_back(numericCast<uint16_t>(port));
+    }
+    return ports;
 }
 
 [[nodiscard]] Expected<json::Value, String>
@@ -358,6 +369,7 @@ runProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
             .cdpMaxRemotePayloadBytes = config.cdpMaxRemotePayloadBytes,
             .proxyRequireAuth = false,
             .enableLocalFixtureRewrite = config.localFixtureRewrite,
+            .testsuiteLoopbackPorts = config.testsuiteLoopbackPorts,
             .cgroupNamePrefix = "webshotd_browser_probe",
         }
     };
@@ -469,6 +481,7 @@ BrowserProbeHandler::BrowserProbeHandler(
                   .cdpMaxRemotePayloadBytes =
                       i64(config["cdp_max_remote_payload_bytes"].As<int64_t>()),
                   .localFixtureRewrite = config["local_fixture_rewrite"].As<bool>(),
+                  .testsuiteLoopbackPorts = parseTestsuiteLoopbackPorts(config),
               },
           })
       )
@@ -515,6 +528,14 @@ properties:
   local_fixture_rewrite:
     type: boolean
     description: Rewrite local test fixture hosts (test-target) to 127.0.0.1:18080/18443 for the browser probe
+  testsuite_loopback_ports:
+    type: array
+    description: Extra loopback ports that the test-only browser probe may reach through the crawler proxy
+    items:
+      type: integer
+      description: Loopback TCP port number
+      minimum: 1
+      maximum: 65535
 )");
 }
 

@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <userver/clients/dns/resolver_fwd.hpp>
 
@@ -17,11 +18,12 @@ namespace v1::crawler {
 struct [[nodiscard]] EgressProxyConfig final {
     EgressProxyConfig(
         std::string socketPath, std::string runId, usize urlBytesMax, i64 downBytesMax,
-        bool requireAuth, bool enableLocalFixtureRewrite
+        bool requireAuth, bool enableLocalFixtureRewrite, std::vector<u16> testsuiteLoopbackPorts
     )
         : socketPath(std::move(socketPath)), runId(std::move(runId)), urlBytesMax(urlBytesMax),
           downBytesMax(downBytesMax), requireAuth(requireAuth),
-          enableLocalFixtureRewrite(enableLocalFixtureRewrite)
+          enableLocalFixtureRewrite(enableLocalFixtureRewrite),
+          testsuiteLoopbackPorts(std::move(testsuiteLoopbackPorts))
     {
     }
 
@@ -31,6 +33,7 @@ struct [[nodiscard]] EgressProxyConfig final {
     i64 downBytesMax;
     bool requireAuth;
     bool enableLocalFixtureRewrite;
+    std::vector<u16> testsuiteLoopbackPorts;
 };
 
 class [[nodiscard]] EgressProxy final {

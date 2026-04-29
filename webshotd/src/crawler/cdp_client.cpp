@@ -12,6 +12,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <ranges>
 #include <stdexcept>
@@ -31,7 +32,6 @@
 #include <userver/crypto/random.hpp>
 #include <userver/engine/async.hpp>
 #include <userver/engine/deadline.hpp>
-#include <userver/engine/exception.hpp>
 #include <userver/engine/io/sockaddr.hpp>
 #include <userver/engine/io/socket.hpp>
 #include <userver/engine/task/cancel.hpp>
@@ -40,7 +40,6 @@
 #include <userver/logging/log.hpp>
 #include <userver/utils/assert.hpp>
 #include <userver/utils/datetime.hpp>
-#include <userver/utils/traceful_exception.hpp>
 #include <userver/utils/underlying_value.hpp>
 #include <userver/websocket/connection.hpp>
 namespace chrono = std::chrono;
@@ -54,6 +53,8 @@ namespace {
 
 constexpr auto kMaxHandshakeResponseBytes = 16_i64 * 1024_i64;
 constexpr std::string_view kWebsocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+[[nodiscard]] bool isCancelRequested() { return eng::current_task::IsCancelRequested(); }
 
 [[nodiscard]] std::string currentTraceTimestamp()
 {
@@ -102,7 +103,9 @@ connectCdpSocket(eng::io::Socket &socket, const eng::io::Sockaddr &address, eng:
     try {
         socket.Connect(address, deadline);
         return {};
-    } catch (const us::utils::TracefulException &) {
+    } catch (const std::exception &) {
+        if (isCancelRequested())
+            throw;
         return Unex(CdpFailure{.code = kSocketConnectFailed, .detail = {}});
     }
 }
@@ -114,7 +117,9 @@ sendHandshakeRequest(eng::io::Socket &socket, const std::string &request, eng::D
     try {
         static_cast<void>(socket.SendAll(request.data(), request.size(), deadline));
         return {};
-    } catch (const us::utils::TracefulException &) {
+    } catch (const std::exception &) {
+        if (isCancelRequested())
+            throw;
         return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 }
@@ -125,7 +130,9 @@ readHandshakeByte(eng::io::Socket &socket, char &ch, eng::Deadline deadline)
     using enum CdpError;
     try {
         return socket.RecvSome(&ch, 1, deadline);
-    } catch (const us::utils::TracefulException &) {
+    } catch (const std::exception &) {
+        if (isCancelRequested())
+            throw;
         return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 }
@@ -145,7 +152,9 @@ makeCdpWebSocketConnection(
         return us::websocket::MakeClientWebSocketConnection(
             std::move(connectionSocket), std::move(address), wsConfig
         );
-    } catch (const us::utils::TracefulException &) {
+    } catch (const std::exception &) {
+        if (isCancelRequested())
+            throw;
         return Unex(CdpFailure{.code = kTransport, .detail = {}});
     }
 }
@@ -156,7 +165,9 @@ sendWebSocketText(us::websocket::WebSocketConnection &connection, const std::str
     try {
         connection.SendText(requestBytes);
         return {};
-    } catch (const us::utils::TracefulException &e) {
+    } catch (const std::exception &e) {
+        if (isCancelRequested())
+            throw;
         return Unex(std::string(e.what()));
     }
 }
@@ -167,7 +178,9 @@ closeWebSocket(us::websocket::WebSocketConnection &connection)
     try {
         connection.Close(us::websocket::CloseStatus::kNormal);
         return {};
-    } catch (const us::utils::TracefulException &e) {
+    } catch (const std::exception &e) {
+        if (isCancelRequested())
+            throw;
         return Unex(std::string(e.what()));
     }
 }
@@ -592,10 +605,11 @@ void CdpClient::readerLoop()
         us::websocket::Message message;
         try {
             connection->Recv(message);
-        } catch (const eng::WaitInterruptedException &) {
-            failTerminal(makeSocketClosedFailure("websocket close requested"_t));
-            return;
-        } catch (const us::utils::TracefulException &e) {
+        } catch (const std::exception &e) {
+            if (isCancelRequested()) {
+                failTerminal(makeSocketClosedFailure("websocket close requested"_t));
+                return;
+            }
             traceTransportError("recv"_t, parsePrintableText(e.what()));
             failTerminal(CdpFailure{.code = CdpError::kTransport, .detail = {}});
             return;

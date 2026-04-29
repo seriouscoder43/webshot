@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <userver/clients/dns/resolver_fwd.hpp>
 #include <userver/engine/deadline.hpp>
@@ -39,6 +40,7 @@ struct [[nodiscard]] BrowserSessionConfig final {
     i64 cdpMaxRemotePayloadBytes{0};
     bool proxyRequireAuth;
     bool enableLocalFixtureRewrite;
+    std::vector<u16> testsuiteLoopbackPorts;
     std::string cgroupNamePrefix;
 };
 

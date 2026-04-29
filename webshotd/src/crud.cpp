@@ -35,6 +35,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -75,7 +76,6 @@
 #include <userver/utils/datetime/from_string_saturating.hpp>
 #include <userver/utils/datetime/timepoint_tz.hpp>
 #include <userver/utils/periodic_task.hpp>
-#include <userver/utils/traceful_exception.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
@@ -123,6 +123,18 @@ struct [[nodiscard]] ClientIpCooldownRow final {
         return {};
     invariant(cpuCores > 0_i64 && memoryGib > 0_i64, "crawler limits must be both > 0 or both 0"_t);
     return crawler::CgroupLimits{.cpuCores = cpuCores, .memoryBytes = memoryGib * kGiB};
+}
+
+template <typename F> [[nodiscard]] Expected<void, std::string> runS3Operation(F &&operation)
+{
+    try {
+        std::forward<F>(operation)();
+        return {};
+    } catch (const std::exception &e) {
+        if (eng::current_task::IsCancelRequested())
+            throw;
+        return Unex(std::string(e.what()));
+    }
 }
 
 [[nodiscard]] dto::CaptureJob
@@ -626,10 +638,10 @@ Crud::Impl::runCrawlJob(Uuid id, Link link)
         "runCrawlJob starting crawler for job {} ({})", id, ctx.link.normalized()
     );
     {
-        TRY_MAP_ERR(runCrawlerForContext(ctx), [&](auto &&error) {
+        auto crawlerResult = runCrawlerForContext(ctx);
+        if (!crawlerResult)
             metrics.accountError(Metrics::Error::kCrawlerRun);
-            return std::forward<decltype(error)>(error);
-        });
+        TRY(std::move(crawlerResult));
     }
     LOG_INFO() << std::format(
         "runCrawlJob finished crawler for job {} ({})", id, ctx.link.normalized()
@@ -783,24 +795,18 @@ Expected<Crud::Impl::S3ClientState, std::string> Crud::Impl::fetchS3ClientStateF
 Expected<void, std::string>
 Crud::Impl::putCaptureObject(std::string_view key, const std::string &bytes)
 {
-    try {
+    return runS3Operation([&] {
         auto snapshot = s3State.Read();
         snapshot->client->PutObject(key, bytes, {}, "application/wacz", {}, {});
-        return {};
-    } catch (const us::utils::TracefulException &e) {
-        return Unex(std::string(e.what()));
-    }
+    });
 }
 
 Expected<void, std::string> Crud::Impl::deleteCaptureObject(std::string_view key)
 {
-    try {
+    return runS3Operation([&] {
         auto snapshot = s3State.Read();
         snapshot->client->DeleteObject(key);
-        return {};
-    } catch (const us::utils::TracefulException &e) {
-        return Unex(std::string(e.what()));
-    }
+    });
 }
 
 Expected<std::optional<dto::CaptureJob>, PgError>
@@ -1257,30 +1263,27 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
     Uuid id;
 
     if (implPtr->linkCooldown > 0s) {
-        auto decision = implPtr->getOrCreateCaptureJobLocked(normalizedLink);
-        if (!decision) {
+        auto captureJobResult = implPtr->getOrCreateCaptureJobLocked(normalizedLink);
+        if (!captureJobResult)
             LOG_ERROR() << std::format(
                 "Failed to create or reuse crawl job for {}: {}", normalizedLink,
-                decision.error().what
+                captureJobResult.error().what
             );
-            return Unex(kDbFailure);
-        }
-        auto result = grabValueOf(decision);
+        auto result = TRY_ERR_AS(std::move(captureJobResult), kDbFailure);
         job = std::move(result.job);
         if (!result.created)
             return job;
         id = job.uuid;
     } else {
         id = us::utils::generators::GenerateBoostUuid();
-        auto createdAt = implPtr->insertJob(id, normalizedLink);
-        if (!createdAt) {
+        auto insertResult = implPtr->insertJob(id, normalizedLink);
+        if (!insertResult)
             LOG_ERROR() << std::format(
-                "Failed to create crawl job for {}: {}", normalizedLink, createdAt.error().what
+                "Failed to create crawl job for {}: {}", normalizedLink, insertResult.error().what
             );
-            return Unex(kDbFailure);
-        }
+        auto createdAt = TRY_ERR_AS(std::move(insertResult), kDbFailure);
         implPtr->metrics.accountCaptureJobCreated();
-        job = makePendingCaptureJob(id, normalizedLink, grabValueOf(createdAt));
+        job = makePendingCaptureJob(id, normalizedLink, createdAt);
     }
     implPtr->crawlBackground.AsyncDetach("crawl_job", [implPtr, id, link = std::move(link)]() {
         const auto markFailed = [&](const String &errorCategory, const String &errorMessage) {
@@ -1294,16 +1297,23 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
             const eng::TaskCancellationBlocker blocker;
             return implPtr->markJobSucceeded(id, resultCaptureId, createdAtValue);
         };
+        const auto accountMarkedFailure =
+            [&](const Expected<chrono::milliseconds, PgError> &marked) {
+                if (!marked) {
+                    LOG_ERROR() << std::format(
+                        "DB update crawl job failed for {}: {}", id, marked.error().what
+                    );
+                } else {
+                    implPtr->metrics.accountCaptureCompleted(false, *marked);
+                }
+            };
         auto markInternalError = [&](std::string_view what) {
             LOG_ERROR() << std::format("Unexpected crawl job failure for {}: {}", id, what);
-            const auto marked = markFailed("internal_server_error"_t, "internal server error"_t);
-            if (!marked) {
-                LOG_ERROR() << std::format(
-                    "DB update crawl job failed for {}: {}", id, marked.error().what
-                );
-            } else {
-                implPtr->metrics.accountCaptureCompleted(false, *marked);
-            }
+            accountMarkedFailure(markFailed("internal_server_error"_t, "internal server error"_t));
+        };
+        auto markCrawlerFailure = [&](const String &detail) {
+            LOG_WARNING() << std::format("Crawl job failed for {}: {}", id, detail);
+            accountMarkedFailure(markFailed("crawler_failed"_t, detail));
         };
 
         try {
@@ -1328,13 +1338,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
                 } else {
                     marked = markFailed("crawler_failed"_t, "crawler failed"_t);
                 }
-                if (!marked) {
-                    LOG_ERROR() << std::format(
-                        "DB update crawl job failed for {}: {}", id, marked.error().what
-                    );
-                } else {
-                    implPtr->metrics.accountCaptureCompleted(false, *marked);
-                }
+                accountMarkedFailure(marked);
                 return;
             }
 
@@ -1346,7 +1350,16 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::createCaptureJob(Link li
             } else {
                 implPtr->metrics.accountCaptureCompleted(true, *succeeded);
             }
-        } catch (const us::utils::TracefulException &e) {
+        } catch (const std::exception &e) {
+            if (eng::current_task::IsCancelRequested()) {
+                markCrawlerFailure(
+                    text::format(
+                        "crawl job cancelled: {}",
+                        eng::ToString(eng::current_task::CancellationReason())
+                    )
+                );
+                throw;
+            }
             markInternalError(e.what());
         }
     });
@@ -1623,10 +1636,10 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
 
 Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noexcept
 {
-    TRY_MAP_ERR(impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t), [&](auto &&error) {
+    auto inserted = impl->denylist.insertPrefix(prefixKey, "disallow_and_purge"_t);
+    if (!inserted)
         impl->metrics.accountError(Metrics::Error::kDenylistCheck);
-        return std::forward<decltype(error)>(error);
-    });
+    TRY(std::move(inserted));
 
     LOG_INFO() << std::format("enqueued for prefix {}", prefixKey);
 
@@ -1639,7 +1652,7 @@ Expected<void, DenylistError> Crud::disallowAndPurgePrefix(String prefixKey) noe
                 LOG_CRITICAL() << std::format("Purge task failed for {}", prefixKey);
                 us::utils::AbortWithStacktrace("Purge task failed");
             }
-        } catch (const us::utils::TracefulException &e) {
+        } catch (const std::exception &e) {
             LOG_CRITICAL() << std::format("Purge task failed for {}: {}", prefixKey, e.what());
             us::utils::AbortWithStacktrace("Purge task failed");
         }

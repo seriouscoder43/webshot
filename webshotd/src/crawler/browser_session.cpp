@@ -59,6 +59,9 @@ constexpr std::string_view kBrowserSandboxRoot{"/browser"};
 constexpr std::string_view kBrowserSandboxHostname{"webshot-browser"};
 constexpr std::string_view kBrowserSandboxUid{"1000"};
 constexpr std::string_view kBrowserSandboxGid{"1000"};
+constexpr std::string_view kProxySocketFileName{"proxy.sock"};
+constexpr std::string_view kCdpSocketFileName{"cdp.sock"};
+constexpr std::string_view kWebsocketPathFileName{"websocket_path.txt"};
 constexpr std::string_view kBwrapStatusWrapperPath{WEBSHOT_BWRAP_STATUS_WRAPPER_PATH};
 constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE};
 
@@ -372,6 +375,24 @@ struct [[nodiscard]] BrowserPaths final {
     return paths;
 }
 
+[[nodiscard]] Expected<us::fs::blocking::FileDescriptor, String>
+openBrowserRunDir(const BrowserPaths &paths)
+{
+    try {
+        return us::fs::blocking::FileDescriptor::OpenDirectory(paths.rootDir);
+    } catch (const std::runtime_error &e) {
+        return Unex(text::format("failed to open browser run dir {}: {}", paths.rootDir, e.what()));
+    }
+}
+
+[[nodiscard]] std::string
+browserRunFdPath(const us::fs::blocking::FileDescriptor &dirFd, std::string_view fileName)
+{
+    invariant(!fileName.empty(), "browser run fd path file name must not be empty"_t);
+    invariant(fileName.front() != '/', "browser run fd path file name must be relative"_t);
+    return std::format("/proc/self/fd/{}/{}", dirFd.GetNative(), fileName);
+}
+
 [[nodiscard]] Expected<void, String>
 copyLocalFixtureTrustDb(const std::string &sourcePath, const std::string &destinationPath)
 {
@@ -395,6 +416,19 @@ stageLocalFixtureTrustDb(const BrowserPaths &paths, const std::string &sourcePat
 
     TRY(copyLocalFixtureTrustDb(sourcePath, paths.localFixtureTrustDbDir));
     TRY(copyLocalFixtureTrustDb(sourcePath, paths.userDataTrustDbDir));
+    return {};
+}
+
+[[nodiscard]] Expected<void, String>
+stageLocalFixtureTrustDbIfNeeded(const BrowserPaths &paths, const BrowserSessionConfig &config)
+{
+    if (!config.enableLocalFixtureRewrite)
+        return {};
+
+    TRY_MAP_ERR(
+        stageLocalFixtureTrustDb(paths, config.localFixtureTrustDbSourcePath),
+        [](auto error) { return text::format("failed to stage local fixture trust db: {}", error); }
+    );
     return {};
 }
 
@@ -614,9 +648,9 @@ void removeBrowserRunDir(const std::string &path) noexcept
                                  "--",
                                  "bash",
                                  "browser_sandbox.sh",
-                                 browserSandboxPath("proxy.sock"),
-                                 browserSandboxPath("cdp.sock"),
-                                 browserSandboxPath("websocket_path.txt"),
+                                 browserSandboxPath(kProxySocketFileName),
+                                 browserSandboxPath(kCdpSocketFileName),
+                                 browserSandboxPath(kWebsocketPathFileName),
                                  std::format("{}", kProxyListenPort),
                                  std::format("{}", kDevtoolsPort),
                                  "--",
@@ -636,6 +670,45 @@ void removeBrowserRunDir(const std::string &path) noexcept
     };
     args.insert(std::end(args), std::begin(bwrapArgs), std::end(bwrapArgs));
     return spawnProcess(processStarter, "bash", args, paths.stdoutLogPath, paths.stderrLogPath);
+}
+
+[[nodiscard]] Expected<std::unique_ptr<EgressProxy>, String> startBrowserProxy(
+    us::clients::dns::Resolver &dnsResolver, const BrowserPaths &paths,
+    const BrowserSessionConfig &config, eng::Deadline deadline
+)
+{
+    auto runDirFd = TRY(openBrowserRunDir(paths));
+    auto proxy = std::make_unique<EgressProxy>(EgressProxyConfig{
+        browserRunFdPath(runDirFd, kProxySocketFileName),
+        paths.runId,
+        config.urlBytesMax,
+        config.proxyDownBytesMax,
+        config.proxyRequireAuth,
+        config.enableLocalFixtureRewrite,
+        config.testsuiteLoopbackPorts,
+    });
+    TRY_MAP_ERR(proxy->start(dnsResolver, deadline), [](auto detail) {
+        return text::format("proxy failed to start: {}", detail);
+    });
+    return proxy;
+}
+
+[[nodiscard]] Expected<std::unique_ptr<CdpClient>, String> connectCdpOnce(
+    const BrowserPaths &paths, const BrowserSessionConfig &config, const String &websocketPath,
+    eng::Deadline deadline
+)
+{
+    auto runDirFd = TRY(openBrowserRunDir(paths));
+    return TRY_MAP_ERR(
+        CdpClient::connect(
+            browserRunFdPath(runDirFd, kCdpSocketFileName), websocketPath, paths.cdpTracePath,
+            deadline, config.cdpHandshakeTimeout, config.cdpCommandTimeout,
+            config.cdpMaxRemotePayloadBytes
+        ),
+        [](auto failure) {
+            return describeCdpFailure("devtools websocket handshake failed"_t, std::move(failure));
+        }
+    );
 }
 
 template <typename Process> void stopProcess(Process &process, chrono::milliseconds timeout)
@@ -669,31 +742,11 @@ struct BrowserSession::Impl final {
     [[nodiscard]] Expected<void, String> launch()
     {
         paths = createBrowserPaths(config.browserRunsRoot);
-        if (config.enableLocalFixtureRewrite) {
-            auto trustDbStaged = stageLocalFixtureTrustDb(
-                paths, config.localFixtureTrustDbSourcePath
-            );
-            if (!trustDbStaged)
-                return Unex(
-                    text::format(
-                        "failed to stage local fixture trust db: {}", trustDbStaged.error()
-                    )
-                );
-        }
+        TRY(stageLocalFixtureTrustDbIfNeeded(paths, config));
 
         markPhase("launch_browser");
         const auto devtoolsDeadline = eng::Deadline::FromDuration(config.devtoolsStartupTimeout);
-        proxy = std::make_unique<EgressProxy>(EgressProxyConfig{
-            paths.proxySocketPath,
-            paths.runId,
-            config.urlBytesMax,
-            config.proxyDownBytesMax,
-            config.proxyRequireAuth,
-            config.enableLocalFixtureRewrite,
-        });
-        TRY_MAP_ERR(proxy->start(dnsResolver, devtoolsDeadline), [](auto detail) {
-            return text::format("proxy failed to start: {}", detail);
-        });
+        proxy = TRY(startBrowserProxy(dnsResolver, paths, config, devtoolsDeadline));
 
         process.emplace(spawnSandboxedBrowser(
             processStarter, paths, config.cgroupRootPath, config.cgroupLimits,
@@ -708,18 +761,29 @@ struct BrowserSession::Impl final {
     [[nodiscard]] Expected<std::unique_ptr<CdpClient>, String>
     connectCdp(eng::Deadline overallDeadline) const
     {
-        return TRY_MAP_ERR(
-            CdpClient::connect(
-                paths.cdpSocketPath, websocketPath, paths.cdpTracePath, overallDeadline,
-                config.cdpHandshakeTimeout, config.cdpCommandTimeout,
-                config.cdpMaxRemotePayloadBytes
-            ),
-            [this](auto failure) {
-                const auto detail = describeCdpFailure(
-                    "devtools websocket handshake failed"_t, std::move(failure)
-                );
-                return text::format("{} ({})", detail, currentLaunchLogs());
-            }
+        invariant(overallDeadline.IsReachable(), "cdp overall deadline must be reachable"_t);
+
+        std::optional<String> lastFailure;
+        i64 attempts{0};
+        while (!overallDeadline.IsReached()) {
+            attempts++;
+            auto cdp = connectCdpOnce(paths, config, websocketPath, overallDeadline);
+            if (cdp)
+                return std::move(cdp).value();
+
+            lastFailure = text::format("{} ({})", cdp.error(), currentLaunchLogs());
+
+            if (!overallDeadline.IsReached())
+                eng::SleepFor(config.devtoolsPollInterval);
+        }
+
+        if (lastFailure)
+            return Unex(std::move(*lastFailure));
+        return Unex(
+            text::format(
+                "devtools websocket handshake failed after {} attempt(s) ({})", attempts,
+                currentLaunchLogs()
+            )
         );
     }
 

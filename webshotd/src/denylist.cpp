@@ -102,31 +102,23 @@ Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
 Expected<bool, DenylistError> Denylist::isDeniedPrefix(const String &prefixKey)
 {
     const auto tree = prefix::makePrefixTree(prefixKey);
-    return TRY_MAP_ERR(
-        impl->readonly(
-            [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckDenylistTree,
-            tree
-        ),
-        [](const auto &error) {
-            LOG_ERROR() << std::format("denylist check failed: {}", error.what);
-            return DenylistError::kDbFailure;
-        }
+    auto denied = impl->readonly(
+        [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckDenylistTree, tree
     );
+    if (!denied)
+        LOG_ERROR() << std::format("denylist check failed: {}", denied.error().what);
+    return TRY_ERR_AS(std::move(denied), DenylistError::kDbFailure);
 }
 
 Expected<bool, DenylistError> Denylist::isAllowlistedPrefix(const String &prefixKey)
 {
     const auto tree = prefix::makePrefixTree(prefixKey);
-    return TRY_MAP_ERR(
-        impl->readonly(
-            [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckAllowlistTree,
-            tree
-        ),
-        [](const auto &error) {
-            LOG_ERROR() << std::format("allowlist check failed: {}", error.what);
-            return DenylistError::kDbFailure;
-        }
+    auto allowlisted = impl->readonly(
+        [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckAllowlistTree, tree
     );
+    if (!allowlisted)
+        LOG_ERROR() << std::format("allowlist check failed: {}", allowlisted.error().what);
+    return TRY_ERR_AS(std::move(allowlisted), DenylistError::kDbFailure);
 }
 
 Expected<AccessDecision, DenylistError>

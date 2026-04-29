@@ -101,7 +101,7 @@ properties:
     description: S3 dependency mode from config vars
   s3_endpoint:
     type: string
-    description: S3 HTTP endpoint (e.g., http://localhost:8333)
+    description: S3 HTTP endpoint (e.g., http://127.0.0.1:8333)
   s3_region:
     type: string
     description: Optional region label
