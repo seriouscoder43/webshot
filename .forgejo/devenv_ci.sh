@@ -29,7 +29,7 @@ devenv_nar_hash="${devenv_pin[3]}"
 # root flake. Build the installable explicitly without the node's dir field.
 devenv_installable="github:${devenv_owner}/${devenv_repo}/${devenv_ref}?narHash=${devenv_nar_hash}#devenv"
 
-devenv_args=(--no-tui --no-eval-cache --refresh-task-cache)
+devenv_args=(--no-tui --no-eval-cache --refresh-task-cache --nix-option cores 0)
 
 # CI logs often hide the underlying Nix eval error; opt into verbose tracing when requested.
 if [[ "${DEVENV_CI_DEBUG:-}" == "1" ]]; then
