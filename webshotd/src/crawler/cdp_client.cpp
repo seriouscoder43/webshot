@@ -735,18 +735,20 @@ Expected<void, CdpFailure> CdpClient::handleMessage(const std::string &payload)
     auto eventMessage = TRY(
         exu::json::as<dto::CdpEventMessage>(value, CdpFailure{.code = kProtocol, .detail = {}})
     );
-    const auto sessionId = TRY_MAP_ERR(text::optionalString(eventMessage.sessionId), [](auto) {
-        return CdpFailure{
-            .code = CdpError::kProtocol,
-            .detail = "cdp event contained invalid session id text"_t,
-        };
-    });
-    const auto method = TRY_MAP_ERR(String::fromBytes(eventMessage.method), [](auto) {
-        return CdpFailure{
-            .code = CdpError::kProtocol,
-            .detail = "cdp event contained invalid method text"_t,
-        };
-    });
+    const auto sessionId = TRY_MAP_ERR(
+        text::optionalString(eventMessage.sessionId), ([](auto) {
+            return CdpFailure{
+                .code = CdpError::kProtocol,
+                .detail = "cdp event contained invalid session id text"_t,
+            };
+        })
+    );
+    const auto method = TRY_MAP_ERR(String::fromBytes(eventMessage.method), ([](auto) {
+                                        return CdpFailure{
+                                            .code = CdpError::kProtocol,
+                                            .detail = "cdp event contained invalid method text"_t,
+                                        };
+                                    }));
     const auto routingSessionId = extractRoutingSessionId(eventMessage);
     const auto routingTargetId = extractRoutingTargetId(eventMessage);
     traceEvent(method, sessionId);
