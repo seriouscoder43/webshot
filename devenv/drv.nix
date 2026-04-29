@@ -162,6 +162,6 @@ in {
   inherit userverBuildPython userverLibs;
   userver = userverPkgs.userver-release;
   userverDbg = userverPkgs.userver-debug-addr-ub;
-  repoPy = repoPython;
+  inherit (repoPython) repoPy repoToolPy;
   webUi = webUi;
 }

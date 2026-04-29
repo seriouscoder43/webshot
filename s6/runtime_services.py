@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from s6.common import need_cmd, run
+from s6.common import die, need_cmd, run
 from s6.runtime_config import resolve_runtime_dependency_modes
 from s6.runtime_context import (
     WEBSHOTD_READY_URL,
@@ -260,9 +260,7 @@ def _seaweedfs_full_run_cmd(ctx: RuntimeUpContext, s3_config_path: Path) -> list
         "-filer.maxMB=64",
         "-filer.disableDirListing=true",
         "-volume.concurrentUploadLimitMB=512",
-        "-s3.iam=false",
         "-s3.allowDeleteBucketNotEmpty=false",
-        "-s3.cacheCapacityMB=512",
         "-metricsIp=127.0.0.1",
         "-metricsPort=9324",
         f"-s3.config={s3_config_path}",
@@ -272,7 +270,7 @@ def _seaweedfs_full_run_cmd(ctx: RuntimeUpContext, s3_config_path: Path) -> list
 def _seaweedfs_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
     s3_config_path = ctx.seaweedfs_s3_config_path
     if s3_config_path is None:
-        s3_config_path = ctx.repo_root / "seaweedfs/s3_config.json"
+        raise RuntimeError("SeaweedFS S3 config path must be validated before rendering services")
     if ctx.service_profile == "test_infra":
         run_cmd = _seaweedfs_test_run_cmd(ctx, s3_config_path)
     else:
@@ -319,12 +317,28 @@ def _webshotd_ready_cmd(ctx: RuntimeInspectContext) -> list[str | Path]:
     return [sys.executable, "-m", "s6.check_webshotd_ready", WEBSHOTD_READY_URL]
 
 
+def _webshotd_static_config_path(ctx: RuntimeUpContext) -> Path:
+    base_config_path = ctx.repo_root / "webshotd/config/static_config.yaml"
+    if ctx.mode not in ("dev", "prodlike"):
+        return base_config_path
+
+    testsuite_config_path = (
+        ctx.binary_path.parent.parent.parent / "test/static_config.testsuite.yaml"
+    )
+    if not testsuite_config_path.is_file():
+        die(
+            f"Missing generated testsuite static config: {testsuite_config_path}",
+            exit_code=2,
+        )
+    return testsuite_config_path
+
+
 def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
     rapidoc_assets_dir = require_cmake_cache_string(
         ctx.binary_path.parent / "CMakeCache.txt",
         "WEBSHOT_RAPIDOC_ASSETS_DIR",
     )
-    static_config_path = ctx.repo_root / "webshotd/config/static_config.yaml"
+    static_config_path = _webshotd_static_config_path(ctx)
     static_config = yaml.safe_load(static_config_path.read_text(encoding="utf-8"))
     write_text(
         ctx.webshotd_config_vars_override_path,
@@ -365,7 +379,7 @@ def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
         [
             str(ctx.binary_path),
             "--config",
-            str(ctx.repo_root / "webshotd/config/static_config.yaml"),
+            str(static_config_path),
             "--config_vars",
             str(ctx.runtime_config_vars_path),
             "--config_vars_override",

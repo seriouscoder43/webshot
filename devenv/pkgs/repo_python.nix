@@ -34,6 +34,26 @@
     doCheck = false;
   });
 
+  toolPackages = [
+    # Repo build and test helpers still need the userver generator deps.
+    pyPkgs.jinja2
+    pyPkgs.pyyaml
+    pyPkgs.pydantic
+    transliterate
+
+    # Repo-enabled local tests and helper flows.
+    pyPkgs.minio
+    pyPkgs.playwright
+    pyPkgs.py
+    pyPkgs.psycopg2
+    pyPkgs.pytest
+    pyPkgs.pytest-xdist
+    pyPkgs.requests
+    # userver testsuite currently requires websockets < 13.
+    websocketsCompatible
+    pyPkgs.zstd
+  ];
+
   s6Runtime = pyPkgs.buildPythonPackage {
     name = "s6-runtime";
 
@@ -58,24 +78,7 @@
 
     pythonImportsCheck = ["s6.runtime"];
   };
-in
-  python.withPackages (_: [
-    # Repo build and test helpers still need the userver generator deps.
-    pyPkgs.jinja2
-    pyPkgs.pyyaml
-    pyPkgs.pydantic
-    transliterate
-
-    # Repo-enabled local tests and helper flows.
-    pyPkgs.minio
-    pyPkgs.playwright
-    pyPkgs.py
-    pyPkgs.psycopg2
-    pyPkgs.pytest
-    pyPkgs.pytest-xdist
-    pyPkgs.requests
-    # userver testsuite currently requires websockets < 13.
-    websocketsCompatible
-    s6Runtime
-    pyPkgs.zstd
-  ])
+in {
+  repoPy = python.withPackages (_: toolPackages ++ [s6Runtime]);
+  repoToolPy = python.withPackages (_: toolPackages);
+}

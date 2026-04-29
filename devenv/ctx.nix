@@ -94,7 +94,7 @@
     inherit inputs nix paths projSrc s6Src sets srcs toolchain;
   };
 
-  repoPythonPath = "${drv.repoPy}/bin/python3";
+  repoToolPythonPath = "${drv.repoToolPy}/bin/python3";
 
   sets = import ./sets.nix {
     inherit drv nix;
@@ -177,10 +177,10 @@
       "-DCMAKE_INSTALL_RPATH=${lib.makeLibraryPath (sets.rpathLibsFor userver)}"
       "-DUSERVER_FEATURE_TESTSUITE=OFF"
     ]
-    ++ mkUserverNoVenvFlags repoPythonPath
+    ++ mkUserverNoVenvFlags repoToolPythonPath
     ++ mkCommonFlags {
       userverDir = "${userver}/lib/cmake/userver";
-      pythonPath = repoPythonPath;
+      pythonPath = repoToolPythonPath;
     }
     ++ [
       "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
@@ -207,14 +207,14 @@
     ]
     ++ mkCommonFlags {
       userverDir = "${drv.userverDbg}/lib/cmake/userver";
-      pythonPath = repoPythonPath;
+      pythonPath = repoToolPythonPath;
     }
     ++ mkVariantFlags variant
     ++ [
       "-DUSERVER_FEATURE_TESTSUITE=ON"
       "-Wno-dev"
     ]
-    ++ mkUserverNoVenvFlags repoPythonPath;
+    ++ mkUserverNoVenvFlags repoToolPythonPath;
 in {
   inherit drv nix paths sets srcs toolchain variants;
   treefmtExcludes = treefmtExcludes;

@@ -60,10 +60,8 @@ def _validate_seaweedfs_s3_config_arg(ctx: RuntimeUpContext) -> None:
             exit_code=2,
         )
 
-    if ctx.service_profile == "test_infra":
-        return
     if ctx.seaweedfs_s3_config_path is None:
-        die("--seaweedfs-s3-config is required when non-test s3_mode is local", exit_code=2)
+        die("--seaweedfs-s3-config is required when s3_mode is local", exit_code=2)
 
 
 def ensure_local_s3_bootstrap(ctx: RuntimeStateContext) -> None:

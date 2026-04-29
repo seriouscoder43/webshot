@@ -14,6 +14,7 @@
       variant = ctx.variants.san;
       infra = "dev";
       configVars = "${config.devenv.root}/webshotd/config/config_vars.dev.yaml";
+      seaweedfsS3Config = "${config.devenv.root}/seaweedfs/s3_config.json";
     };
 
     prodlike = {
@@ -22,6 +23,7 @@
       variant = ctx.variants.san;
       infra = "prodlike";
       configVars = "${config.devenv.root}/webshotd/config/config_vars.prodlike.yaml";
+      seaweedfsS3Config = null;
     };
   };
 
@@ -91,8 +93,8 @@
       then ""
       else " \\\n        --service-profile ${lib.escapeShellArg profile}";
     seaweedfsS3ConfigArg =
-      if mode == "dev"
-      then " \\\n        --seaweedfs-s3-config ${lib.escapeShellArg "${config.devenv.root}/seaweedfs/s3_config.json"}"
+      if cfg.seaweedfsS3Config != null
+      then " \\\n        --seaweedfs-s3-config ${lib.escapeShellArg cfg.seaweedfsS3Config}"
       else "";
   in
     if action == "up"
