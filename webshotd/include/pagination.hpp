@@ -21,12 +21,13 @@ using Uuid = boost::uuids::uuid;
 /**
  * @brief Cursor that identifies the last item in a link-based page.
  *
- * Holds the creation time and UUID of the last capture returned to the client
- * so that the next page can resume after that item.
+ * Holds the creation time, UUID, and direction of the capture used as a
+ * cursor boundary.
  */
 struct [[nodiscard]] Cursor {
     Clock::time_point createdAt;
     Uuid id;
+    PageDirection direction;
 };
 
 /**
@@ -34,7 +35,8 @@ struct [[nodiscard]] Cursor {
  *
  * The resulting string is suitable for direct use as a page_token.
  */
-[[nodiscard]] String encodeCursor(const Cursor &cursor);
+[[nodiscard]] String
+encodeCursor(Clock::time_point createdAt, const Uuid &id, PageDirection direction);
 
 /**
  * @brief Decode an opaque token into a link-based cursor.

@@ -18,12 +18,39 @@ namespace v1::crud {
 using namespace text::literals;
 using text::toBytes;
 
+namespace {
+[[nodiscard]] dto::PaginationPrefixCursor::D toDto(PageDirection direction)
+{
+    switch (direction) {
+    case PageDirection::kNext:
+        return dto::PaginationPrefixCursor::D::kNext;
+    case PageDirection::kPrevious:
+        return dto::PaginationPrefixCursor::D::kPrevious;
+    default:
+        invariant("invalid page direction"_t);
+    }
+}
+
+[[nodiscard]] PageDirection fromDto(dto::PaginationPrefixCursor::D direction)
+{
+    switch (direction) {
+    case dto::PaginationPrefixCursor::D::kNext:
+        return PageDirection::kNext;
+    case dto::PaginationPrefixCursor::D::kPrevious:
+        return PageDirection::kPrevious;
+    default:
+        invariant("invalid page direction"_t);
+    }
+}
+} // namespace
+
 [[nodiscard]] std::optional<PrefixCursor> decodePrefixCursor(const String &token)
 {
     const auto cur = TRY(decodeToken<dto::PaginationPrefixCursor>(token));
     PrefixCursor out{};
     out.prefix = TRY(String::fromBytes(cur.p));
     out.link = TRY(String::fromBytes(cur.l));
+    out.direction = fromDto(cur.d);
     if (cur.t && cur.i) {
         out.createdAt = microsToTimePoint(*cur.t);
         out.id = *cur.i;
@@ -31,18 +58,20 @@ using text::toBytes;
     return out;
 }
 
-[[nodiscard]] String encodePrefixCursor(const String &prefix, const String &link)
+[[nodiscard]] String
+encodePrefixCursor(const String &prefix, const String &link, PageDirection direction)
 {
-    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link));
+    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link), toDto(direction));
     return encodeToken(cur);
 }
 
 [[nodiscard]] String encodePrefixCursor(
-    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id
+    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id,
+    PageDirection direction
 )
 {
     const auto micros = timePointToMicros(createdAt);
-    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link), micros, id);
+    dto::PaginationPrefixCursor cur(toBytes(prefix), toBytes(link), toDto(direction), micros, id);
     return encodeToken(cur);
 }
 

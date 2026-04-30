@@ -15,7 +15,7 @@
       nunjucks.configure({ autoescape: true });
     </script>
   </head>
-  <body>
+  <body hx-ext="response-targets, client-side-templates">
     <header class="topbar">
       <h1>Webshot UI</h1>
       <nav class="links">
@@ -33,7 +33,7 @@
           hx-ext="response-targets, client-side-templates, json-enc"
           nunjucks-template="tpl_capture_job"
           hx-target="#capture-result"
-          hx-target-error="#errors"
+          hx-target-error="#capture-result"
           hx-swap="innerHTML"
         >
           <label>
@@ -55,7 +55,7 @@
           hx-ext="response-targets, client-side-templates"
           nunjucks-template="tpl_search_url"
           hx-target="#search-url-result"
-          hx-target-error="#errors"
+          hx-target-error="#search-url-result"
           hx-swap="innerHTML"
         >
           <label>
@@ -77,7 +77,7 @@
           hx-ext="response-targets, client-side-templates"
           nunjucks-template="tpl_search_prefix"
           hx-target="#search-prefix-result"
-          hx-target-error="#errors"
+          hx-target-error="#search-prefix-result"
           hx-swap="innerHTML"
         >
           <label>
@@ -89,11 +89,6 @@
           </div>
         </form>
         <div id="search-prefix-result" class="result"></div>
-      </section>
-
-      <section class="card errors">
-        <h2>Errors</h2>
-        <div id="errors" class="result"></div>
       </section>
     </main>
 
@@ -205,22 +200,40 @@
         </div>
         {% endfor %}
       </div>
-      {% if next_page_token %}
+      {% if previous_page_token or next_page_token %}
       <div class="row">
+        {% if previous_page_token %}
         <button
           type="button"
           hx-get="/v1/capture"
           hx-ext="response-targets, client-side-templates"
           nunjucks-template="tpl_search_url"
           hx-target="#search-url-result"
-          hx-target-error="#errors"
+          hx-target-error="#search-url-page-error"
+          hx-swap="innerHTML"
+          hx-include="#search-url-form"
+          hx-vals='{"page_token":"{{ previous_page_token }}"}'
+        >
+          Previous page
+        </button>
+        {% endif %}
+        {% if next_page_token %}
+        <button
+          type="button"
+          hx-get="/v1/capture"
+          hx-ext="response-targets, client-side-templates"
+          nunjucks-template="tpl_search_url"
+          hx-target="#search-url-result"
+          hx-target-error="#search-url-page-error"
           hx-swap="innerHTML"
           hx-include="#search-url-form"
           hx-vals='{"page_token":"{{ next_page_token }}"}'
         >
           Next page
         </button>
+        {% endif %}
       </div>
+      <div id="search-url-page-error" class="result"></div>
       {% endif %}
       {% endif %}
     </template>
@@ -232,49 +245,58 @@
         <pre class="pre">{{ error.message }}</pre>
       </div>
       {% else %}
-      <div class="table">
-        <div class="thead">
-          <div>Link</div>
+      <div class="prefix-groups">
+        {% for item in items %}
+        {% if loop.first or item.link != items[loop.index0 - 1].link %}
+        <div class="prefix-group-link mono">{{ item.link }}</div>
+        <div class="prefix-capture-head">
           <div>UUID</div>
           <div>Created</div>
         </div>
-        {% for item in items %}
-        <div class="trow">
-          <div class="mono">{{ item.link }}</div>
+        {% endif %}
+        <div class="prefix-capture-row">
           <div><a class="mono" href="/vendor/replaywebpage/replay/{{ item.uuid }}">{{ item.uuid }}</a></div>
           <div class="mono">{{ item.created_at }}</div>
         </div>
         {% endfor %}
       </div>
-      {% if next_page_token %}
+      {% if previous_page_token or next_page_token %}
       <div class="row">
+        {% if previous_page_token %}
         <button
           type="button"
           hx-get="/v1/capture/prefix"
           hx-ext="response-targets, client-side-templates"
           nunjucks-template="tpl_search_prefix"
           hx-target="#search-prefix-result"
-          hx-target-error="#errors"
+          hx-target-error="#search-prefix-page-error"
+          hx-swap="innerHTML"
+          hx-include="#search-prefix-form"
+          hx-vals='{"page_token":"{{ previous_page_token }}"}'
+        >
+          Previous page
+        </button>
+        {% endif %}
+        {% if next_page_token %}
+        <button
+          type="button"
+          hx-get="/v1/capture/prefix"
+          hx-ext="response-targets, client-side-templates"
+          nunjucks-template="tpl_search_prefix"
+          hx-target="#search-prefix-result"
+          hx-target-error="#search-prefix-page-error"
           hx-swap="innerHTML"
           hx-include="#search-prefix-form"
           hx-vals='{"page_token":"{{ next_page_token }}"}'
         >
           Next page
         </button>
+        {% endif %}
       </div>
+      <div id="search-prefix-page-error" class="result"></div>
       {% endif %}
       {% endif %}
     </template>
 
-    <!-- Error envelope response -->
-    <template id="tpl_error">
-      <div class="error">
-        {% if error and error.message %}
-        <pre class="pre">{{ error.message }}</pre>
-        {% else %}
-        <pre class="pre">request failed</pre>
-        {% endif %}
-      </div>
-    </template>
   </body>
 </html>

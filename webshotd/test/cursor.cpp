@@ -45,7 +45,7 @@ UTEST(Cursor, EncodeDecodePaginationCursor)
     const auto micros = timePointToMicros(tp);
     const auto id = us::utils::generators::GenerateBoostUuid();
 
-    dto::PaginationCursor cur(micros, id);
+    dto::PaginationCursor cur(micros, id, dto::PaginationCursor::D::kNext);
     const auto token = encodeToken(cur);
 
     const auto decoded = decodeToken<dto::PaginationCursor>(token);
@@ -54,6 +54,7 @@ UTEST(Cursor, EncodeDecodePaginationCursor)
         return;
     EXPECT_EQ(decoded->t, micros);
     EXPECT_EQ(decoded->i, id);
+    EXPECT_EQ(decoded->d, dto::PaginationCursor::D::kNext);
 }
 
 UTEST(Cursor, DecodeTokenInvalidReturnsNullopt)

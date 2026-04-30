@@ -285,9 +285,9 @@ components_manager:
       not-found-file: ""
       expires: 0s
     crud:
-      snapshots_page_max: 2
-      snapshots_per_link_max: 2
-      snapshots_links_per_page_max: 10
+      captures_page_max: 2
+      captures_per_link_max: 2
+      captures_links_per_page_max: 10
       crawler_run_timeout_sec: $crawler_run_timeout_sec
       crawler_run_timeout_sec#fallback: 15
       crawler_cpu_cores: $crawler_cpu_cores

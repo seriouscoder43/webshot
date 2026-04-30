@@ -12,6 +12,7 @@
 using v1::crud::Clock;
 using v1::crud::decodePrefixCursor;
 using v1::crud::encodePrefixCursor;
+using v1::crud::PageDirection;
 using v1::crud::timePointToMicros;
 using v1::crud::upperExclusiveBound;
 using namespace text::literals;
@@ -32,7 +33,7 @@ UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
     const auto prefixText = String::fromBytes(prefix).expect();
     const auto linkText = String::fromBytes(link).expect();
 
-    const auto token = encodePrefixCursor(prefixText, linkText);
+    const auto token = encodePrefixCursor(prefixText, linkText, PageDirection::kNext);
     const auto decoded = decodePrefixCursor(token);
 
     ASSERT_TRUE(decoded);
@@ -40,6 +41,7 @@ UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
         return;
     EXPECT_EQ(decoded->prefix, prefixText);
     EXPECT_EQ(decoded->link, linkText);
+    EXPECT_EQ(decoded->direction, PageDirection::kNext);
     EXPECT_FALSE(decoded->createdAt);
     EXPECT_FALSE(decoded->id);
 }
@@ -53,7 +55,7 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
     const auto prefixText = String::fromBytes(prefix).expect();
     const auto linkText = String::fromBytes(link).expect();
 
-    const auto token = encodePrefixCursor(prefixText, linkText, tp, id);
+    const auto token = encodePrefixCursor(prefixText, linkText, tp, id, PageDirection::kPrevious);
     const auto decoded = decodePrefixCursor(token);
 
     ASSERT_TRUE(decoded);
@@ -61,6 +63,7 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
         return;
     EXPECT_EQ(decoded->prefix, prefixText);
     EXPECT_EQ(decoded->link, linkText);
+    EXPECT_EQ(decoded->direction, PageDirection::kPrevious);
     ASSERT_TRUE(decoded->createdAt);
     ASSERT_TRUE(decoded->id);
     if (!decoded->createdAt || !decoded->id)

@@ -23,12 +23,13 @@ using Uuid = boost::uuids::uuid;
 /**
  * @brief Cursor that identifies position in a prefix-based page.
  *
- * Contains the prefix, the last link seen for that prefix, and optionally the
- * time and UUID of the last capture when resuming in the middle of a link.
+ * Contains the prefix, the boundary link, page direction, and optionally the
+ * time and UUID of a capture when resuming in the middle of a link.
  */
 struct [[nodiscard]] PrefixCursor {
     String prefix;
     String link;
+    PageDirection direction;
     std::optional<Clock::time_point> createdAt;
     std::optional<Uuid> id;
 };
@@ -44,17 +45,19 @@ struct [[nodiscard]] PrefixCursor {
 /**
  * @brief Encode a prefix-based cursor without time/id into an opaque token.
  *
- * Used when the next page starts with the first capture of the next link.
+ * Used when pagination starts at an adjacent link.
  */
-[[nodiscard]] String encodePrefixCursor(const String &prefix, const String &link);
+[[nodiscard]] String
+encodePrefixCursor(const String &prefix, const String &link, PageDirection direction);
 
 /**
  * @brief Encode a prefix-based cursor with time/id into an opaque token.
  *
- * Used when the next page resumes within the same link after the last item.
+ * Used when pagination resumes within the same link.
  */
 [[nodiscard]] String encodePrefixCursor(
-    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id
+    const String &prefix, const String &link, Clock::time_point createdAt, const Uuid &id,
+    PageDirection direction
 );
 
 /**

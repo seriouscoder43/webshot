@@ -6,7 +6,7 @@
 }: let
   ctx = import ../devenv/ctx.nix {inherit pkgs config inputs;};
   lib = ctx.nix.lib;
-  repoPythonPath = "${ctx.drv.repoPy}/bin/python3";
+  repoToolPythonPath = "${ctx.drv.repoToolPy}/bin/python3";
 in {
   outputs.webshot = ctx.mkProjPkg {
     userver = ctx.drv.userver;
@@ -38,8 +38,8 @@ in {
     ctx.nix.cryptopp.dev
   ];
 
-  env.USERVER_PYTHON = repoPythonPath;
-  env.USERVER_PYTHON_PATH = repoPythonPath;
+  env.USERVER_PYTHON = repoToolPythonPath;
+  env.USERVER_PYTHON_PATH = repoToolPythonPath;
   env.USERVER_DIR = "${ctx.drv.userverDbg}/lib/cmake/userver";
 
   # Expose the yandex-taxi-testsuite Python package so pytest_userver

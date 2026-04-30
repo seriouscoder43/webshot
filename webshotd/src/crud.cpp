@@ -33,6 +33,7 @@
 
 #include <webshot/sql_queries.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <exception>
@@ -207,15 +208,15 @@ type: object
 description: '.'
 additionalProperties: false
 properties:
-    snapshots_page_max:
+    captures_page_max:
         type: integer
         minimum: 1
         description: '.'
-    snapshots_per_link_max:
+    captures_per_link_max:
         type: integer
         minimum: 1
         description: 'Max captures per link in a prefix page'
-    snapshots_links_per_page_max:
+    captures_links_per_page_max:
         type: integer
         minimum: 1
         description: 'Max distinct links in a prefix page'
@@ -426,9 +427,9 @@ public:
     explicit Impl(
         const us::components::ComponentConfig &cfg, const us::components::ComponentContext &ctx
     )
-        : pageMax(cfg["snapshots_page_max"].As<int64_t>()),
-          perLinkMax(cfg["snapshots_per_link_max"].As<int64_t>()),
-          linksPerPageMax(cfg["snapshots_links_per_page_max"].As<int64_t>()),
+        : pageMax(cfg["captures_page_max"].As<int64_t>()),
+          perLinkMax(cfg["captures_per_link_max"].As<int64_t>()),
+          linksPerPageMax(cfg["captures_links_per_page_max"].As<int64_t>()),
           crawlerRunTimeout(cfg["crawler_run_timeout_sec"].As<int64_t>() * 1s),
           crawlerCpuCores(cfg["crawler_cpu_cores"].As<int64_t>()),
           crawlerMemoryGib(cfg["crawler_memory_gib"].As<int64_t>()),
@@ -1450,65 +1451,85 @@ Crud::findCapturesByLinkPage(const Link &link, String pageToken)
         Uuid uuid;
         pg::TimePointTz timepoint;
     };
-    if (pageToken.empty()) {
-        auto rows = impl->readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkFirst, link.normalized(), raw(impl->pageMax)
-        );
-        if (!rows) {
-            LOG_ERROR() << std::format("DB select captures page failed: {}", rows.error().what);
-            return Unex(kDbFailure);
-        }
-        auto dbRows = grabValueOf(rows);
-        std::vector<dto::UuidWithTime> items;
-        items.reserve(dbRows.size());
-        for (const auto &row : dbRows) {
-            items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
-        }
-        if (ssize(items) == impl->pageMax && !items.empty()) {
-            const auto &last = items.back();
-            auto tp = last.created_at.GetTimePoint();
-            crud::Cursor cursor(tp, last.uuid);
-            return dto::PagedFindCapturesByUrlResponse{
-                .items = std::move(items),
-                .next_page_token = toBytes(crud::encodeCursor(cursor)),
-            };
-        }
-        return dto::PagedFindCapturesByUrlResponse{
-            .items = std::move(items), .next_page_token = {}
-        };
-    } else {
-        auto cur = crud::decodeCursor(pageToken);
+
+    const auto limit = impl->pageMax + 1_i64;
+    std::optional<crud::Cursor> cur;
+    if (!pageToken.empty()) {
+        cur = crud::decodeCursor(pageToken);
         if (!cur)
             return Unex(kInvalidPageToken);
+    }
+
+    Expected<std::vector<Row>, PgError> rows = [&]() {
+        if (!cur) {
+            return impl->readonly(
+                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
+                sql::kSelectCaptureByLinkFirst, link.normalized(), raw(limit)
+            );
+        }
+        if (cur->direction == crud::PageDirection::kPrevious) {
+            return impl->readonly(
+                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
+                sql::kSelectCaptureByLinkPrev, link.normalized(), raw(limit),
+                pg::TimePointTz(cur->createdAt), cur->id
+            );
+        }
         auto rows = impl->readonly(
             [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkNext, link.normalized(), raw(impl->pageMax),
+            sql::kSelectCaptureByLinkNext, link.normalized(), raw(limit),
             pg::TimePointTz(cur->createdAt), cur->id
         );
-        if (!rows) {
-            LOG_ERROR() << std::format("DB select captures page failed: {}", rows.error().what);
-            return Unex(kDbFailure);
-        }
-        auto dbRows = grabValueOf(rows);
-        std::vector<dto::UuidWithTime> items;
-        items.reserve(dbRows.size());
-        for (const auto &row : dbRows) {
-            items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
-        }
-        if (ssize(items) == impl->pageMax && !items.empty()) {
-            const auto &last = items.back();
-            auto tp = last.created_at.GetTimePoint();
-            crud::Cursor cursor(tp, last.uuid);
-            return dto::PagedFindCapturesByUrlResponse{
-                .items = std::move(items),
-                .next_page_token = toBytes(crud::encodeCursor(cursor)),
-            };
-        }
-        return dto::PagedFindCapturesByUrlResponse{
-            .items = std::move(items), .next_page_token = {}
-        };
+        return rows;
+    }();
+
+    if (!rows) {
+        LOG_ERROR() << std::format("DB select captures page failed: {}", rows.error().what);
+        return Unex(kDbFailure);
     }
+    auto dbRows = grabValueOf(rows);
+    bool hasPrevious = cur && cur->direction == crud::PageDirection::kNext;
+    bool hasNext = cur && cur->direction == crud::PageDirection::kPrevious;
+    if (ssize(dbRows) > impl->pageMax) {
+        dbRows.pop_back();
+        if (cur && cur->direction == crud::PageDirection::kPrevious)
+            hasPrevious = true;
+        else
+            hasNext = true;
+    }
+    if (cur && cur->direction == crud::PageDirection::kPrevious)
+        std::ranges::reverse(dbRows);
+
+    std::vector<dto::UuidWithTime> items;
+    items.reserve(dbRows.size());
+    for (const auto &row : dbRows) {
+        items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
+    }
+
+    std::optional<std::string> next;
+    std::optional<std::string> previous;
+    if (!items.empty()) {
+        if (hasPrevious) {
+            const auto &first = items.front();
+            previous = toBytes(
+                crud::encodeCursor(
+                    first.created_at.GetTimePoint(), first.uuid, crud::PageDirection::kPrevious
+                )
+            );
+        }
+        if (hasNext) {
+            const auto &last = items.back();
+            next = toBytes(
+                crud::encodeCursor(
+                    last.created_at.GetTimePoint(), last.uuid, crud::PageDirection::kNext
+                )
+            );
+        }
+    }
+    return dto::PagedFindCapturesByUrlResponse{
+        .items = std::move(items),
+        .next_page_token = std::move(next),
+        .previous_page_token = std::move(previous),
+    };
 }
 
 Expected<dto::PagedFindCapturesByPrefixResponse, errors::CapturePageError>
@@ -1528,6 +1549,11 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
     const std::string upper = crud::upperExclusiveBound(normalizedPrefix);
     const auto linksPerPage = impl->linksPerPageMax;
 
+    struct Row {
+        Uuid uuid;
+        pg::TimePointTz tp;
+    };
+
     auto selectLinksFirst = [&](i64 limit) {
         return impl->readonly(
             [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
@@ -1540,15 +1566,76 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             sql::kSelectDistinctLinksByPrefixNext, normalizedPrefix, upper, fromLink, raw(limit)
         );
     };
+    auto selectLinksPrevious = [&](String fromLink, i64 limit) {
+        return impl->readonly(
+            [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
+            sql::kSelectDistinctLinksByPrefixPrev, normalizedPrefix, upper, fromLink, raw(limit)
+        );
+    };
+    auto hasRowsBeforeInLink = [&](const String &link,
+                                   const crud::PrefixCursor &cursor) -> Expected<bool, PgError> {
+        auto rows = impl->readonly(
+            [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
+            sql::kSelectCaptureByLinkPrev, link, raw(1_i64), pg::TimePointTz(*cursor.createdAt),
+            *cursor.id
+        );
+        if (!rows)
+            return Unex(rows.error());
+        return !rows->empty();
+    };
 
     std::vector<String> links;
-    links.reserve(numericCast<size_t>(linksPerPage));
+    links.reserve(numericCast<size_t>(linksPerPage + 1_i64));
+    bool hasMorePreviousLinks = false;
+    bool hasMoreNextLinks = false;
     if (cur) {
         const auto &cursorLink = cur->link;
-        if (cur->createdAt) {
-            links.push_back(cursorLink);
-            if (linksPerPage > 1_i64) {
-                auto more = selectLinksNext(cursorLink, linksPerPage - 1_i64);
+        if (cur->direction == crud::PageDirection::kPrevious) {
+            bool includeCursorLink = false;
+            if (cur->createdAt && cur->id) {
+                auto hasRowsBefore = hasRowsBeforeInLink(cursorLink, *cur);
+                if (!hasRowsBefore) {
+                    LOG_ERROR() << std::format(
+                        "DB select prefix captures failed: {}", hasRowsBefore.error().what
+                    );
+                    return Unex(kDbFailure);
+                }
+                includeCursorLink = *hasRowsBefore;
+            }
+            const auto limit = linksPerPage + (includeCursorLink ? 0_i64 : 1_i64);
+            auto previous = selectLinksPrevious(cursorLink, limit);
+            if (!previous) {
+                LOG_ERROR() << std::format(
+                    "DB select prefix links failed: {}", previous.error().what
+                );
+                return Unex(kDbFailure);
+            }
+            auto previousLinks = grabValueOf(previous);
+            const auto visiblePreviousLinksMax = includeCursorLink ? linksPerPage - 1_i64
+                                                                   : linksPerPage;
+            if (ssize(previousLinks) > visiblePreviousLinksMax) {
+                hasMorePreviousLinks = true;
+                while (ssize(previousLinks) > visiblePreviousLinksMax)
+                    previousLinks.pop_back();
+            }
+            std::ranges::reverse(previousLinks);
+            links.insert(std::end(links), std::begin(previousLinks), std::end(previousLinks));
+            if (includeCursorLink)
+                links.push_back(cursorLink);
+        } else {
+            if (cur->createdAt) {
+                links.push_back(cursorLink);
+                auto more = selectLinksNext(cursorLink, linksPerPage);
+                if (!more) {
+                    LOG_ERROR() << std::format(
+                        "DB select prefix links failed: {}", more.error().what
+                    );
+                    return Unex(kDbFailure);
+                }
+                auto nextLinks = grabValueOf(more);
+                links.insert(std::end(links), std::begin(nextLinks), std::end(nextLinks));
+            } else {
+                auto more = selectLinksNext(cursorLink, linksPerPage + 1_i64);
                 if (!more) {
                     LOG_ERROR() << std::format(
                         "DB select prefix links failed: {}", more.error().what
@@ -1557,44 +1644,50 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
                 }
                 links.insert(std::end(links), std::begin(*more), std::end(*more));
             }
-        } else {
-            auto more = selectLinksNext(cursorLink, linksPerPage);
-            if (!more) {
-                LOG_ERROR() << std::format("DB select prefix links failed: {}", more.error().what);
-                return Unex(kDbFailure);
+            if (ssize(links) > linksPerPage) {
+                hasMoreNextLinks = true;
+                links.pop_back();
             }
-            links.insert(std::end(links), std::begin(*more), std::end(*more));
         }
     } else {
-        auto first = selectLinksFirst(linksPerPage);
+        auto first = selectLinksFirst(linksPerPage + 1_i64);
         if (!first) {
             LOG_ERROR() << std::format("DB select prefix links failed: {}", first.error().what);
             return Unex(kDbFailure);
         }
         links.insert(std::end(links), std::begin(*first), std::end(*first));
+        if (ssize(links) > linksPerPage) {
+            hasMoreNextLinks = true;
+            links.pop_back();
+        }
     }
 
-    struct Row {
-        Uuid uuid;
-        pg::TimePointTz tp;
-    };
     std::vector<dto::UuidWithTimeLink> items;
     items.reserve(numericCast<size_t>(ssize(links) * impl->perLinkMax));
-    bool endedMidLink = false;
-    String lastLink;
-    std::optional<Row> lastRow;
+    bool hasPreviousWithinLink = false;
+    bool hasNextWithinLink = false;
 
     auto selectRowsForLink = [&](const String &link, i64 idx) {
-        if (idx == 0_i64 && cur && cur->createdAt && cur->id) {
+        const auto linkLimit = impl->perLinkMax + 1_i64;
+        if (cur && cur->createdAt && cur->id && cur->direction == crud::PageDirection::kPrevious &&
+            link == cur->link) {
             return impl->readonly(
                 [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-                sql::kSelectCaptureByLinkNext, link, raw(impl->perLinkMax),
+                sql::kSelectCaptureByLinkPrev, link, raw(linkLimit),
+                pg::TimePointTz(*cur->createdAt), *cur->id
+            );
+        }
+        if (idx == 0_i64 && cur && cur->createdAt && cur->id &&
+            cur->direction == crud::PageDirection::kNext) {
+            return impl->readonly(
+                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
+                sql::kSelectCaptureByLinkNext, link, raw(linkLimit),
                 pg::TimePointTz(*cur->createdAt), *cur->id
             );
         }
         return impl->readonly(
             [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkFirst, link, raw(impl->perLinkMax)
+            sql::kSelectCaptureByLinkFirst, link, raw(linkLimit)
         );
     };
 
@@ -1606,33 +1699,60 @@ Crud::findCapturesByPrefixPage(String normalizedPrefix, String pageToken)
             LOG_ERROR() << std::format("DB select prefix captures failed: {}", rows.error().what);
             return Unex(kDbFailure);
         }
-        for (auto &&r : *rows) {
-            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), toBytes(link));
+        auto dbRows = grabValueOf(rows);
+        const auto isPreviousCursorLink = cur && cur->direction == crud::PageDirection::kPrevious &&
+                                          cur->createdAt && link == cur->link;
+        const auto isLastVisibleLink = idx + 1_i64 == linkCount;
+        if (ssize(dbRows) > impl->perLinkMax) {
+            dbRows.pop_back();
+            if (isPreviousCursorLink)
+                hasPreviousWithinLink = true;
+            else if (isLastVisibleLink)
+                hasNextWithinLink = true;
         }
-        if (!rows->empty()) {
-            lastRow = rows->back();
-            lastLink = link;
-            if (ssize(*rows) == impl->perLinkMax && idx + 1_i64 == linkCount) {
-                endedMidLink = true;
-            }
-        } else {
-            lastLink = link;
+        if (isPreviousCursorLink && !dbRows.empty())
+            hasNextWithinLink = true;
+        if (isPreviousCursorLink)
+            std::ranges::reverse(dbRows);
+        for (auto &&r : dbRows) {
+            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), toBytes(link));
         }
     }
 
-    std::optional<std::string> next;
+    std::optional<std::string> next, previous;
     if (!items.empty()) {
-        if (endedMidLink && lastRow) {
-            const auto tp = lastRow->tp.GetUnderlying();
-            next = std::string(
-                crud::encodePrefixCursor(normalizedPrefix, lastLink, tp, lastRow->uuid).view()
+        if ((cur && cur->direction == crud::PageDirection::kNext) || hasMorePreviousLinks ||
+            hasPreviousWithinLink) {
+            const auto &first = items.front();
+            previous = toBytes(
+                crud::encodePrefixCursor(
+                    normalizedPrefix, String::fromBytes(first.link).expect(),
+                    first.created_at.GetTimePoint(), first.uuid, crud::PageDirection::kPrevious
+                )
             );
-        } else {
-            next = toBytes(crud::encodePrefixCursor(normalizedPrefix, lastLink));
+        }
+        if ((cur && cur->direction == crud::PageDirection::kPrevious) || hasNextWithinLink ||
+            hasMoreNextLinks) {
+            const auto &last = items.back();
+            const auto lastLink = String::fromBytes(last.link).expect();
+            if (hasNextWithinLink) {
+                next = toBytes(
+                    crud::encodePrefixCursor(
+                        normalizedPrefix, lastLink, last.created_at.GetTimePoint(), last.uuid,
+                        crud::PageDirection::kNext
+                    )
+                );
+            } else {
+                next = toBytes(
+                    crud::encodePrefixCursor(normalizedPrefix, lastLink, crud::PageDirection::kNext)
+                );
+            }
         }
     }
     return dto::PagedFindCapturesByPrefixResponse{
-        .items = std::move(items), .next_page_token = std::move(next)
+        .items = std::move(items),
+        .next_page_token = std::move(next),
+        .previous_page_token = std::move(previous),
     };
 }
 

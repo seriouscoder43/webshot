@@ -14,7 +14,7 @@ paths:
 
         Ordering and paging:
         - Items are ordered by created_at (descending), then by UUID (ascending).
-        - The page_token is opaque; it resumes after the last item of the previous page.
+        - The page_token is opaque; use next_page_token or previous_page_token from a prior response.
       parameters:
         - in: query
           name: link
@@ -32,7 +32,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Opaque token from a previous response to get the next page.
+          description: Opaque token from a previous response to get the next or previous page.
       responses:
         '200':
           description: Paged list of captures (latest first).
@@ -175,7 +175,7 @@ paths:
         Ordering and paging:
         - Results are ordered by link (ascending), then by created_at (descending), then by UUID (ascending).
         - Each page includes up to N distinct links and up to M newest captures per link; N and M are server-configured caps.
-        - The page_token is opaque; it may resume within a specific link or advance to the next link group.
+        - The page_token is opaque; use next_page_token or previous_page_token from a prior response.
       parameters:
         - in: query
           name: prefix
@@ -193,7 +193,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Opaque token from a previous response to get the next page.
+          description: Opaque token from a previous response to get the next or previous page.
       responses:
         '200':
           description: Paged list of captures matching the prefix.
@@ -375,8 +375,8 @@ components:
     PaginationCursor:
       type: object
       additionalProperties: false
-      required: [t, i]
-      description: Opaque pagination cursor; microsecond epoch and UUID of last item
+      required: [t, i, d]
+      description: Opaque pagination cursor; microsecond epoch, UUID, and direction of the boundary item
       properties:
         t:
           type: integer
@@ -386,7 +386,11 @@ components:
         i:
           type: string
           format: uuid
-          description: UUID of the last item on the previous page
+          description: UUID of the cursor item
+        d:
+          type: string
+          enum: [next, previous]
+          description: Direction to page from the cursor item
     CaptureJobCooldownResponse:
       type: object
       additionalProperties: false
@@ -440,6 +444,8 @@ components:
           items:
             $ref: '#/components/schemas/UuidWithTime'
         next_page_token:
+          type: string
+        previous_page_token:
           type: string
       example:
         items:
@@ -511,6 +517,8 @@ components:
             $ref: '#/components/schemas/UuidWithTimeLink'
         next_page_token:
           type: string
+        previous_page_token:
+          type: string
     CaptureDetails:
       type: object
       additionalProperties: false
@@ -538,7 +546,7 @@ components:
       type: object
       additionalProperties: false
       description: Opaque pagination cursor for prefix search
-      required: [p, l]
+      required: [p, l, d]
       properties:
         p:
           type: string
@@ -546,6 +554,10 @@ components:
         l:
           type: string
           description: Last link processed
+        d:
+          type: string
+          enum: [next, previous]
+          description: Direction to page from the cursor position
         t:
           type: integer
           format: int64

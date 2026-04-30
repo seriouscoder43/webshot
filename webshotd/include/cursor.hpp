@@ -24,6 +24,11 @@ namespace v1::crud {
 /** @brief Clock type used for pagination cursors. */
 using Clock = std::chrono::system_clock;
 
+enum class PageDirection {
+    kNext,
+    kPrevious,
+};
+
 /**
  * @brief Convert a time point to microseconds since Unix epoch.
  *
