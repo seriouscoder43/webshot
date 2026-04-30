@@ -141,6 +141,25 @@ class RuntimeUpContext(RuntimeInspectContext):
         return self.test_target_dir / "nginx.conf"
 
 
+@dataclass(frozen=True)
+class RuntimeLayout:
+    root: Path
+    rapidoc_assets_dir: Path
+    web_ui_dir: Path
+    web_ui_vendor_dir: Path
+
+
+def runtime_layout_from_binary(binary_path: Path) -> RuntimeLayout:
+    root = binary_path.parent.parent
+    web_ui_dir = root / "web_ui"
+    return RuntimeLayout(
+        root=root,
+        rapidoc_assets_dir=root / "rapidoc-assets",
+        web_ui_dir=web_ui_dir,
+        web_ui_vendor_dir=web_ui_dir / "vendor",
+    )
+
+
 def read_yaml(path: Path) -> dict[str, object]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -150,22 +169,6 @@ def read_yaml(path: Path) -> dict[str, object]:
     if not isinstance(raw, dict):
         die(f"Config vars file must be a YAML mapping: {path}", exit_code=2)
     return raw
-
-
-def require_cmake_cache_string(path: Path, key: str) -> str:
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            prefix = f"{key}:"
-            if not line.startswith(prefix):
-                continue
-            _, value = line.split("=", 1)
-            if value:
-                return value
-            break
-    except FileNotFoundError as e:
-        raise ToolError(message=f"Missing CMake cache: {path}", exit_code=2) from e
-
-    die(f"Missing required CMake cache entry '{key}' in {path}", exit_code=2)
 
 
 def require_yaml_string(raw: dict[str, object], key: str, *, source: Path) -> str:

@@ -25,13 +25,14 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   )
 endif()
 
+function(webshot_write_file_if_different path content)
+  set(tmp_path "${path}.tmp")
+  file(WRITE "${tmp_path}" "${content}")
+  file(COPY_FILE "${tmp_path}" "${path}" ONLY_IF_DIFFERENT)
+  file(REMOVE "${tmp_path}")
+endfunction()
+
 set(WEBSHOT_COVERAGE_FLAGS "-fprofile-instr-generate" "-fcoverage-mapping")
-set(WEBSHOT_RAPIDOC_ASSETS_DIR
-    ""
-    CACHE STRING "Absolute path to pinned RapiDoc assets")
-set(WEBSHOT_WEB_UI_VENDOR_DIR
-    ""
-    CACHE STRING "Absolute path to pinned web UI vendor assets")
 set(WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE
     ""
     CACHE
@@ -45,7 +46,9 @@ set(WEBSHOT_BROWSER_SANDBOX_PATH
     ""
     CACHE STRING "PATH visible inside the browser bubblewrap sandbox")
 
-set(CMAKE_LINKER_TYPE MOLD)
+if(NOT CMAKE_LINKER_TYPE)
+  message(FATAL_ERROR "CMAKE_LINKER_TYPE must be configured")
+endif()
 
 # Ensure the installed `webshotd` binary is runnable without extra wrappers like
 # `LD_LIBRARY_PATH` by embedding runtime search paths for linked dependencies.
@@ -267,9 +270,6 @@ add_custom_target(
   ${PROJECT_NAME}_stage_runtime_layout ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/webshotd"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}/web_ui"
-  COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
-  COMMAND ${CMAKE_COMMAND} -E make_directory
-          "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
     "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
@@ -278,8 +278,6 @@ add_custom_target(
     ${CMAKE_COMMAND} -E copy_if_different
     "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
     "${CMAKE_INSTALL_PREFIX}/web_ui/style.css"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory "${WEBSHOT_WEB_UI_VENDOR_DIR}"
-          "${CMAKE_INSTALL_PREFIX}/web_ui/vendor"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}>
           "${CMAKE_INSTALL_PREFIX}/webshotd/webshotd"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_RUNTIME_WRAPPER}"
@@ -287,20 +285,10 @@ add_custom_target(
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different "${WEBSHOT_BWRAP_STATUS_WRAPPER}"
     "${CMAKE_INSTALL_PREFIX}/webshotd/bwrap_status_wrapper"
-  COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/CMakeCache.txt"
-    "${CMAKE_INSTALL_PREFIX}/webshotd/CMakeCache.txt"
-  DEPENDS ${PROJECT_NAME} "${CMAKE_BINARY_DIR}/CMakeCache.txt"
-          "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
+  DEPENDS ${PROJECT_NAME} "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
           "${WEBSHOT_REPO_ROOT}/web_ui/style.css"
   VERBATIM)
 
-if(WEBSHOT_RAPIDOC_ASSETS_DIR STREQUAL "")
-  message(FATAL_ERROR "WEBSHOT_RAPIDOC_ASSETS_DIR must be configured")
-endif()
-if(WEBSHOT_WEB_UI_VENDOR_DIR STREQUAL "")
-  message(FATAL_ERROR "WEBSHOT_WEB_UI_VENDOR_DIR must be configured")
-endif()
 if(WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE STREQUAL "")
   message(
     FATAL_ERROR "WEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE must be configured")
@@ -345,8 +333,8 @@ userver_embed_file(
   "browser_sandbox_closure_paths")
 set(_webshot_browser_sandbox_path_file
     "${CMAKE_CURRENT_BINARY_DIR}/browser_sandbox_path.txt")
-file(WRITE "${_webshot_browser_sandbox_path_file}"
-     "${WEBSHOT_BROWSER_SANDBOX_PATH}")
+webshot_write_file_if_different("${_webshot_browser_sandbox_path_file}"
+                                "${WEBSHOT_BROWSER_SANDBOX_PATH}")
 userver_embed_file(
   webshotd_browser_sandbox_path
   NAME
@@ -500,6 +488,10 @@ target_include_directories(
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "webshotd")
 install(
+  PROGRAMS "${WEBSHOT_RUNTIME_WRAPPER_SOURCE}"
+  DESTINATION "webshotd"
+  RENAME "webshotd_wrapper")
+install(
   PROGRAMS "${WEBSHOT_BWRAP_STATUS_WRAPPER_SOURCE}"
   DESTINATION "webshotd"
   RENAME "bwrap_status_wrapper")
@@ -510,3 +502,5 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/sql/schema/"
 install(DIRECTORY "${WEBSHOT_REPO_ROOT}/schema/" DESTINATION "schema")
 install(FILES "${WEBSHOT_REPO_ROOT}/seaweedfs/s3_config.json"
         DESTINATION "seaweedfs")
+install(FILES "${WEBSHOT_REPO_ROOT}/web_ui/index.html"
+              "${WEBSHOT_REPO_ROOT}/web_ui/style.css" DESTINATION "web_ui")

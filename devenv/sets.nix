@@ -27,9 +27,16 @@
 
   cmakePrefix = with nix; [
     drv.boostSml
-    boost183.dev
-    fmt.dev
-    zstd.dev
+    drv.unialgo
+    ada
+    (lib.getDev abseil-cpp)
+    (lib.getDev boost183)
+    (lib.getDev cryptopp)
+    (lib.getDev fmt)
+    (lib.getDev gtest)
+    (lib.getDev libarchive)
+    (lib.getDev libseccomp)
+    (lib.getDev zstd)
     cctz
     yaml-cpp
   ];

@@ -42,16 +42,11 @@
     buildDir,
     clangdFile,
     variant,
-    forceConfigureFresh ? false,
     manageClangd ? true,
     timingsOutput ? null,
     buildArgs ? [],
   }: let
     configureArgv = ctx.mkConfigure {
-      inherit buildDir variant;
-      fresh = false;
-    };
-    configureFingerprint = ctx.mkConfigureFingerprint {
       inherit buildDir variant;
     };
     timingsArgs =
@@ -69,16 +64,14 @@
         \
           ${mkRepeatedFlagArgs "--build-arg" buildArgs}
       '';
-    forceConfigureFreshArg =
-      if forceConfigureFresh
-      then " \\\n      --force-configure-fresh"
-      else "";
   in ''
     ${lib.optionalString manageClangd (mkClangdLink clangdFile)}
     python3 devenv/build_task.py \
       --build-dir ${lib.escapeShellArg buildDir} \
-      --configure-fingerprint ${lib.escapeShellArg configureFingerprint} \
-      ${mkRepeatedFlagArgs "--configure-arg" configureArgv}${forceConfigureFreshArg}${buildArgFlags}${timingsArgs}
+      ${mkRepeatedFlagArgs "--configure-arg" configureArgv}${buildArgFlags}${timingsArgs}
+    ${ctx.mkStageRuntimeAssets {
+      layoutRoot = "${buildDir}/runtime_root";
+    }}
   '';
 
   mkTask = exec: {

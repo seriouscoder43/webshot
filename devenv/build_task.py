@@ -7,16 +7,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from enum import Enum
 from pathlib import Path
 
 import remote_compile
-
-
-class ConfigureAction(Enum):
-    RUN = "run"
-    FRESH = "fresh"
-    SKIP = "skip"
 
 
 def _repo_root() -> Path:
@@ -37,8 +30,6 @@ def _time_ms() -> int:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="build_task")
     parser.add_argument("--build-dir", required=True)
-    parser.add_argument("--configure-fingerprint", required=True)
-    parser.add_argument("--force-configure-fresh", action="store_true")
     parser.add_argument("--configure-arg", action="append", default=[])
     parser.add_argument("--build-arg", action="append", default=[])
     parser.add_argument("--timings-output")
@@ -49,79 +40,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _build_dir_has_configure_state(build_dir: Path) -> bool:
-    return (
-        build_dir.joinpath("CMakeCache.txt").is_file() or build_dir.joinpath("CMakeFiles").is_dir()
-    )
-
-
-def _configure_action(
-    build_dir: Path,
-    configure_fingerprint: str,
-    *,
-    force_fresh: bool,
-) -> ConfigureAction:
-    if force_fresh:
-        return ConfigureAction.FRESH
-
-    fingerprint_path = build_dir / remote_compile.CONFIGURE_FINGERPRINT_NAME
-    if fingerprint_path.is_file():
-        previous_fingerprint = fingerprint_path.read_text(encoding="utf-8").strip()
-        if previous_fingerprint != configure_fingerprint:
-            print("CMake configure spec changed; reconfiguring with --fresh")
-            return ConfigureAction.FRESH
-        return ConfigureAction.SKIP
-
-    if _build_dir_has_configure_state(build_dir):
-        print("Existing build dir has no configure fingerprint; reconfiguring with --fresh")
-        return ConfigureAction.FRESH
-
-    return ConfigureAction.RUN
-
-
-def _configure_action_remote(
-    *,
-    remote_config: remote_compile.RemoteCompileConfig,
-    remote_build_dir: str,
-    configure_fingerprint: str,
-    force_fresh: bool,
-) -> ConfigureAction:
-    if force_fresh:
-        return ConfigureAction.FRESH
-
-    fingerprint_path = f"{remote_build_dir.rstrip('/')}/{remote_compile.CONFIGURE_FINGERPRINT_NAME}"
-    previous_fingerprint = remote_compile.read_remote_text_file(
-        remote_config,
-        fingerprint_path,
-    )
-    if previous_fingerprint is not None:
-        previous_fingerprint = previous_fingerprint.strip()
-        if previous_fingerprint != configure_fingerprint:
-            print("Remote CMake configure spec changed; reconfiguring with --fresh")
-            return ConfigureAction.FRESH
-        return ConfigureAction.SKIP
-
-    if remote_compile.remote_build_dir_has_configure_state(remote_config, remote_build_dir):
-        print("Remote build has no configure fingerprint; reconfiguring with --fresh")
-        return ConfigureAction.FRESH
-
-    return ConfigureAction.RUN
-
-
-def _configure_command(configure_argv: list[str], *, action: ConfigureAction) -> list[str] | None:
-    if action == ConfigureAction.SKIP:
-        return None
+def _configure_command(configure_argv: list[str]) -> list[str]:
     if not configure_argv:
         raise RuntimeError("missing configure argv")
     if configure_argv[0] != "cmake":
         raise RuntimeError(
             f"expected configure argv to start with cmake, got: {configure_argv[0]!r}"
         )
-    if action == ConfigureAction.RUN:
-        return configure_argv
-    if action != ConfigureAction.FRESH:
-        raise RuntimeError(f"unknown configure action: {action}")
-    return [configure_argv[0], "--fresh", *configure_argv[1:]]
+    return configure_argv
 
 
 def _run(cmd: list[str], *, cwd: Path) -> int:
@@ -203,35 +129,10 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = _repo_root()
     build_dir = Path(args.build_dir)
     remote_config = remote_compile.load_config(repo_root)
-    configure_fingerprint = remote_compile.compute_configure_fingerprint(
-        args.configure_fingerprint,
-        remote_config,
-    )
     shadow_build_dir: Path | None = None
-    configure_action: ConfigureAction
-    if remote_config is None:
-        configure_fingerprint_path = build_dir / remote_compile.CONFIGURE_FINGERPRINT_NAME
-        configure_action = _configure_action(
-            build_dir,
-            configure_fingerprint,
-            force_fresh=args.force_configure_fresh,
-        )
-    else:
+    if remote_config is not None:
         shadow_build_dir = remote_compile.shadow_build_dir_for(build_dir, repo_root=repo_root)
-        shadow_state_dir = remote_compile.shadow_state_dir_for(build_dir, repo_root=repo_root)
-        configure_fingerprint_path = shadow_state_dir / remote_compile.CONFIGURE_FINGERPRINT_NAME
-        remote_build_dir = remote_compile.remote_path_for(
-            build_dir,
-            repo_root=repo_root,
-            remote_root=remote_config.remote_root,
-        )
         remote_compile.sync_source(remote_config, repo_root)
-        configure_action = _configure_action_remote(
-            remote_config=remote_config,
-            remote_build_dir=remote_build_dir,
-            configure_fingerprint=configure_fingerprint,
-            force_fresh=args.force_configure_fresh,
-        )
 
     before_log_path: Path | None = None
     after_log_path: Path | None = None
@@ -257,8 +158,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if remote_config is None:
         configure_started_ms = _time_ms()
-        configure_cmd = _configure_command(args.configure_arg, action=configure_action)
-        configure_exit_code = 0 if configure_cmd is None else _run(configure_cmd, cwd=repo_root)
+        configure_cmd = _configure_command(args.configure_arg)
+        configure_exit_code = _run(configure_cmd, cwd=repo_root)
         configure_finished_ms = _time_ms()
         configure_time_ms = configure_finished_ms - configure_started_ms
     else:
@@ -267,9 +168,6 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=repo_root,
             remote_root=remote_config.remote_root,
         )
-        remote_configure_fingerprint_path = (
-            f"{remote_build_dir.rstrip('/')}/{remote_compile.CONFIGURE_FINGERPRINT_NAME}"
-        )
         remote_result = remote_compile.run_remote_build(
             remote_config,
             configure_cmd=_configure_command(
@@ -277,11 +175,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.configure_arg,
                     repo_root=repo_root,
                     remote_root=remote_config.remote_root,
-                ),
-                action=configure_action,
+                )
             ),
-            configure_fingerprint=configure_fingerprint,
-            configure_fingerprint_path=remote_configure_fingerprint_path,
             build_cmd=[
                 "cmake",
                 "--build",
@@ -295,13 +190,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         configure_exit_code = remote_result.configure_exit_code
         configure_time_ms = remote_result.configure_time_ms
-
-    if (
-        configure_exit_code == 0
-        and remote_config is None
-        and configure_action != ConfigureAction.SKIP
-    ):
-        configure_fingerprint_path.write_text(configure_fingerprint + "\n", encoding="utf-8")
 
     build_started_ms = _time_ms()
     build_exit_code = 0
@@ -320,8 +208,6 @@ def main(argv: list[str] | None = None) -> int:
                 build_dir=build_dir,
             )
             print(f"build_task: shadow build synced to {shadow_build_dir}")
-            configure_fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
-            configure_fingerprint_path.write_text(configure_fingerprint + "\n", encoding="utf-8")
     build_finished_ms = _time_ms()
     if remote_config is None:
         build_time_ms = build_finished_ms - build_started_ms

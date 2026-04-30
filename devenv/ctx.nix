@@ -87,7 +87,7 @@
       tidy = mkClangd "tidy" build.tidy;
     };
 
-    cmakePrefix = lib.makeSearchPath "lib/cmake" sets.cmakePrefix;
+    cmakePrefix = lib.concatStringsSep ";" sets.cmakePrefix;
   };
 
   drv = import ./drv.nix {
@@ -144,15 +144,56 @@
     userverDir,
     pythonPath,
   }: [
+    "-DCMAKE_PREFIX_PATH=${paths.cmakePrefix}"
     "-Duserver_DIR=${userverDir}"
     "-DUSERVER_PYTHON_PATH=${pythonPath}"
     "-DUSERVER_DEBUG_INFO_COMPRESSION=z"
-    "-DWEBSHOT_RAPIDOC_ASSETS_DIR=${drv.rapidoc}"
-    "-DWEBSHOT_WEB_UI_VENDOR_DIR=${drv.webUi}"
     "-DWEBSHOT_BROWSER_SANDBOX_CLOSURE_PATHS_FILE=${sets.browserSandboxClosure}/store-paths"
     "-DWEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE=${sets.browserSandboxFontconfigFile}"
     "-DWEBSHOT_BROWSER_SANDBOX_PATH=${sets.browserSandboxPath}"
   ];
+
+  mkToolchainFlags = [
+    "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
+    "-DCMAKE_C_COMPILER=${toolchain.cc}/bin/clang"
+    "-DCMAKE_LINKER_TYPE=webshot_mold"
+    "-DCMAKE_CXX_USING_LINKER_webshot_mold=-B${nix.mold}/bin;-fuse-ld=mold"
+    "-DCMAKE_C_USING_LINKER_webshot_mold=-B${nix.mold}/bin;-fuse-ld=mold"
+  ];
+
+  runtimeAssetDirs = [
+    {
+      source = drv.webUi;
+      destination = "web_ui/vendor";
+    }
+    {
+      source = drv.rapidoc;
+      destination = "rapidoc-assets";
+    }
+  ];
+
+  mkStageRuntimeAssets = {
+    layoutRoot,
+    shellLayoutRoot ? false,
+  }: let
+    layoutRootExpr =
+      if shellLayoutRoot
+      then layoutRoot
+      else lib.escapeShellArg layoutRoot;
+    stageDir = entry: ''
+      stageRuntimeDir ${lib.escapeShellArg entry.source} "$layout_root/${entry.destination}"
+    '';
+  in ''
+    layout_root=${layoutRootExpr}
+    stageRuntimeDir() {
+      local source="$1"
+      local destination="$2"
+
+      mkdir -p "$(dirname "$destination")"
+      rsync -a --delete "$source"/ "$destination"/
+    }
+    ${lib.concatMapStrings stageDir runtimeAssetDirs}
+  '';
 
   mkUserverNoVenvFlags = pythonPath: [
     "-DUSERVER_TESTSUITE_USE_VENV=OFF"
@@ -182,29 +223,25 @@
       userverDir = "${userver}/lib/cmake/userver";
       pythonPath = repoToolPythonPath;
     }
-    ++ [
-      "-DCMAKE_CXX_COMPILER=${toolchain.cc}/bin/clang++"
-      "-DCMAKE_C_COMPILER=${toolchain.cc}/bin/clang"
-    ];
+    ++ mkToolchainFlags;
 
   mkConfigure = {
     buildDir,
     variant,
-    fresh,
   }:
     ["cmake"]
-    ++ lib.optional fresh "--fresh"
+    ++ ["-U" "*_DIR"]
     ++ ["-B" buildDir]
     ++ [
       "-S"
       "./webshotd"
       "-G"
       "Ninja"
-      "-DCMAKE_CXX_COMPILER=clang++"
       "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
       "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
       "-DCMAKE_INSTALL_PREFIX=${buildDir}/runtime_root"
     ]
+    ++ mkToolchainFlags
     ++ mkCommonFlags {
       userverDir = "${drv.userverDbg}/lib/cmake/userver";
       pythonPath = repoToolPythonPath;
@@ -216,18 +253,9 @@
     ]
     ++ mkUserverNoVenvFlags repoToolPythonPath;
 in {
-  inherit drv nix paths sets srcs toolchain variants;
+  inherit drv mkStageRuntimeAssets nix paths sets srcs toolchain variants;
   treefmtExcludes = treefmtExcludes;
   mkConfigure = mkConfigure;
-
-  mkConfigureFingerprint = {
-    buildDir,
-    variant,
-  }:
-    builtins.hashString "sha256" (builtins.toJSON (mkConfigure {
-      inherit buildDir variant;
-      fresh = false;
-    }));
 
   mkProjPkg = {
     suffix ? "",
@@ -250,7 +278,7 @@ in {
 
       dontStrip = true;
 
-      nativeBuildInputs = sets.buildNative ++ [toolchain.cc nix.makeWrapper];
+      nativeBuildInputs = sets.buildNative ++ [toolchain.cc nix.makeWrapper nix.rsync];
       buildInputs = sets.buildInputsFor userver;
 
       cmakeFlags = mkOutputFlags {
@@ -258,6 +286,11 @@ in {
       };
 
       postInstall = ''
+        ${mkStageRuntimeAssets {
+          layoutRoot = "\"$out\"";
+          shellLayoutRoot = true;
+        }}
+
         patchShebangs "$out/webshotd/webshotd_wrapper"
         wrapProgram "$out/webshotd/webshotd_wrapper" \
           --set PATH "${lib.makeBinPath sets.runtimeTools}"

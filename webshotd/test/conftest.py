@@ -12,6 +12,7 @@ from helper.s3_gate_config import set_s3_gate_port
 from pytest_userver import chaos
 from testsuite.databases.pgsql import discover
 
+from s6.runtime_context import runtime_layout_from_binary
 from s6.s3_bucket import ensure_s3_bucket_exists
 from s6.userver_task_processors import fs_worker_threads
 
@@ -56,24 +57,6 @@ def _pgsql_service_name(worker_id: str) -> str | None:
     if worker_id == "master":
         return None
     return f"webshot_{_testsuite_worker_prefix(worker_id)}"
-
-
-def _require_cmake_cache_string(path: pathlib.Path, key: str) -> str:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError as e:
-        raise RuntimeError(f"missing CMake cache: {path}") from e
-
-    prefix = f"{key}:"
-    for line in lines:
-        if not line.startswith(prefix):
-            continue
-        _, value = line.split("=", 1)
-        if value:
-            return value
-        break
-
-    raise RuntimeError(f"missing CMake cache entry {key!r} in {path}")
 
 
 def _require_service_binary_path(pytestconfig) -> pathlib.Path:
@@ -302,15 +285,13 @@ def service_config_path_temp(
     dst_path = service_tmpdir / "config.yaml"
     config_yaml = dict(_service_config_hooked.config_yaml)
     config_vars = dict(_service_config_hooked.config_vars)
-    cmake_cache_path = service_binary.parent / "CMakeCache.txt"
-    config_vars["rapidoc_assets_dir"] = _require_cmake_cache_string(
-        cmake_cache_path, "WEBSHOT_RAPIDOC_ASSETS_DIR"
-    )
+    runtime_layout = runtime_layout_from_binary(service_binary)
+    config_vars["rapidoc_assets_dir"] = str(runtime_layout.rapidoc_assets_dir)
     config_vars["openapi_public_dir"] = str(service_source_dir.parent / "schema" / "public")
     config_vars["openapi_admin_dir"] = str(service_source_dir.parent / "schema" / "admin")
     config_vars["openapi_common_dir"] = str(service_source_dir.parent / "schema" / "common")
-    config_vars["web_ui_dir"] = str(service_binary.parent.parent / "web_ui")
-    config_vars["web_ui_vendor_dir"] = str(service_binary.parent.parent / "web_ui" / "vendor")
+    config_vars["web_ui_dir"] = str(runtime_layout.web_ui_dir)
+    config_vars["web_ui_vendor_dir"] = str(runtime_layout.web_ui_vendor_dir)
     config_vars["state_dir"] = str(testsuite_webshotd_state_dir)
     config_vars["s3_bucket"] = s3_bucket_name
     config_vars["public_base_url"] = f"http://127.0.0.1:8333/{s3_bucket_name}"

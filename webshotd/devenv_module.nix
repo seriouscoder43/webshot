@@ -6,7 +6,6 @@
 }: let
   ctx = import ../devenv/ctx.nix {inherit pkgs config inputs;};
   lib = ctx.nix.lib;
-  repoToolPythonPath = "${ctx.drv.repoToolPy}/bin/python3";
 in {
   outputs.webshot = ctx.mkProjPkg {
     userver = ctx.drv.userver;
@@ -31,16 +30,6 @@ in {
     ]
     ++ ctx.sets.userverLibs
     ++ [ctx.drv.testCov];
-
-  env.CMAKE_PREFIX_PATH = ctx.paths.cmakePrefix;
-
-  env.PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
-    ctx.nix.cryptopp.dev
-  ];
-
-  env.USERVER_PYTHON = repoToolPythonPath;
-  env.USERVER_PYTHON_PATH = repoToolPythonPath;
-  env.USERVER_DIR = "${ctx.drv.userverDbg}/lib/cmake/userver";
 
   # Expose the yandex-taxi-testsuite Python package so pytest_userver
   # can import `testsuite` (for chaos, pgsql helpers, etc.).

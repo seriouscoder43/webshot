@@ -172,7 +172,8 @@ if(USERVER_FEATURE_TESTSUITE)
   string(REPLACE "${testsuite_static_config_marker}"
                  "${testsuite_components_config}" testsuite_static_config
                  "${testsuite_static_config}")
-  file(WRITE "${testsuite_static_config_path}" "${testsuite_static_config}")
+  webshot_write_file_if_different("${testsuite_static_config_path}"
+                                  "${testsuite_static_config}")
 
   add_custom_target(testsuite)
   add_dependencies(testsuite ${PROJECT_NAME})

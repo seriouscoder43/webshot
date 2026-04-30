@@ -15,7 +15,7 @@ from s6.runtime_context import (
     RuntimeInspectContext,
     RuntimeUpContext,
     ServiceSpec,
-    require_cmake_cache_string,
+    runtime_layout_from_binary,
 )
 from s6.runtime_support import (
     finish_script,
@@ -334,10 +334,7 @@ def _webshotd_static_config_path(ctx: RuntimeUpContext) -> Path:
 
 
 def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
-    rapidoc_assets_dir = require_cmake_cache_string(
-        ctx.binary_path.parent / "CMakeCache.txt",
-        "WEBSHOT_RAPIDOC_ASSETS_DIR",
-    )
+    runtime_layout = runtime_layout_from_binary(ctx.binary_path)
     static_config_path = _webshotd_static_config_path(ctx)
     static_config = yaml.safe_load(static_config_path.read_text(encoding="utf-8"))
     write_text(
@@ -345,12 +342,12 @@ def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
         yaml.safe_dump(
             {
                 "fs_worker_threads": fs_worker_threads(static_config),
-                "rapidoc_assets_dir": rapidoc_assets_dir,
+                "rapidoc_assets_dir": str(runtime_layout.rapidoc_assets_dir),
                 "openapi_public_dir": str(ctx.repo_root / "schema" / "public"),
                 "openapi_admin_dir": str(ctx.repo_root / "schema" / "admin"),
                 "openapi_common_dir": str(ctx.repo_root / "schema" / "common"),
-                "web_ui_dir": str(ctx.binary_path.parent.parent / "web_ui"),
-                "web_ui_vendor_dir": str(ctx.binary_path.parent.parent / "web_ui" / "vendor"),
+                "web_ui_dir": str(runtime_layout.web_ui_dir),
+                "web_ui_vendor_dir": str(runtime_layout.web_ui_vendor_dir),
                 "state_dir": str(ctx.webshotd_state_dir),
             },
             sort_keys=True,

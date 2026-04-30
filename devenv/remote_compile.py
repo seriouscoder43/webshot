@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shlex
 import subprocess
@@ -13,8 +12,6 @@ from pathlib import Path
 _DEFAULT_CONFIG_PATH = Path("remote_compile.json")
 _RESULT_MARKER = "__REMOTE_BUILD_RESULT__"
 _SHADOW_BUILD_ROOT = Path("build/remote")
-_SHADOW_STATE_ROOT = _SHADOW_BUILD_ROOT / "state"
-CONFIGURE_FINGERPRINT_NAME = "configure-fingerprint"
 
 
 @dataclass(frozen=True)
@@ -23,14 +20,6 @@ class RemoteCompileConfig:
     remote_root: str
     ssh_args: tuple[str, ...]
     rsync_args: tuple[str, ...]
-
-    def fingerprint_payload(self) -> dict[str, object]:
-        return {
-            "host": self.host,
-            "remote_root": self.remote_root,
-            "ssh_args": list(self.ssh_args),
-            "rsync_args": list(self.rsync_args),
-        }
 
 
 @dataclass(frozen=True)
@@ -66,24 +55,6 @@ def load_config(repo_root: Path, *, path: str | None = None) -> RemoteCompileCon
         ssh_args=_read_string_tuple(raw.get("ssh_args"), field_name="ssh_args"),
         rsync_args=_read_string_tuple(raw.get("rsync_args"), field_name="rsync_args"),
     )
-
-
-def compute_configure_fingerprint(
-    configure_spec_fingerprint: str,
-    config: RemoteCompileConfig | None,
-) -> str:
-    if config is None:
-        return configure_spec_fingerprint
-
-    payload = json.dumps(
-        {
-            "configure_spec_fingerprint": configure_spec_fingerprint,
-            "remote_compile": config.fingerprint_payload(),
-        },
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def sync_source(config: RemoteCompileConfig, repo_root: Path) -> None:
@@ -155,43 +126,10 @@ def sync_build_file(
     _ensure_ok(_run(cmd), action=f"remote build file sync for {relative_path}")
 
 
-def read_remote_text_file(config: RemoteCompileConfig, path: str) -> str | None:
-    if not _remote_path_exists(config, path):
-        return None
-
-    cmd = [
-        "ssh",
-        *config.ssh_args,
-        config.host,
-        "cat",
-        "--",
-        path,
-    ]
-    completed = _run(cmd)
-    _ensure_ok(completed, action=f"remote file read for {path}")
-    return completed.stdout
-
-
-def remote_build_dir_has_configure_state(
-    config: RemoteCompileConfig,
-    remote_build_dir: str,
-) -> bool:
-    build_dir = _with_trailing_slash(remote_build_dir)
-    return _remote_path_exists(
-        config,
-        f"{build_dir}CMakeCache.txt",
-    ) or _remote_path_exists(
-        config,
-        f"{build_dir}CMakeFiles",
-    )
-
-
 def run_remote_build(
     config: RemoteCompileConfig,
     *,
-    configure_cmd: list[str] | None,
-    configure_fingerprint: str,
-    configure_fingerprint_path: str,
+    configure_cmd: list[str],
     build_cmd: list[str],
 ) -> RemoteBuildResult:
     remote_script = " ".join(
@@ -203,8 +141,6 @@ def run_remote_build(
     )
     inner_script = _remote_build_script(
         configure_cmd=configure_cmd,
-        configure_fingerprint=configure_fingerprint,
-        configure_fingerprint_path=configure_fingerprint_path,
         build_cmd=build_cmd,
     )
     completed = subprocess.Popen(
@@ -276,11 +212,6 @@ def shadow_build_dir_for(build_dir: Path, *, repo_root: Path) -> Path:
     return shadow_path_for(build_dir, repo_root=repo_root)
 
 
-def shadow_state_dir_for(build_dir: Path, *, repo_root: Path) -> Path:
-    relative = _relative_to_repo(build_dir, repo_root=repo_root)
-    return repo_root / _SHADOW_STATE_ROOT / relative
-
-
 def _read_string_tuple(raw: object, *, field_name: str) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -309,36 +240,15 @@ def _relative_to_repo(path: Path, *, repo_root: Path) -> Path:
 
 def _remote_build_script(
     *,
-    configure_cmd: list[str] | None,
-    configure_fingerprint: str,
-    configure_fingerprint_path: str,
+    configure_cmd: list[str],
     build_cmd: list[str],
 ) -> str:
     configure_lines = [
         "_configure_started=$(_time_ms)",
+        shlex.join(configure_cmd),
+        "_configure_exit_code=$?",
+        "_configure_finished=$(_time_ms)",
     ]
-    if configure_cmd is None:
-        configure_lines.extend(
-            [
-                "_configure_exit_code=0",
-                "_configure_finished=${_configure_started}",
-            ]
-        )
-    else:
-        configure_lines.extend(
-            [
-                shlex.join(configure_cmd),
-                "_configure_exit_code=$?",
-                "_configure_finished=$(_time_ms)",
-                "if (( _configure_exit_code == 0 )); then",
-                f'  mkdir -p -- "$(dirname -- {shlex.quote(configure_fingerprint_path)})" '
-                "&& printf '%s\\n' "
-                f"{shlex.quote(configure_fingerprint)} "
-                f"> {shlex.quote(configure_fingerprint_path)}",
-                "  _configure_exit_code=$?",
-                "fi",
-            ]
-        )
 
     return "\n".join(
         [
