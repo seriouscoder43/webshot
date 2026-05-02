@@ -44,7 +44,7 @@ public:
     constexpr String &operator=(String &&) noexcept = default;
     ~String() = default;
 
-    [[nodiscard]] static constexpr Expected<String, TextError> fromBytes(std::string_view bytes)
+    [[nodiscard]] static constexpr Expected<String, TextError> FromBytes(std::string_view bytes)
     {
         if (!una::is_valid_utf8(bytes)) {
             return Unex(
@@ -54,95 +54,95 @@ public:
             );
         }
         String result;
-        result.data = una::norm::to_nfc_utf8(bytes);
+        result.data_ = una::norm::to_nfc_utf8(bytes);
         return result;
     }
 
-    [[nodiscard]] constexpr std::string_view view() const noexcept
+    [[nodiscard]] constexpr std::string_view View() const noexcept
     {
-        return {data.data(), data.size()};
+        return {data_.data(), data_.size()};
     }
 
-    [[nodiscard]] constexpr bool empty() const noexcept { return data.empty(); }
+    [[nodiscard]] constexpr bool Empty() const noexcept { return data_.empty(); }
 
-    [[nodiscard]] constexpr size_t sizeBytes() const noexcept { return data.size(); }
+    [[nodiscard]] constexpr size_t SizeBytes() const noexcept { return data_.size(); }
 
-    [[nodiscard]] constexpr bool startsWith(const String &prefix) const noexcept
+    [[nodiscard]] constexpr bool StartsWith(const String &prefix) const noexcept
     {
-        if (prefix.data.size() > data.size())
+        if (prefix.data_.size() > data_.size())
             return false;
-        const std::string_view dataPrefix{std::string_view{data}.substr(0, prefix.data.size())};
-        return std::ranges::equal(prefix.data, dataPrefix);
+        const std::string_view data_prefix{std::string_view{data_}.substr(0, prefix.data_.size())};
+        return std::ranges::equal(prefix.data_, data_prefix);
     }
 
-    [[nodiscard]] constexpr bool startsWith(std::string_view prefix) const noexcept
+    [[nodiscard]] constexpr bool StartsWith(std::string_view prefix) const noexcept
     {
-        return data.starts_with(prefix);
+        return data_.starts_with(prefix);
     }
 
-    [[nodiscard]] constexpr bool startsWith(char prefix) const noexcept
+    [[nodiscard]] constexpr bool StartsWith(char prefix) const noexcept
     {
-        return data.starts_with(prefix);
+        return data_.starts_with(prefix);
     }
 
-    [[nodiscard]] constexpr bool endsWith(std::string_view suffix) const noexcept
+    [[nodiscard]] constexpr bool EndsWith(std::string_view suffix) const noexcept
     {
-        return data.ends_with(suffix);
+        return data_.ends_with(suffix);
     }
 
-    [[nodiscard]] constexpr bool endsWith(char suffix) const noexcept
+    [[nodiscard]] constexpr bool EndsWith(char suffix) const noexcept
     {
-        return data.ends_with(suffix);
+        return data_.ends_with(suffix);
     }
 
-    [[nodiscard]] constexpr bool endsWith(const String &suffix) const noexcept
+    [[nodiscard]] constexpr bool EndsWith(const String &suffix) const noexcept
     {
-        return data.ends_with(std::string_view{suffix.data});
+        return data_.ends_with(std::string_view{suffix.data_});
     }
 
     constexpr String &operator+=(const String &rhs)
     {
-        if (rhs.data.empty())
+        if (rhs.data_.empty())
             return *this;
         std::string combined;
-        combined.reserve(data.size() + rhs.data.size());
-        combined.assign(data);
-        combined += rhs.data;
-        data = una::norm::to_nfc_utf8({combined.data(), combined.size()});
+        combined.reserve(data_.size() + rhs.data_.size());
+        combined.assign(data_);
+        combined += rhs.data_;
+        data_ = una::norm::to_nfc_utf8({combined.data(), combined.size()});
         return *this;
     }
 
-    [[nodiscard]] constexpr String reversed() const
+    [[nodiscard]] constexpr String Reversed() const
     {
-        auto utf32 = una::utf8to32u(data);
+        auto utf32 = una::utf8to32u(data_);
         std::ranges::reverse(utf32);
 
-        const auto reversedUtf8 = una::utf32to8(utf32);
+        const auto reversed_utf8 = una::utf32to8(utf32);
 
         String result;
-        result.data = una::norm::to_nfc_utf8({reversedUtf8.data(), reversedUtf8.size()});
+        result.data_ = una::norm::to_nfc_utf8({reversed_utf8.data(), reversed_utf8.size()});
         return result;
     }
 
     [[nodiscard]] friend constexpr bool operator==(const String &lhs, const String &rhs) noexcept
     {
-        return lhs.data == rhs.data;
+        return lhs.data_ == rhs.data_;
     }
 
     [[nodiscard]] friend constexpr bool operator<(const String &lhs, const String &rhs) noexcept
     {
-        return lhs.data < rhs.data;
+        return lhs.data_ < rhs.data_;
     }
 
 private:
-    std::string data;
+    std::string data_;
 };
 
-[[nodiscard]] inline std::string toBytes(const String &text) { return std::string{text.view()}; }
+[[nodiscard]] inline std::string ToBytes(const String &text) { return std::string{text.View()}; }
 
 namespace detail {
 
-template <typename T> [[nodiscard]] constexpr std::string_view byteView(const T &value) noexcept
+template <typename T> [[nodiscard]] constexpr std::string_view ByteView(const T &value) noexcept
 {
     return {value.data(), value.size()};
 }
@@ -153,7 +153,7 @@ using CollectExpectedResult =
 
 template <std::ranges::input_range Range, typename F>
     requires std::invocable<F, std::ranges::range_reference_t<const Range>>
-[[nodiscard]] auto collectExpected(const Range &range, F &&f) -> Expected<
+[[nodiscard]] auto CollectExpected(const Range &range, F &&f) -> Expected<
     std::vector<typename CollectExpectedResult<Range, F>::value_type>,
     typename CollectExpectedResult<Range, F>::error_type>
 {
@@ -175,60 +175,60 @@ template <std::ranges::input_range Range, typename F>
 } // namespace detail
 
 template <std::ranges::input_range Range>
-[[nodiscard]] Expected<std::vector<String>, TextError> stringVector(const Range &bytes)
+[[nodiscard]] Expected<std::vector<String>, TextError> StringVector(const Range &bytes)
 {
-    return detail::collectExpected(bytes, [](const auto &value) {
-        return String::fromBytes(detail::byteView(value));
+    return detail::CollectExpected(bytes, [](const auto &value) {
+        return String::FromBytes(detail::ByteView(value));
     });
 }
 
 template <std::ranges::input_range Range>
 [[nodiscard]] Expected<std::vector<std::pair<String, String>>, TextError>
-stringPairs(const Range &pairs)
+StringPairs(const Range &pairs)
 {
     using Pair = std::pair<String, String>;
     using Result = Expected<Pair, TextError>;
 
-    return detail::collectExpected(pairs, [](const auto &pair) -> Result {
-        auto first = TRY(String::fromBytes(detail::byteView(pair.first)));
-        auto second = TRY(String::fromBytes(detail::byteView(pair.second)));
+    return detail::CollectExpected(pairs, [](const auto &pair) -> Result {
+        auto first = TRY(String::FromBytes(detail::ByteView(pair.first)));
+        auto second = TRY(String::FromBytes(detail::ByteView(pair.second)));
         return Pair{std::move(first), std::move(second)};
     });
 }
 
 template <typename T>
 [[nodiscard]] Expected<std::optional<String>, TextError>
-optionalString(const std::optional<T> &bytes)
+OptionalString(const std::optional<T> &bytes)
 {
     if (!bytes)
         return std::optional<String>{};
 
-    return String::fromBytes(detail::byteView(*bytes)).transform([](String text) {
+    return String::FromBytes(detail::ByteView(*bytes)).Transform([](String text) {
         return std::optional<String>{std::move(text)};
     });
 }
 
 template <std::ranges::input_range Range>
-[[nodiscard]] std::vector<std::string> toBytesVector(const Range &texts)
+[[nodiscard]] std::vector<std::string> ToBytesVector(const Range &texts)
 {
     std::vector<std::string> out;
     if constexpr (std::ranges::sized_range<const Range>)
         out.reserve(std::ranges::size(texts));
 
     for (const auto &text : texts)
-        out.push_back(toBytes(text));
+        out.push_back(ToBytes(text));
     return out;
 }
 
 template <std::ranges::input_range Range>
-[[nodiscard]] std::vector<std::pair<std::string, std::string>> toBytesPairs(const Range &pairs)
+[[nodiscard]] std::vector<std::pair<std::string, std::string>> ToBytesPairs(const Range &pairs)
 {
     std::vector<std::pair<std::string, std::string>> out;
     if constexpr (std::ranges::sized_range<const Range>)
         out.reserve(std::ranges::size(pairs));
 
     for (const auto &[first, second] : pairs)
-        out.emplace_back(toBytes(first), toBytes(second));
+        out.emplace_back(ToBytes(first), ToBytes(second));
     return out;
 }
 
@@ -238,15 +238,15 @@ template <std::ranges::input_range Range>
     return lhs;
 }
 
-template <typename... Ts> String format(std::format_string<Ts...> formatStr, Ts &&...args)
+template <typename... Ts> String Format(std::format_string<Ts...> format_str, Ts &&...args)
 {
-    return String::fromBytes(std::format(formatStr, std::forward<Ts>(args)...)).expect();
+    return String::FromBytes(std::format(format_str, std::forward<Ts>(args)...)).Expect();
 }
 
 namespace literals {
 [[nodiscard]] constexpr String operator""_t(const char *bytes, size_t n)
 {
-    return String::fromBytes(std::string_view{bytes, n}).expect();
+    return String::FromBytes(std::string_view{bytes, n}).Expect();
 }
 } // namespace literals
 
@@ -257,13 +257,13 @@ using text::String;
 template <> struct std::formatter<text::String, char> : std::formatter<std::string_view, char> {
     auto format(const text::String &text, std::format_context &ctx) const
     {
-        return std::formatter<std::string_view, char>::format(text.view(), ctx);
+        return std::formatter<std::string_view, char>::format(text.View(), ctx);
     }
 };
 
 template <> struct std::hash<String> {
     size_t operator()(const String &text) const noexcept
     {
-        return std::hash<std::string_view>{}(text.view());
+        return std::hash<std::string_view>{}(text.View());
     }
 };

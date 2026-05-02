@@ -7,21 +7,21 @@
 
 namespace v1 {
 
-template <typename T> inline T grabValueOf(std::optional<T> &opt)
+template <typename T> inline T GrabValueOf(std::optional<T> &opt)
 {
     T x = std::move(*opt);
     opt.reset();
     return x;
 }
 
-template <typename T> inline T grabValueOf(std::optional<T> &&opt) { return grabValueOf(opt); }
+template <typename T> inline T GrabValueOf(std::optional<T> &&opt) { return GrabValueOf(opt); }
 
-template <typename T, typename E> inline T grabValueOf(Expected<T, E> &expected)
+template <typename T, typename E> inline T GrabValueOf(Expected<T, E> &expected)
 {
     return std::move(*expected);
 }
 
-template <typename T, typename E> inline T grabValueOf(Expected<T, E> &&expected)
+template <typename T, typename E> inline T GrabValueOf(Expected<T, E> &&expected)
 {
     return std::move(*expected);
 }

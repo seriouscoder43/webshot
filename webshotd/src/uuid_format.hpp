@@ -10,7 +10,7 @@
 
 namespace v1::uuidu {
 
-[[nodiscard]] inline std::string toBytes(const Uuid &value)
+[[nodiscard]] inline std::string ToBytes(const Uuid &value)
 {
     return boost::uuids::to_string(value);
 }

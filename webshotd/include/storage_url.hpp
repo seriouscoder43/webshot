@@ -16,11 +16,11 @@ enum class StorageUrlError {
     kInvalidRequestHost,
 };
 
-[[nodiscard]] Expected<Url, StorageUrlError> buildCaptureDownloadUrl(
-    uuidu::Uuid uuid, S3Mode s3Mode, const String &publicBaseUrl,
-    const std::optional<String> &requestHost
+[[nodiscard]] Expected<Url, StorageUrlError> BuildCaptureDownloadUrl(
+    uuidu::Uuid uuid, S3Mode s3_mode, const String &public_base_url,
+    const std::optional<String> &request_host
 );
 
-[[nodiscard]] String storageUrlErrorMessage(StorageUrlError error);
+[[nodiscard]] String StorageUrlErrorMessage(StorageUrlError error);
 
 } // namespace v1

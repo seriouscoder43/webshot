@@ -1,5 +1,4 @@
 #include "crawler/failure.hpp"
-#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -8,6 +7,8 @@
 #include <userver/fs/read.hpp>
 
 namespace v1::crawler {
+namespace us = userver;
+namespace eng = us::engine;
 using namespace text::literals;
 
 namespace {
@@ -15,7 +16,7 @@ namespace {
 constexpr size_t kProcessOutputTailBytes = 4096UL;
 constexpr size_t kProcessOutputCharsMax = 240UL;
 
-[[nodiscard]] String escapeForQuotedValue(std::string_view input)
+[[nodiscard]] String EscapeForQuotedValue(std::string_view input)
 {
     std::string escaped;
     escaped.reserve(input.size());
@@ -24,15 +25,15 @@ constexpr size_t kProcessOutputCharsMax = 240UL;
             escaped.push_back('\\');
         escaped.push_back(ch);
     }
-    return String::fromBytes(escaped).expect();
+    return String::FromBytes(escaped).Expect();
 }
 
 [[nodiscard]] std::optional<String>
-readSanitizedProcessOutput(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+ReadSanitizedProcessOutput(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
     try {
-        auto text = sanitizeProcessOutputTail(us::fs::ReadFileContents(fsTaskProcessor, path));
-        if (!text.empty())
+        auto text = SanitizeProcessOutputTail(us::fs::ReadFileContents(fs_task_processor, path));
+        if (!text.Empty())
             return text;
     } catch (const std::runtime_error &) {
         // Best-effort diagnostics: ignore unreadable or missing process-output files.
@@ -42,17 +43,17 @@ readSanitizedProcessOutput(eng::TaskProcessor &fsTaskProcessor, const std::strin
 
 } // namespace
 
-String sanitizeProcessOutputTail(std::string_view bytes)
+String SanitizeProcessOutputTail(std::string_view bytes)
 {
-    const bool trimmedFront = bytes.size() > kProcessOutputTailBytes;
-    if (trimmedFront)
+    const bool trimmed_front = bytes.size() > kProcessOutputTailBytes;
+    if (trimmed_front)
         bytes.remove_prefix(bytes.size() - kProcessOutputTailBytes);
 
     std::string sanitized;
     sanitized.reserve(std::min(bytes.size(), kProcessOutputCharsMax) + 8);
 
-    bool previousWasSpace = true;
-    bool trimmedBack = false;
+    bool previous_was_space = true;
+    bool trimmed_back = false;
 
     for (char raw : bytes) {
         const auto byte = static_cast<unsigned char>(raw);
@@ -66,15 +67,15 @@ String sanitizeProcessOutputTail(std::string_view bytes)
         }
 
         if (normalized == ' ') {
-            if (previousWasSpace)
+            if (previous_was_space)
                 continue;
-            previousWasSpace = true;
+            previous_was_space = true;
         } else {
-            previousWasSpace = false;
+            previous_was_space = false;
         }
 
         if (sanitized.size() >= kProcessOutputCharsMax) {
-            trimmedBack = true;
+            trimmed_back = true;
             break;
         }
         sanitized.push_back(normalized);
@@ -86,68 +87,68 @@ String sanitizeProcessOutputTail(std::string_view bytes)
     if (sanitized.empty())
         return {};
 
-    auto escaped = escapeForQuotedValue(sanitized);
-    if (trimmedFront)
+    auto escaped = EscapeForQuotedValue(sanitized);
+    if (trimmed_front)
         escaped = "... "_t + escaped;
-    if (trimmedBack)
+    if (trimmed_back)
         escaped += " ..."_t;
     return escaped;
 }
 
-std::optional<String> summarizeProcessOutputs(
-    eng::TaskProcessor &fsTaskProcessor, const std::string &stdoutPath,
-    const std::string &stderrPath
+std::optional<String> SummarizeProcessOutputs(
+    eng::TaskProcessor &fs_task_processor, const std::string &stdout_path,
+    const std::string &stderr_path
 )
 {
-    const auto stdoutText = readSanitizedProcessOutput(fsTaskProcessor, stdoutPath);
-    const auto stderrText = readSanitizedProcessOutput(fsTaskProcessor, stderrPath);
+    const auto stdout_text = ReadSanitizedProcessOutput(fs_task_processor, stdout_path);
+    const auto stderr_text = ReadSanitizedProcessOutput(fs_task_processor, stderr_path);
 
-    if (!stdoutText && !stderrText)
+    if (!stdout_text && !stderr_text)
         return {};
 
     String detail;
-    if (stdoutText)
-        detail = text::format("stdout=\"{}\"", *stdoutText);
-    if (stderrText) {
-        if (!detail.empty())
+    if (stdout_text)
+        detail = text::Format("stdout=\"{}\"", *stdout_text);
+    if (stderr_text) {
+        if (!detail.Empty())
             detail += ", "_t;
-        detail += text::format("stderr=\"{}\"", *stderrText);
+        detail += text::Format("stderr=\"{}\"", *stderr_text);
     }
     return detail;
 }
 
-String formatAttemptContext(const AttemptSummary &attempt)
+String FormatAttemptContext(const AttemptSummary &attempt)
 {
     String msg;
-    if (attempt.seedProbe) {
-        msg = text::format(
-            "seedProbe status={} loadState={}", attempt.seedProbe->status.value_or(0),
-            attempt.seedProbe->loadState.value_or(-1)
+    if (attempt.seed_probe) {
+        msg = text::Format(
+            "seedProbe status={} loadState={}", attempt.seed_probe->status.value_or(0),
+            attempt.seed_probe->load_state.value_or(-1)
         );
     }
-    if (attempt.failureDetail) {
-        if (!msg.empty())
+    if (attempt.failure_detail) {
+        if (!msg.Empty())
             msg += ", "_t;
-        msg += *attempt.failureDetail;
+        msg += *attempt.failure_detail;
     }
     return msg;
 }
 
-String formatAttemptStatus(std::string_view label, const AttemptSummary &attempt)
+String FormatAttemptStatus(std::string_view label, const AttemptSummary &attempt)
 {
     String msg;
     if (label.empty()) {
-        msg = text::format(
-            "exit code {}: {}", attempt.exitCode, crawlerFailureReason(attempt.exitCode)
+        msg = text::Format(
+            "exit code {}: {}", attempt.exit_code, CrawlerFailureReason(attempt.exit_code)
         );
     } else {
-        msg = text::format(
-            "{} exit code {}: {}", label, attempt.exitCode, crawlerFailureReason(attempt.exitCode)
+        msg = text::Format(
+            "{} exit code {}: {}", label, attempt.exit_code, CrawlerFailureReason(attempt.exit_code)
         );
     }
 
-    const auto context = formatAttemptContext(attempt);
-    if (!context.empty())
+    const auto context = FormatAttemptContext(attempt);
+    if (!context.Empty())
         msg += ", "_t + context;
     return msg;
 }

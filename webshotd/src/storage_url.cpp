@@ -8,7 +8,6 @@
 #include "invariant.hpp"
 #include "text.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 #include "uuid_format.hpp"
 
 #include <format>
@@ -21,9 +20,9 @@ namespace {
 
 using enum StorageUrlError;
 
-[[nodiscard]] String appendCaptureFilename(const Url &baseUrl, uuidu::Uuid uuid)
+[[nodiscard]] String AppendCaptureFilename(const Url &base_url, uuidu::Uuid uuid)
 {
-    std::string path{baseUrl.pathname().view()};
+    std::string path{base_url.Pathname().View()};
     if (path.empty())
         path = "/";
     while (path.size() > 1 && path.back() == '/')
@@ -31,57 +30,57 @@ using enum StorageUrlError;
     if (path.back() != '/')
         path.push_back('/');
     path += std::format("{}.wacz", uuid);
-    return String::fromBytes(path).expect();
+    return String::FromBytes(path).Expect();
 }
 
 [[nodiscard]] Expected<String, StorageUrlError>
-parseRequestHostname(const std::optional<String> &requestHost)
+ParseRequestHostname(const std::optional<String> &request_host)
 {
-    const auto requestHostValue = TRY_OK_OR(requestHost, kMissingRequestHost);
-    ENSURE(!requestHostValue.empty(), kMissingRequestHost);
+    const auto request_host_value = TRY_OK_OR(request_host, kMissingRequestHost);
+    ENSURE(!request_host_value.Empty(), kMissingRequestHost);
 
     const auto parsed = TRY_OK_OR(
-        Url::fromText(text::format("http://{}", requestHostValue)), kInvalidRequestHost
+        Url::FromText(text::Format("http://{}", request_host_value)), kInvalidRequestHost
     );
-    ENSURE(parsed.hasHostname(), kInvalidRequestHost);
-    ENSURE(parsed.pathname() == "/"_t, kInvalidRequestHost);
-    ENSURE(!parsed.hasSearch(), kInvalidRequestHost);
+    ENSURE(parsed.HasHostname(), kInvalidRequestHost);
+    ENSURE(parsed.Pathname() == "/"_t, kInvalidRequestHost);
+    ENSURE(!parsed.HasSearch(), kInvalidRequestHost);
 
-    return parsed.hostname();
+    return parsed.Hostname();
 }
 
 [[nodiscard]] Expected<Url, StorageUrlError>
-buildConfiguredCaptureDownloadUrl(uuidu::Uuid uuid, const String &publicBaseUrl)
+BuildConfiguredCaptureDownloadUrl(uuidu::Uuid uuid, const String &public_base_url)
 {
-    const auto downloadUrlText =
-        String::fromBytes(std::format("{}/{}.wacz", publicBaseUrl, uuid)).expect();
-    return TRY_OK_OR(Url::fromText(downloadUrlText), kInvalidPublicBaseUrl);
+    const auto download_url_text =
+        String::FromBytes(std::format("{}/{}.wacz", public_base_url, uuid)).Expect();
+    return TRY_OK_OR(Url::FromText(download_url_text), kInvalidPublicBaseUrl);
 }
 
 } // namespace
 
-Expected<Url, StorageUrlError> buildCaptureDownloadUrl(
-    uuidu::Uuid uuid, S3Mode s3Mode, const String &publicBaseUrl,
-    const std::optional<String> &requestHost
+Expected<Url, StorageUrlError> BuildCaptureDownloadUrl(
+    uuidu::Uuid uuid, S3Mode s3_mode, const String &public_base_url,
+    const std::optional<String> &request_host
 )
 {
     using enum S3Mode;
 
-    if (s3Mode == kExternal)
-        return buildConfiguredCaptureDownloadUrl(uuid, publicBaseUrl);
+    if (s3_mode == kExternal)
+        return BuildConfiguredCaptureDownloadUrl(uuid, public_base_url);
 
-    const auto baseUrl = TRY_OK_OR(Url::fromText(publicBaseUrl), kInvalidPublicBaseUrl);
-    ENSURE(baseUrl.isHttpOrHttps(), kInvalidPublicBaseUrl);
+    const auto base_url = TRY_OK_OR(Url::FromText(public_base_url), kInvalidPublicBaseUrl);
+    ENSURE(base_url.IsHttpOrHttps(), kInvalidPublicBaseUrl);
 
-    const auto hostname = TRY(parseRequestHostname(requestHost));
+    const auto hostname = TRY(ParseRequestHostname(request_host));
 
-    auto downloadUrl = baseUrl.withHostname(hostname);
-    downloadUrl = downloadUrl.withPathname(appendCaptureFilename(baseUrl, uuid));
-    downloadUrl = downloadUrl.withoutSearch().withoutHash();
-    return downloadUrl;
+    auto download_url = base_url.WithHostname(hostname);
+    download_url = download_url.WithPathname(AppendCaptureFilename(base_url, uuid));
+    download_url = download_url.WithoutSearch().WithoutHash();
+    return download_url;
 }
 
-String storageUrlErrorMessage(StorageUrlError error)
+String StorageUrlErrorMessage(StorageUrlError error)
 {
     using enum StorageUrlError;
 
@@ -93,7 +92,7 @@ String storageUrlErrorMessage(StorageUrlError error)
     case kInvalidRequestHost:
         return "invalid request Host header"_t;
     default:
-        invariant(""_t);
+        Invariant(""_t);
     }
 }
 

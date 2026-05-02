@@ -3,7 +3,6 @@
 #include "expected.hpp"
 #include "integers.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <memory>
 #include <optional>
@@ -15,25 +14,28 @@
 
 namespace v1::crawler {
 
+namespace us = userver;
+namespace eng = us::engine;
 struct [[nodiscard]] EgressProxyConfig final {
     EgressProxyConfig(
-        std::string socketPath, std::string runId, usize urlBytesMax, i64 downBytesMax,
-        bool requireAuth, bool enableLocalFixtureRewrite, std::vector<u16> testsuiteLoopbackPorts
+        std::string socket_path, std::string run_id, usize url_bytes_max, i64 down_bytes_max,
+        bool require_auth, bool enable_local_fixture_rewrite,
+        std::vector<u16> testsuite_loopback_ports
     )
-        : socketPath(std::move(socketPath)), runId(std::move(runId)), urlBytesMax(urlBytesMax),
-          downBytesMax(downBytesMax), requireAuth(requireAuth),
-          enableLocalFixtureRewrite(enableLocalFixtureRewrite),
-          testsuiteLoopbackPorts(std::move(testsuiteLoopbackPorts))
+        : socket_path_(std::move(socket_path)), run_id(std::move(run_id)),
+          url_bytes_max(url_bytes_max), down_bytes_max(down_bytes_max), require_auth(require_auth),
+          enable_local_fixture_rewrite(enable_local_fixture_rewrite),
+          testsuite_loopback_ports(std::move(testsuite_loopback_ports))
     {
     }
 
-    std::string socketPath;
-    std::string runId;
-    usize urlBytesMax;
-    i64 downBytesMax;
-    bool requireAuth;
-    bool enableLocalFixtureRewrite;
-    std::vector<u16> testsuiteLoopbackPorts;
+    std::string socket_path_;
+    std::string run_id;
+    usize url_bytes_max;
+    i64 down_bytes_max;
+    bool require_auth;
+    bool enable_local_fixture_rewrite;
+    std::vector<u16> testsuite_loopback_ports;
 };
 
 class [[nodiscard]] EgressProxy final {
@@ -47,15 +49,15 @@ public:
     EgressProxy &operator=(EgressProxy &&) = delete;
 
     [[nodiscard]] Expected<void, String>
-    start(us::clients::dns::Resolver &resolver, eng::Deadline deadline);
-    void close() noexcept;
+    Start(us::clients::dns::Resolver &resolver, eng::Deadline deadline);
+    void Close() noexcept;
 
-    [[nodiscard]] i64 downBytes() const noexcept;
-    [[nodiscard]] std::optional<String> failureReason() const noexcept;
+    [[nodiscard]] i64 DownBytes() const noexcept;
+    [[nodiscard]] std::optional<String> FailureReason() const noexcept;
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace v1::crawler

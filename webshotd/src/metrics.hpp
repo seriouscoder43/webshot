@@ -1,7 +1,6 @@
 #pragma once
 
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <array>
 #include <chrono>
@@ -16,6 +15,7 @@
 
 namespace v1 {
 
+namespace us = userver;
 class [[nodiscard]] Metrics final : public us::components::ComponentBase {
 public:
     static constexpr std::string_view kName = "metrics";
@@ -40,29 +40,29 @@ public:
         kCount = 9,
     };
 
-    void accountError(Error which) noexcept;
+    void AccountError(Error which) noexcept;
 
-    void accountCaptureJobCreated() noexcept;
+    void AccountCaptureJobCreated() noexcept;
 
-    void accountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept;
+    void AccountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept;
 
     static us::yaml_config::Schema GetStaticConfigSchema();
 
 private:
     struct [[nodiscard]] CaptureCounters {
-        us::utils::statistics::RateCounter jobsCreated;
+        us::utils::statistics::RateCounter jobs_created;
 
         us::utils::statistics::RateCounter succeeded;
         us::utils::statistics::RateCounter failed;
 
-        us::utils::statistics::RateCounter succeededDurationMsSum;
-        us::utils::statistics::RateCounter failedDurationMsSum;
+        us::utils::statistics::RateCounter succeeded_duration_ms_sum;
+        us::utils::statistics::RateCounter failed_duration_ms_sum;
     };
 
-    static constexpr size_t kErrorCount = numericCast<size_t>(Error::kCount);
+    static constexpr size_t kErrorCount = NumericCast<size_t>(Error::kCount);
 
-    CaptureCounters capture;
-    std::array<us::utils::statistics::RateCounter, kErrorCount> errors;
+    CaptureCounters capture_;
+    std::array<us::utils::statistics::RateCounter, kErrorCount> errors_;
 };
 
 } // namespace v1

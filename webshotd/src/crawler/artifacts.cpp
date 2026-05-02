@@ -1,7 +1,6 @@
 #include "crawler/artifacts.hpp"
 #include "try.hpp"
 #include "url.hpp"
-#include "userver_namespaces.hpp"
 
 #include <arkhiv/gzip.hpp>
 #include <arkhiv/zip_archive.hpp>
@@ -23,11 +22,13 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/datetime/from_string_saturating.hpp>
-namespace http = us::http;
-
 namespace v1::crawler {
+namespace us = userver;
+namespace json = us::formats::json;
+namespace datetime = us::utils::datetime;
+namespace http = us::http;
 using namespace text::literals;
-using text::toBytes;
+using text::ToBytes;
 
 namespace {
 
@@ -36,41 +37,41 @@ constexpr std::string_view kWarcPath = "archive/data.warc.gz";
 constexpr std::string_view kWarcFilename = "data.warc.gz";
 constexpr std::string_view kIndexPath = "indexes/index.cdx";
 
-[[nodiscard]] std::string sha256Bytes(std::string_view data)
+[[nodiscard]] std::string Sha256Bytes(std::string_view data)
 {
     return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kBinary);
 }
 
-[[nodiscard]] std::string sha256Bytes(std::initializer_list<std::string_view> data)
+[[nodiscard]] std::string Sha256Bytes(std::initializer_list<std::string_view> data)
 {
     return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kBinary);
 }
 
-[[nodiscard]] std::string sha256Hex(std::string_view data)
+[[nodiscard]] std::string Sha256Hex(std::string_view data)
 {
     return us::crypto::hash::Sha256(data, us::crypto::hash::OutputEncoding::kHex);
 }
 
-[[nodiscard]] std::string sha256PrefixedHex(std::string_view data, std::string_view prefix)
+[[nodiscard]] std::string Sha256PrefixedHex(std::string_view data, std::string_view prefix)
 {
-    return std::format("{}{}", prefix, sha256Hex(data));
+    return std::format("{}{}", prefix, Sha256Hex(data));
 }
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> gzipMember(std::string_view body) noexcept
+[[nodiscard]] Expected<std::string, ArtifactFailure> GzipMember(std::string_view body) noexcept
 {
     arkhiv::GzipError error;
-    auto maybeBytes = arkhiv::gzipCompressMember(body, error);
-    if (!maybeBytes)
+    auto maybe_bytes = arkhiv::GzipCompressMember(body, error);
+    if (!maybe_bytes)
         return Unex(ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail});
-    return std::move(*maybeBytes);
+    return std::move(*maybe_bytes);
 }
 
-[[nodiscard]] std::string extractHtmlTitle(std::string_view body)
+[[nodiscard]] std::string ExtractHtmlTitle(std::string_view body)
 {
-    const auto openPos = body.find("<title");
-    if (openPos == std::string_view::npos)
+    const auto open_pos = body.find("<title");
+    if (open_pos == std::string_view::npos)
         return {};
-    const auto start = body.find('>', openPos);
+    const auto start = body.find('>', open_pos);
     if (start == std::string_view::npos)
         return {};
     const auto end = body.find("</title>", start + 1);
@@ -79,23 +80,23 @@ constexpr std::string_view kIndexPath = "indexes/index.cdx";
     return std::string{body.substr(start + 1, end - start - 1)};
 }
 
-template <typename T> [[nodiscard]] std::string toJsonBytes(const T &value)
+template <typename T> [[nodiscard]] std::string ToJsonBytes(const T &value)
 {
     return json::ToString(json::ValueBuilder(value).ExtractValue());
 }
 
-[[nodiscard]] String toCdxTimestamp(const String &iso)
+[[nodiscard]] String ToCdxTimestamp(const String &iso)
 {
-    return String::fromBytes(
+    return String::FromBytes(
                datetime::UtcTimestring(
-                   datetime::FromRfc3339StringSaturating(toBytes(iso)), "%Y%m%d%H%M%S"
+                   datetime::FromRfc3339StringSaturating(ToBytes(iso)), "%Y%m%d%H%M%S"
                )
     )
-        .expect();
+        .Expect();
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
-normalizeResponseHeaders(const std::unordered_map<std::string, std::string> &headers)
+NormalizeResponseHeaders(const std::unordered_map<std::string, std::string> &headers)
 {
     std::unordered_map<std::string, std::string> out;
     for (const auto &[name, value] : headers) {
@@ -108,57 +109,57 @@ normalizeResponseHeaders(const std::unordered_map<std::string, std::string> &hea
 }
 
 struct [[nodiscard]] SerializableResponse {
-    String responseUrl;
+    String response_url;
     String method;
-    String pageId;
-    std::optional<String> resourceType;
-    i64 statusCode{0};
-    String statusMessage;
+    String page_id;
+    std::optional<String> resource_type;
+    i64 status_code{0};
+    String status_message;
     std::unordered_map<std::string, std::string> headers;
     std::string body;
     String timestamp;
 };
 
 [[nodiscard]] SerializableResponse
-makeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
+MakeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 {
     return SerializableResponse{
-        .responseUrl = redirect.redirectUrl,
+        .response_url = redirect.redirect_url,
         .method = "GET"_t,
-        .pageId = {},
-        .resourceType = "Document"_t,
-        .statusCode = redirect.statusCode,
-        .statusMessage = redirect.statusMessage,
+        .page_id = {},
+        .resource_type = "Document"_t,
+        .status_code = redirect.status_code,
+        .status_message = redirect.status_message,
         .headers = redirect.headers,
         .body = {},
         .timestamp = redirect.timestamp,
     };
 }
 
-[[nodiscard]] SerializableResponse makeMainDocumentResponse(const CapturedExchange &exchange)
+[[nodiscard]] SerializableResponse MakeMainDocumentResponse(const CapturedExchange &exchange)
 {
     return SerializableResponse{
-        .responseUrl = exchange.finalUrl,
+        .response_url = exchange.final_url,
         .method = "GET"_t,
-        .pageId = exchange.pageId,
-        .resourceType = "Document"_t,
-        .statusCode = exchange.statusCode,
-        .statusMessage = exchange.statusMessage,
+        .page_id = exchange.page_id,
+        .resource_type = "Document"_t,
+        .status_code = exchange.status_code,
+        .status_message = exchange.status_message,
         .headers = exchange.headers,
         .body = exchange.body,
         .timestamp = exchange.timestamp,
     };
 }
 
-[[nodiscard]] SerializableResponse makeResourceResponse(const CapturedResource &resource)
+[[nodiscard]] SerializableResponse MakeResourceResponse(const CapturedResource &resource)
 {
     return SerializableResponse{
-        .responseUrl = resource.resourceUrl,
+        .response_url = resource.resource_url,
         .method = resource.method,
-        .pageId = {},
-        .resourceType = resource.resourceType,
-        .statusCode = resource.statusCode,
-        .statusMessage = resource.statusMessage,
+        .page_id = {},
+        .resource_type = resource.resource_type,
+        .status_code = resource.status_code,
+        .status_message = resource.status_message,
         .headers = resource.headers,
         .body = resource.body,
         .timestamp = resource.timestamp,
@@ -166,39 +167,39 @@ makeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 }
 
 [[nodiscard]] std::string
-contentTypeForHeaders(const std::unordered_map<std::string, std::string> &headers)
+ContentTypeForHeaders(const std::unordered_map<std::string, std::string> &headers)
 {
     if (const auto it = headers.find("content-type"); it != std::end(headers))
         return it->second;
     return "application/octet-stream";
 }
 
-[[nodiscard]] String pageTimestamp(const CapturedExchange &exchange)
+[[nodiscard]] String PageTimestamp(const CapturedExchange &exchange)
 {
-    if (!exchange.mainDocumentRedirects.empty())
-        return exchange.mainDocumentRedirects.front().timestamp;
+    if (!exchange.main_document_redirects.empty())
+        return exchange.main_document_redirects.front().timestamp;
     return exchange.timestamp;
 }
 
 [[nodiscard]] std::vector<SerializableResponse>
-collectSerializableResponses(const CapturedExchange &exchange)
+CollectSerializableResponses(const CapturedExchange &exchange)
 {
     std::vector<SerializableResponse> responses;
     responses.reserve(
-        numericCast<size_t>(
-            ssize(exchange.mainDocumentRedirects) + ssize(exchange.resources) + 1_i64
+        NumericCast<size_t>(
+            ssize(exchange.main_document_redirects) + ssize(exchange.resources) + 1_i64
         )
     );
 
-    for (const auto &redirect : exchange.mainDocumentRedirects) {
-        auto response = makeRedirectResponse(redirect);
-        response.pageId = exchange.pageId;
+    for (const auto &redirect : exchange.main_document_redirects) {
+        auto response = MakeRedirectResponse(redirect);
+        response.page_id = exchange.page_id;
         responses.push_back(std::move(response));
     }
-    responses.push_back(makeMainDocumentResponse(exchange));
+    responses.push_back(MakeMainDocumentResponse(exchange));
     for (const auto &resource : exchange.resources) {
-        auto response = makeResourceResponse(resource);
-        response.pageId = exchange.pageId;
+        auto response = MakeResourceResponse(resource);
+        response.page_id = exchange.page_id;
         responses.push_back(std::move(response));
     }
 
@@ -209,42 +210,42 @@ collectSerializableResponses(const CapturedExchange &exchange)
 }
 
 [[nodiscard]] std::pair<std::string, std::string>
-serializeRecordPair(const SerializableResponse &response)
+SerializeRecordPair(const SerializableResponse &response)
 {
-    const auto recordDate = response.timestamp;
-    const auto responseRecordId = std::format(
+    const auto record_date = response.timestamp;
+    const auto response_record_id = std::format(
         "urn:uuid:{}", us::utils::generators::GenerateBoostUuid()
     );
-    const auto requestRecordId = std::format(
+    const auto request_record_id = std::format(
         "urn:uuid:{}", us::utils::generators::GenerateBoostUuid()
     );
-    const auto normalizedHeaders = normalizeResponseHeaders(response.headers);
-    auto requestPath = "/"_t;
-    String requestHost;
-    if (const auto urlText = String::fromBytes(response.responseUrl.view())) {
-        if (const auto maybeUrl = Url::fromText(*urlText)) {
-            requestPath = maybeUrl->pathWithSearch();
-            requestHost = maybeUrl->host();
+    const auto normalized_headers = NormalizeResponseHeaders(response.headers);
+    auto request_path = "/"_t;
+    String request_host;
+    if (const auto url_text = String::FromBytes(response.response_url.View())) {
+        if (const auto maybe_url = Url::FromText(*url_text)) {
+            request_path = maybe_url->PathWithSearch();
+            request_host = maybe_url->Host();
         }
     }
-    const auto statusMessage =
-        response.statusMessage.empty()
-            ? String::fromBytes(
+    const auto status_message =
+        response.status_message.Empty()
+            ? String::FromBytes(
                   std::string(
-                      http::StatusCodeString(numericCast<http::StatusCode>(response.statusCode))
+                      http::StatusCodeString(NumericCast<http::StatusCode>(response.status_code))
                   )
               )
-                  .expect()
-            : response.statusMessage;
+                  .Expect()
+            : response.status_message;
 
-    std::string httpResponseHead = std::format(
-        "HTTP/1.1 {} {}\r\n", response.statusCode, statusMessage
+    std::string http_response_head = std::format(
+        "HTTP/1.1 {} {}\r\n", response.status_code, status_message
     );
-    for (const auto &[name, value] : normalizedHeaders)
-        httpResponseHead += std::format("{}: {}\r\n", name, value);
-    httpResponseHead += "\r\n";
+    for (const auto &[name, value] : normalized_headers)
+        http_response_head += std::format("{}: {}\r\n", name, value);
+    http_response_head += "\r\n";
 
-    std::string responseHeader = std::format(
+    std::string response_header = std::format(
         "WARC/1.1\r\n"
         "WARC-Type: response\r\n"
         "WARC-Target-URI: {}\r\n"
@@ -256,19 +257,19 @@ serializeRecordPair(const SerializableResponse &response)
         "Content-Length: {}\r\n"
         "\r\n"
         "{}",
-        response.responseUrl, recordDate, responseRecordId,
-        response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
-        response.resourceType ? std::format("WARC-Resource-Type: {}\r\n", *response.resourceType)
-                              : std::string{},
-        ssize(httpResponseHead) + ssize(response.body), httpResponseHead
+        response.response_url, record_date, response_record_id,
+        response.page_id.Empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.page_id),
+        response.resource_type ? std::format("WARC-Resource-Type: {}\r\n", *response.resource_type)
+                               : std::string{},
+        ssize(http_response_head) + ssize(response.body), http_response_head
     );
 
-    std::string requestPayload = std::format(
+    std::string request_payload = std::format(
         "{} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {}\r\n\r\n",
-        response.method.empty() ? "GET"_t : response.method, requestPath, requestHost, kUserAgent
+        response.method.Empty() ? "GET"_t : response.method, request_path, request_host, kUserAgent
     );
 
-    std::string requestHeader = std::format(
+    std::string request_header = std::format(
         "WARC/1.1\r\n"
         "WARC-Type: request\r\n"
         "WARC-Target-URI: {}\r\n"
@@ -281,65 +282,65 @@ serializeRecordPair(const SerializableResponse &response)
         "Content-Length: {}\r\n"
         "\r\n"
         "{}\r\n",
-        response.responseUrl, recordDate, requestRecordId, responseRecordId,
-        response.pageId.empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.pageId),
-        response.resourceType ? std::format("WARC-Resource-Type: {}\r\n", *response.resourceType)
-                              : std::string{},
-        ssize(requestPayload), requestPayload
+        response.response_url, record_date, request_record_id, response_record_id,
+        response.page_id.Empty() ? "" : std::format("WARC-Page-ID: {}\r\n", response.page_id),
+        response.resource_type ? std::format("WARC-Resource-Type: {}\r\n", *response.resource_type)
+                               : std::string{},
+        ssize(request_payload), request_payload
     );
 
-    responseHeader += response.body;
-    responseHeader += "\r\n\r\n";
-    return {std::move(responseHeader), std::move(requestHeader)};
+    response_header += response.body;
+    response_header += "\r\n\r\n";
+    return {std::move(response_header), std::move(request_header)};
 }
 
-[[nodiscard]] std::string buildPageInfoJsonBytes(const CapturedExchange &exchange)
+[[nodiscard]] std::string BuildPageInfoJsonBytes(const CapturedExchange &exchange)
 {
-    json::ValueBuilder pageInfo(json::Type::kObject);
-    pageInfo["pageid"] = toBytes(exchange.pageId);
-    pageInfo["url"] = std::string(
-        (exchange.seedUrl.empty() ? exchange.finalUrl : exchange.seedUrl).view()
+    json::ValueBuilder page_info(json::Type::kObject);
+    page_info["pageid"] = ToBytes(exchange.page_id);
+    page_info["url"] = std::string(
+        (exchange.seed_url.Empty() ? exchange.final_url : exchange.seed_url).View()
     );
-    pageInfo["ts"] = toBytes(pageTimestamp(exchange));
+    page_info["ts"] = ToBytes(PageTimestamp(exchange));
 
     json::ValueBuilder urls(json::Type::kObject);
-    const auto appendUrl = [&urls](
-                               const String &url, i64 statusCode,
-                               const std::unordered_map<std::string, std::string> &headers,
-                               std::optional<String> resourceType
-                           ) {
+    const auto append_url = [&urls](
+                                const String &url, i64 status_code,
+                                const std::unordered_map<std::string, std::string> &headers,
+                                std::optional<String> resource_type
+                            ) {
         json::ValueBuilder value(json::Type::kObject);
-        value["status"] = raw(statusCode);
-        const auto mime = contentTypeForHeaders(headers);
+        value["status"] = Raw(status_code);
+        const auto mime = ContentTypeForHeaders(headers);
         if (!mime.empty())
             value["mime"] = mime;
-        if (resourceType && !resourceType->empty())
-            value["type"] = toBytes(*resourceType);
-        urls[toBytes(url)] = value.ExtractValue();
+        if (resource_type && !resource_type->Empty())
+            value["type"] = ToBytes(*resource_type);
+        urls[ToBytes(url)] = value.ExtractValue();
     };
 
-    for (const auto &redirect : exchange.mainDocumentRedirects)
-        appendUrl(redirect.redirectUrl, redirect.statusCode, redirect.headers, "Document"_t);
-    appendUrl(exchange.finalUrl, exchange.statusCode, exchange.headers, "Document"_t);
+    for (const auto &redirect : exchange.main_document_redirects)
+        append_url(redirect.redirect_url, redirect.status_code, redirect.headers, "Document"_t);
+    append_url(exchange.final_url, exchange.status_code, exchange.headers, "Document"_t);
     for (const auto &resource : exchange.resources) {
-        appendUrl(
-            resource.resourceUrl, resource.statusCode, resource.headers, resource.resourceType
+        append_url(
+            resource.resource_url, resource.status_code, resource.headers, resource.resource_type
         );
     }
-    pageInfo["urls"] = urls.ExtractValue();
+    page_info["urls"] = urls.ExtractValue();
 
     json::ValueBuilder counts(json::Type::kObject);
     counts["jsErrors"] = 0;
-    pageInfo["counts"] = counts.ExtractValue();
-    return json::ToString(pageInfo.ExtractValue());
+    page_info["counts"] = counts.ExtractValue();
+    return json::ToString(page_info.ExtractValue());
 }
 
-[[nodiscard]] std::string serializePageInfoRecord(const CapturedExchange &exchange)
+[[nodiscard]] std::string SerializePageInfoRecord(const CapturedExchange &exchange)
 {
-    const auto pageUrl = exchange.seedUrl.empty() ? exchange.finalUrl : exchange.seedUrl;
-    const auto pageInfoUrl = std::format("urn:pageinfo:{}", pageUrl);
-    const auto recordId = std::format("urn:uuid:{}", us::utils::generators::GenerateBoostUuid());
-    const auto payload = buildPageInfoJsonBytes(exchange);
+    const auto page_url = exchange.seed_url.Empty() ? exchange.final_url : exchange.seed_url;
+    const auto page_info_url = std::format("urn:pageinfo:{}", page_url);
+    const auto record_id = std::format("urn:uuid:{}", us::utils::generators::GenerateBoostUuid());
+    const auto payload = BuildPageInfoJsonBytes(exchange);
 
     return std::format(
         "WARC/1.1\r\n"
@@ -353,47 +354,47 @@ serializeRecordPair(const SerializableResponse &response)
         "Content-Length: {}\r\n"
         "\r\n"
         "{}\r\n\r\n",
-        pageInfoUrl, pageTimestamp(exchange), recordId, exchange.pageId, payload.size(), payload
+        page_info_url, PageTimestamp(exchange), record_id, exchange.page_id, payload.size(), payload
     );
 }
 
-[[nodiscard]] String cdxPayloadDigest(std::string_view payload)
+[[nodiscard]] String CdxPayloadDigest(std::string_view payload)
 {
-    return String::fromBytes(sha256PrefixedHex(payload, "sha-256:")).expect();
+    return String::FromBytes(Sha256PrefixedHex(payload, "sha-256:")).Expect();
 }
 
-[[nodiscard]] String cdxRecordDigest(std::string_view recordBytes)
+[[nodiscard]] String CdxRecordDigest(std::string_view record_bytes)
 {
-    return String::fromBytes(sha256PrefixedHex(recordBytes, "sha256:")).expect();
+    return String::FromBytes(Sha256PrefixedHex(record_bytes, "sha256:")).Expect();
 }
 
-[[nodiscard]] String toSurtKey(const String &urlText)
+[[nodiscard]] String ToSurtKey(const String &url_text)
 {
-    const auto maybeUrl = Url::fromText(urlText);
-    if (!maybeUrl)
-        return urlText;
+    const auto maybe_url = Url::FromText(url_text);
+    if (!maybe_url)
+        return url_text;
 
-    if (!maybeUrl->isHttpOrHttps())
-        return urlText;
+    if (!maybe_url->IsHttpOrHttps())
+        return url_text;
 
-    return maybeUrl->surt();
+    return maybe_url->Surt();
 }
 
-[[nodiscard]] std::string makeWaczIndexJsonBytes(const WarcCdxRecord &record)
+[[nodiscard]] std::string MakeWaczIndexJsonBytes(const WarcCdxRecord &record)
 {
-    json::ValueBuilder recordEntry(json::Type::kObject);
-    recordEntry["url"] = toBytes(record.recordUrl);
-    recordEntry["digest"] = toBytes(record.digest);
-    recordEntry["mime"] = contentTypeForHeaders(record.headers);
-    recordEntry["filename"] = std::string(kWarcFilename);
-    recordEntry["offset"] = raw(record.offset);
-    recordEntry["length"] = raw(record.length);
-    recordEntry["status"] = raw(record.statusCode);
-    recordEntry["recordDigest"] = toBytes(record.recordDigest);
-    return json::ToString(recordEntry.ExtractValue());
+    json::ValueBuilder record_entry(json::Type::kObject);
+    record_entry["url"] = ToBytes(record.record_url);
+    record_entry["digest"] = ToBytes(record.digest);
+    record_entry["mime"] = ContentTypeForHeaders(record.headers);
+    record_entry["filename"] = std::string(kWarcFilename);
+    record_entry["offset"] = Raw(record.offset);
+    record_entry["length"] = Raw(record.length);
+    record_entry["status"] = Raw(record.status_code);
+    record_entry["recordDigest"] = ToBytes(record.record_digest);
+    return json::ToString(record_entry.ExtractValue());
 }
 
-[[nodiscard]] std::string buildCdx(const std::vector<WarcCdxRecord> &records)
+[[nodiscard]] std::string BuildCdx(const std::vector<WarcCdxRecord> &records)
 {
     struct [[nodiscard]] CdxLine {
         std::string key;
@@ -406,9 +407,9 @@ serializeRecordPair(const SerializableResponse &response)
     for (const auto &record : records) {
         lines.push_back(
             CdxLine{
-                .key = toBytes(toSurtKey(record.recordUrl)),
-                .timestamp = toBytes(record.timestamp),
-                .json = makeWaczIndexJsonBytes(record),
+                .key = ToBytes(ToSurtKey(record.record_url)),
+                .timestamp = ToBytes(record.timestamp),
+                .json = MakeWaczIndexJsonBytes(record),
             }
         );
     }
@@ -430,48 +431,48 @@ serializeRecordPair(const SerializableResponse &response)
     return cdx;
 }
 
-[[nodiscard]] std::string buildWaczPagesBytes(std::string_view pagesJsonl)
+[[nodiscard]] std::string BuildWaczPagesBytes(std::string_view pages_jsonl)
 {
-    json::ValueBuilder pagesHeader(json::Type::kObject);
-    pagesHeader["format"] = "json-pages-1.0";
-    pagesHeader["id"] = "pages";
-    pagesHeader["title"] = "All Pages";
-    pagesHeader["hasText"] = false;
-    return json::ToString(pagesHeader.ExtractValue()) + "\n" + std::string(pagesJsonl);
+    json::ValueBuilder pages_header(json::Type::kObject);
+    pages_header["format"] = "json-pages-1.0";
+    pages_header["id"] = "pages";
+    pages_header["title"] = "All Pages";
+    pages_header["hasText"] = false;
+    return json::ToString(pages_header.ExtractValue()) + "\n" + std::string(pages_jsonl);
 }
 
 [[nodiscard]] dto::WaczResource
-makeWaczResource(std::string_view name, std::string_view path, std::string_view body)
+MakeWaczResource(std::string_view name, std::string_view path, std::string_view body)
 {
     return dto::WaczResource{
         .name = std::string(name),
         .path = std::string(path),
-        .hash = sha256PrefixedHex(body, "sha256:"),
-        .bytes = numericCast<int64_t>(body.size()),
+        .hash = Sha256PrefixedHex(body, "sha256:"),
+        .bytes = NumericCast<int64_t>(body.size()),
     };
 }
 
-[[nodiscard]] std::vector<dto::WaczResource> buildWaczResources(
-    std::string_view warcBytes, std::string_view pagesBytes, std::string_view cdxBytes
+[[nodiscard]] std::vector<dto::WaczResource> BuildWaczResources(
+    std::string_view warc_bytes, std::string_view pages_bytes, std::string_view cdx_bytes
 )
 {
     std::vector<dto::WaczResource> resources;
     resources.reserve(3);
-    resources.push_back(makeWaczResource("pages.jsonl", "pages/pages.jsonl", pagesBytes));
-    resources.push_back(makeWaczResource(kWarcFilename, kWarcPath, warcBytes));
-    resources.push_back(makeWaczResource("index.cdx", kIndexPath, cdxBytes));
+    resources.push_back(MakeWaczResource("pages.jsonl", "pages/pages.jsonl", pages_bytes));
+    resources.push_back(MakeWaczResource(kWarcFilename, kWarcPath, warc_bytes));
+    resources.push_back(MakeWaczResource("index.cdx", kIndexPath, cdx_bytes));
     return resources;
 }
 
 [[nodiscard]] dto::WaczDataPackage
-buildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resources)
+BuildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resources)
 {
     const auto created = datetime::TimePointTz(datetime::Now());
     return dto::WaczDataPackage{
         .profile = "data-package",
         .resources = std::move(resources),
         .wacz_version = "1.1.1",
-        .title = toBytes(run.seedUrl),
+        .title = ToBytes(run.seed_url),
         .software = "webshotd",
         .created = created,
         .modified = created,
@@ -480,27 +481,27 @@ buildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resou
 
 } // namespace
 
-std::string buildPagesJsonl(const CapturedExchange &exchange)
+std::string BuildPagesJsonl(const CapturedExchange &exchange)
 {
     dto::BrowsertrixPageEntry entry{
-        .id = toBytes(exchange.pageId),
-        .url = toBytes(exchange.finalUrl),
-        .title = exchange.title ? toBytes(*exchange.title) : extractHtmlTitle(exchange.body),
-        .loadState = exchange.statusCode >= 200_i64 && exchange.statusCode < 400_i64 ? 2 : 0,
-        .mime = contentTypeForHeaders(exchange.headers),
+        .id = ToBytes(exchange.page_id),
+        .url = ToBytes(exchange.final_url),
+        .title = exchange.title ? ToBytes(*exchange.title) : ExtractHtmlTitle(exchange.body),
+        .loadState = exchange.status_code >= 200_i64 && exchange.status_code < 400_i64 ? 2 : 0,
+        .mime = ContentTypeForHeaders(exchange.headers),
         .seed = true,
     };
     entry.ts = datetime::TimePointTz(
-        datetime::FromRfc3339StringSaturating(toBytes(pageTimestamp(exchange)))
+        datetime::FromRfc3339StringSaturating(ToBytes(PageTimestamp(exchange)))
     );
-    entry.status = raw(exchange.statusCode);
+    entry.status = Raw(exchange.status_code);
     entry.depth = 0;
-    return toJsonBytes(entry) + "\n";
+    return ToJsonBytes(entry) + "\n";
 }
 
-Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
-    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
-    ReusedBrowser reusedBrowser
+Expected<std::string, ArtifactFailure> BuildSuccessStdoutLog(
+    const RunRequest &run, const CapturedExchange &exchange, i64 browser_pid,
+    ReusedBrowser reused_browser
 )
 {
     return std::format(
@@ -513,182 +514,182 @@ Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
         "browser_pid={}\n"
         "reused_browser={}\n"
         "browsertrix rewrite done\n\n",
-        run.seedUrl, exchange.finalUrl, exchange.statusCode,
-        exchange.redirectChain.empty() ? 0_i64 : ssize(exchange.redirectChain) - 1_i64, "chromium",
-        browserPid, reusedBrowser == ReusedBrowser::kYes ? "true" : "false"
+        run.seed_url, exchange.final_url, exchange.status_code,
+        exchange.redirect_chain.empty() ? 0_i64 : ssize(exchange.redirect_chain) - 1_i64,
+        "chromium", browser_pid, reused_browser == ReusedBrowser::kYes ? "true" : "false"
     );
 }
 
-Expected<WarcBuildOutput, ArtifactFailure> buildWarc(const CapturedExchange &exchange)
+Expected<WarcBuildOutput, ArtifactFailure> BuildWarc(const CapturedExchange &exchange)
 {
-    const auto responses = collectSerializableResponses(exchange);
+    const auto responses = CollectSerializableResponses(exchange);
 
     WarcBuildOutput out;
     i64 offset{0};
     for (const auto &response : responses) {
-        auto [responseBytes, requestBytes] = serializeRecordPair(response);
-        auto responseGz = TRY(gzipMember(responseBytes));
-        auto requestGz = TRY(gzipMember(requestBytes));
-        out.cdxRecords.push_back(
+        auto [response_bytes, request_bytes] = SerializeRecordPair(response);
+        auto response_gz = TRY(GzipMember(response_bytes));
+        auto request_gz = TRY(GzipMember(request_bytes));
+        out.cdx_records.push_back(
             WarcCdxRecord{
-                .recordUrl = response.responseUrl,
-                .timestamp = toCdxTimestamp(response.timestamp),
-                .digest = cdxPayloadDigest(response.body),
-                .recordDigest = cdxRecordDigest(responseGz),
-                .statusCode = response.statusCode,
+                .record_url = response.response_url,
+                .timestamp = ToCdxTimestamp(response.timestamp),
+                .digest = CdxPayloadDigest(response.body),
+                .record_digest = CdxRecordDigest(response_gz),
+                .status_code = response.status_code,
                 .headers = response.headers,
                 .offset = offset,
-                .length = ssize(responseGz),
+                .length = ssize(response_gz),
             }
         );
-        out.bytes.append(responseGz);
-        out.bytes.append(requestGz);
-        offset += i64{responseGz.size()} + i64{requestGz.size()};
+        out.bytes.append(response_gz);
+        out.bytes.append(request_gz);
+        offset += i64{response_gz.size()} + i64{request_gz.size()};
     }
 
-    const auto pageInfoUrl = text::format(
-        "urn:pageinfo:{}", exchange.seedUrl.empty() ? exchange.finalUrl : exchange.seedUrl
+    const auto page_info_url = text::Format(
+        "urn:pageinfo:{}", exchange.seed_url.Empty() ? exchange.final_url : exchange.seed_url
     );
-    std::unordered_map<std::string, std::string> pageInfoHeaders{
+    std::unordered_map<std::string, std::string> page_info_headers{
         {"content-type", "application/json"},
     };
-    const auto pageInfoBytes = serializePageInfoRecord(exchange);
-    auto pageInfoGz = TRY(gzipMember(pageInfoBytes));
-    out.cdxRecords.push_back(
+    const auto page_info_bytes = SerializePageInfoRecord(exchange);
+    auto page_info_gz = TRY(GzipMember(page_info_bytes));
+    out.cdx_records.push_back(
         WarcCdxRecord{
-            .recordUrl = pageInfoUrl,
-            .timestamp = toCdxTimestamp(pageTimestamp(exchange)),
-            .digest = cdxPayloadDigest(buildPageInfoJsonBytes(exchange)),
-            .recordDigest = cdxRecordDigest(pageInfoGz),
-            .statusCode = 200_i64,
-            .headers = std::move(pageInfoHeaders),
+            .record_url = page_info_url,
+            .timestamp = ToCdxTimestamp(PageTimestamp(exchange)),
+            .digest = CdxPayloadDigest(BuildPageInfoJsonBytes(exchange)),
+            .record_digest = CdxRecordDigest(page_info_gz),
+            .status_code = 200_i64,
+            .headers = std::move(page_info_headers),
             .offset = offset,
-            .length = ssize(pageInfoGz),
+            .length = ssize(page_info_gz),
         }
     );
-    out.bytes.append(pageInfoGz);
+    out.bytes.append(page_info_gz);
     return out;
 }
 
-Expected<std::string, ArtifactFailure> buildWacz(
-    const RunRequest &run, const std::string &pagesJsonl, const WarcBuildOutput &warc,
-    const std::string &stdoutLog, const std::string &stderrLog
+Expected<std::string, ArtifactFailure> BuildWacz(
+    const RunRequest &run, const std::string &pages_jsonl, const WarcBuildOutput &warc,
+    const std::string &stdout_log, const std::string &stderr_log
 )
 {
-    const auto cdx = buildCdx(warc.cdxRecords);
-    const auto waczPages = buildWaczPagesBytes(pagesJsonl);
-    auto resources = buildWaczResources(warc.bytes, waczPages, cdx);
-    const auto datapackageJson = toJsonBytes(buildWaczDataPackage(run, std::move(resources)));
+    const auto cdx = BuildCdx(warc.cdx_records);
+    const auto wacz_pages = BuildWaczPagesBytes(pages_jsonl);
+    auto resources = BuildWaczResources(warc.bytes, wacz_pages, cdx);
+    const auto datapackage_json = ToJsonBytes(BuildWaczDataPackage(run, std::move(resources)));
 
     arkhiv::ZipArchiveBuilder zip;
     arkhiv::ZipArchiveError error;
-    const auto addFile = [&error, &zip](
-                             std::string_view path, std::string_view body
-                         ) -> Expected<void, ArtifactFailure> {
-        if (!zip.addStoredFile(path, error, body))
+    const auto add_file = [&error, &zip](
+                              std::string_view path, std::string_view body
+                          ) -> Expected<void, ArtifactFailure> {
+        if (!zip.AddStoredFile(path, error, body))
             return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
         return {};
     };
 
-    TRY(addFile("datapackage.json", datapackageJson));
-    TRY(addFile(kWarcPath, warc.bytes));
-    TRY(addFile("pages/pages.jsonl", waczPages));
-    TRY(addFile("logs/stdout.log", stdoutLog));
-    TRY(addFile("logs/stderr.log", stderrLog));
-    TRY(addFile(kIndexPath, cdx));
+    TRY(add_file("datapackage.json", datapackage_json));
+    TRY(add_file(kWarcPath, warc.bytes));
+    TRY(add_file("pages/pages.jsonl", wacz_pages));
+    TRY(add_file("logs/stdout.log", stdout_log));
+    TRY(add_file("logs/stderr.log", stderr_log));
+    TRY(add_file(kIndexPath, cdx));
 
-    const auto zipBytes = zip.finish(error);
-    if (!zipBytes)
+    const auto zip_bytes = zip.Finish(error);
+    if (!zip_bytes)
         return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
-    return *zipBytes;
+    return *zip_bytes;
 }
 
 } // namespace v1::crawler
 
 namespace v1::crawler {
 
-std::string computeContentSha256(const CapturedExchange &exchange)
+std::string ComputeContentSha256(const CapturedExchange &exchange)
 {
-    static constexpr std::string_view kItemDomain = "webshot.capture_hash.item";
-    static constexpr std::string_view kCaptureDomain = "webshot.capture_hash";
+    static constexpr std::string_view item_domain = "webshot.capture_hash.item";
+    static constexpr std::string_view capture_domain = "webshot.capture_hash";
 
-    std::vector<std::string> itemDigests;
-    itemDigests.reserve(
-        numericCast<size_t>(
-            ssize(exchange.mainDocumentRedirects) + ssize(exchange.resources) + 2_i64
+    std::vector<std::string> item_digests;
+    item_digests.reserve(
+        NumericCast<size_t>(
+            ssize(exchange.main_document_redirects) + ssize(exchange.resources) + 2_i64
         )
     );
 
     {
-        std::string_view contentType;
+        std::string_view content_type;
         if (const auto it = exchange.headers.find("content-type"); it != std::end(exchange.headers))
-            contentType = it->second;
-        const auto urlDigest = sha256Bytes(exchange.finalUrl.view());
-        const auto status = std::format("{}", exchange.statusCode);
-        const auto statusDigest = sha256Bytes(status);
-        const auto contentTypeDigest = sha256Bytes(contentType);
-        const auto bodyDigest = sha256Bytes(exchange.body);
-        itemDigests.emplace_back(sha256Bytes({
-            kItemDomain,
+            content_type = it->second;
+        const auto url_digest = Sha256Bytes(exchange.final_url.View());
+        const auto status = std::format("{}", exchange.status_code);
+        const auto status_digest = Sha256Bytes(status);
+        const auto content_type_digest = Sha256Bytes(content_type);
+        const auto body_digest = Sha256Bytes(exchange.body);
+        item_digests.emplace_back(Sha256Bytes({
+            item_domain,
             "main",
-            urlDigest,
-            statusDigest,
-            contentTypeDigest,
-            bodyDigest,
+            url_digest,
+            status_digest,
+            content_type_digest,
+            body_digest,
         }));
     }
 
-    for (const auto &redirect : exchange.mainDocumentRedirects) {
+    for (const auto &redirect : exchange.main_document_redirects) {
         std::string_view location;
         if (const auto it = redirect.headers.find("location"); it != std::end(redirect.headers))
             location = it->second;
-        const auto urlDigest = sha256Bytes(redirect.redirectUrl.view());
-        const auto status = std::format("{}", redirect.statusCode);
-        const auto statusDigest = sha256Bytes(status);
-        const auto locationDigest = sha256Bytes(location);
-        itemDigests.emplace_back(sha256Bytes({
-            kItemDomain,
+        const auto url_digest = Sha256Bytes(redirect.redirect_url.View());
+        const auto status = std::format("{}", redirect.status_code);
+        const auto status_digest = Sha256Bytes(status);
+        const auto location_digest = Sha256Bytes(location);
+        item_digests.emplace_back(Sha256Bytes({
+            item_domain,
             "redirect",
-            urlDigest,
-            statusDigest,
-            locationDigest,
+            url_digest,
+            status_digest,
+            location_digest,
         }));
     }
 
     for (const auto &resource : exchange.resources) {
-        const auto method = resource.method.empty() ? "GET" : resource.method.view();
-        const auto resourceType = resource.resourceType ? resource.resourceType->view() : "";
-        std::string_view contentType;
+        const auto method = resource.method.Empty() ? "GET" : resource.method.View();
+        const auto resource_type = resource.resource_type ? resource.resource_type->View() : "";
+        std::string_view content_type;
         if (const auto it = resource.headers.find("content-type"); it != std::end(resource.headers))
-            contentType = it->second;
-        const auto urlDigest = sha256Bytes(resource.resourceUrl.view());
-        const auto methodDigest = sha256Bytes(method);
-        const auto status = std::format("{}", resource.statusCode);
-        const auto statusDigest = sha256Bytes(status);
-        const auto resourceTypeDigest = sha256Bytes(resourceType);
-        const auto contentTypeDigest = sha256Bytes(contentType);
-        const auto bodyDigest = sha256Bytes(resource.body);
-        itemDigests.emplace_back(sha256Bytes({
-            kItemDomain,
+            content_type = it->second;
+        const auto url_digest = Sha256Bytes(resource.resource_url.View());
+        const auto method_digest = Sha256Bytes(method);
+        const auto status = std::format("{}", resource.status_code);
+        const auto status_digest = Sha256Bytes(status);
+        const auto resource_type_digest = Sha256Bytes(resource_type);
+        const auto content_type_digest = Sha256Bytes(content_type);
+        const auto body_digest = Sha256Bytes(resource.body);
+        item_digests.emplace_back(Sha256Bytes({
+            item_domain,
             "resource",
-            urlDigest,
-            methodDigest,
-            statusDigest,
-            resourceTypeDigest,
-            contentTypeDigest,
-            bodyDigest,
+            url_digest,
+            method_digest,
+            status_digest,
+            resource_type_digest,
+            content_type_digest,
+            body_digest,
         }));
     }
 
-    std::ranges::sort(itemDigests);
+    std::ranges::sort(item_digests);
 
     std::string combined;
-    combined.reserve(numericCast<size_t>(ssize(kCaptureDomain) + ssize(itemDigests) * 32_i64));
-    combined.append(kCaptureDomain);
-    for (const auto &d : itemDigests) {
+    combined.reserve(NumericCast<size_t>(ssize(capture_domain) + ssize(item_digests) * 32_i64));
+    combined.append(capture_domain);
+    for (const auto &d : item_digests) {
         combined.append(d);
     }
-    return sha256Bytes(combined);
+    return Sha256Bytes(combined);
 }
 
 } // namespace v1::crawler

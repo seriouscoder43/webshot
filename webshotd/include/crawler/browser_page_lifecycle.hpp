@@ -14,17 +14,17 @@ public:
     BrowserPageSessionLifecycle &operator=(const BrowserPageSessionLifecycle &) = delete;
     BrowserPageSessionLifecycle &operator=(BrowserPageSessionLifecycle &&) = delete;
 
-    [[nodiscard]] bool markBrowserContextCreated();
-    [[nodiscard]] bool markTargetCreated();
-    [[nodiscard]] bool markAttached();
-    [[nodiscard]] bool markBaseDomainsEnabled();
-    [[nodiscard]] bool markDetached();
-    [[nodiscard]] bool markDisposed();
-    [[nodiscard]] bool markClosed();
+    [[nodiscard]] bool MarkBrowserContextCreated();
+    [[nodiscard]] bool MarkTargetCreated();
+    [[nodiscard]] bool MarkAttached();
+    [[nodiscard]] bool MarkBaseDomainsEnabled();
+    [[nodiscard]] bool MarkDetached();
+    [[nodiscard]] bool MarkDisposed();
+    [[nodiscard]] bool MarkClosed();
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace v1::crawler

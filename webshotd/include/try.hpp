@@ -36,81 +36,81 @@ template <typename E> struct TryExpectedFailure final {
 };
 
 template <typename T, typename E>
-[[nodiscard]] constexpr bool tryHasValue(const Expected<T, E> &expected) noexcept
+[[nodiscard]] constexpr bool TryHasValue(const Expected<T, E> &expected) noexcept
 {
-    return expected.hasValue();
+    return expected.HasValue();
 }
 
-template <typename T> [[nodiscard]] constexpr bool tryHasValue(const std::optional<T> &opt) noexcept
+template <typename T> [[nodiscard]] constexpr bool TryHasValue(const std::optional<T> &opt) noexcept
 {
     return opt.has_value();
 }
 
-template <typename T, typename E> [[nodiscard]] inline Unex<E> tryAsUnex(Expected<T, E> &expected)
+template <typename T, typename E> [[nodiscard]] inline Unex<E> TryAsUnex(Expected<T, E> &expected)
 {
-    return Unex(expected.error());
+    return Unex(expected.Error());
 }
 
 template <typename T, typename E>
-[[nodiscard]] inline Unex<E> tryAsUnex(const Expected<T, E> &expected)
+[[nodiscard]] inline Unex<E> TryAsUnex(const Expected<T, E> &expected)
 {
-    return Unex(expected.error());
+    return Unex(expected.Error());
 }
 
-template <typename T, typename E> [[nodiscard]] inline Unex<E> tryAsUnex(Expected<T, E> &&expected)
+template <typename T, typename E> [[nodiscard]] inline Unex<E> TryAsUnex(Expected<T, E> &&expected)
 {
-    return Unex(std::move(expected).error());
+    return Unex(std::move(expected).Error());
 }
 
-template <typename T, typename E> inline T tryExtract(Expected<T, E> &expected)
+template <typename T, typename E> inline T TryExtract(Expected<T, E> &expected)
 {
-    return grabValueOf(expected);
+    return GrabValueOf(expected);
 }
 
-template <typename T, typename E> inline T tryExtract(Expected<T, E> &&expected)
+template <typename T, typename E> inline T TryExtract(Expected<T, E> &&expected)
 {
-    return grabValueOf(std::move(expected));
+    return GrabValueOf(std::move(expected));
 }
 
-template <typename E> inline void tryExtract(Expected<void, E> &expected) { expected.value(); }
+template <typename E> inline void TryExtract(Expected<void, E> &expected) { expected.Value(); }
 
-template <typename E> inline void tryExtract(Expected<void, E> &&expected)
+template <typename E> inline void TryExtract(Expected<void, E> &&expected)
 {
-    std::move(expected).value();
+    std::move(expected).Value();
 }
 
-template <typename T> inline T tryExtract(std::optional<T> &opt) { return grabValueOf(opt); }
+template <typename T> inline T TryExtract(std::optional<T> &opt) { return GrabValueOf(opt); }
 
-template <typename T> inline T tryExtract(std::optional<T> &&opt)
+template <typename T> inline T TryExtract(std::optional<T> &&opt)
 {
-    return grabValueOf(std::move(opt));
+    return GrabValueOf(std::move(opt));
 }
 
-template <typename T> [[nodiscard]] inline auto tryFailure(T &&value)
+template <typename T> [[nodiscard]] inline auto TryFailure(T &&value)
 {
     static_assert(IsTrySupported<T>::value, "TRY only supports v1::Expected and std::optional");
 
     if constexpr (IsExpected<RemoveCvref<T>>::value) {
-        return TryExpectedFailure{std::forward<T>(value).error()};
+        return TryExpectedFailure{std::forward<T>(value).Error()};
     } else {
         return TryEmptyReturn{};
     }
 }
 
-template <typename T, typename F> [[nodiscard]] constexpr auto tryMapError(T &&value, F &&mapError)
+template <typename T, typename F> [[nodiscard]] constexpr auto TryMapError(T &&value, F &&map_error)
 {
     static_assert(IsExpected<RemoveCvref<T>>::value, "TRY_MAP_ERR only supports v1::Expected");
-    return std::forward<T>(value).transformError(std::forward<F>(mapError));
+    return std::forward<T>(value).TransformError(std::forward<F>(map_error));
 }
 
-template <typename T, typename F> [[nodiscard]] constexpr auto tryMap(T &&value, F &&mapValue)
+template <typename T, typename F> [[nodiscard]] constexpr auto TryMap(T &&value, F &&map_value)
 {
     static_assert(IsExpected<RemoveCvref<T>>::value, "TRY_MAP only supports v1::Expected");
-    return std::forward<T>(value).transform(std::forward<F>(mapValue));
+    return std::forward<T>(value).Transform(std::forward<F>(map_value));
 }
 
 template <typename T, typename F>
-[[nodiscard]] constexpr auto tryOkOrElse(T &&value, F &&makeError)
+[[nodiscard]] constexpr auto TryOkOrElse(T &&value, F &&make_error)
     -> Expected<typename RemoveCvref<T>::value_type, RemoveCvref<std::invoke_result_t<F>>>
 {
     static_assert(IsOptional<RemoveCvref<T>>::value, "TRY_OK_OR_ELSE only supports std::optional");
@@ -121,7 +121,7 @@ template <typename T, typename F>
 
     if (value)
         return Expected<Value, Error>{std::forward<T>(value).value()};
-    return Expected<Value, Error>{Unex(std::invoke(std::forward<F>(makeError)))};
+    return Expected<Value, Error>{Unex(std::invoke(std::forward<F>(make_error)))};
 }
 
 } // namespace v1::detail
@@ -176,25 +176,25 @@ template <typename T, typename F>
             ::v1::detail::IsTrySupported<decltype(_temporaryTryResult)>::value,                    \
             "TRY only supports v1::Expected and std::optional"                                     \
         );                                                                                         \
-        if (!::v1::detail::tryHasValue(_temporaryTryResult)) [[unlikely]] {                        \
-            return ::v1::detail::tryFailure(                                                       \
+        if (!::v1::detail::TryHasValue(_temporaryTryResult)) [[unlikely]] {                        \
+            return ::v1::detail::TryFailure(                                                       \
                 std::forward<decltype(_temporaryTryResult)>(_temporaryTryResult)                   \
             );                                                                                     \
         }                                                                                          \
-        ::v1::detail::tryExtract(                                                                  \
+        ::v1::detail::TryExtract(                                                                  \
             std::forward<decltype(_temporaryTryResult)>(_temporaryTryResult)                       \
         );                                                                                         \
     }) V1_TRY_DIAGNOSTIC_POP
 
-#define TRY_MAP_ERR(expr, mapper) TRY(::v1::detail::tryMapError((expr), (mapper)))
+#define TRY_MAP_ERR(expr, mapper) TRY(::v1::detail::TryMapError((expr), (mapper)))
 
 #define TRY_ERR_AS(expr, err) TRY_MAP_ERR((expr), [&](auto &&) { return (err); })
 
-#define TRY_MAP(expr, mapper) TRY(::v1::detail::tryMap((expr), (mapper)))
+#define TRY_MAP(expr, mapper) TRY(::v1::detail::TryMap((expr), (mapper)))
 
-#define TRY_OK_OR(opt, err) TRY(::v1::detail::tryOkOrElse((opt), [&]() { return (err); }))
+#define TRY_OK_OR(opt, err) TRY(::v1::detail::TryOkOrElse((opt), [&]() { return (err); }))
 
-#define TRY_OK_OR_ELSE(opt, makeError) TRY(::v1::detail::tryOkOrElse((opt), (makeError)))
+#define TRY_OK_OR_ELSE(opt, make_error) TRY(::v1::detail::TryOkOrElse((opt), (make_error)))
 
 #define ENSURE(cond, err)                                                                          \
     do {                                                                                           \

@@ -19,7 +19,7 @@
 namespace {
 
 /** RFC 3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) */
-static bool isValidScheme(std::string_view sv) noexcept
+static bool IsValidScheme(std::string_view sv) noexcept
 {
     if (sv.empty() || !absl::ascii_isalpha(static_cast<unsigned char>(sv.front())))
         return false;
@@ -31,7 +31,7 @@ static bool isValidScheme(std::string_view sv) noexcept
     return true;
 }
 
-std::string serializeHref(const ada::url_aggregator &url)
+std::string SerializeHref(const ada::url_aggregator &url)
 {
     auto href = std::string_view(url.get_href());
     absl::ConsumeSuffix(&href, "/");
@@ -42,43 +42,41 @@ std::string serializeHref(const ada::url_aggregator &url)
 
 namespace v1 {
 
-namespace {
-
-Expected<Link, LinkError> fromTextImpl(const String &text, usize urlBytesMax)
+Expected<Link, LinkError> Link::FromText(const String &text, usize url_bytes_max)
 {
     using enum LinkError::Code;
 
-    std::string in(text.view());
+    std::string in{text.View()};
     absl::StripAsciiWhitespace(&in);
     if (in.starts_with("//"))
         return Unex(LinkError{.code = kMissingScheme});
-    const auto schemePos = in.find("://");
-    if (schemePos == std::string::npos ||
-        !isValidScheme(std::string_view(in).substr(0, schemePos))) {
+    const auto scheme_pos = in.find("://");
+    if (scheme_pos == std::string::npos ||
+        !IsValidScheme(std::string_view(in).substr(0, scheme_pos))) {
         in = std::format("http://{}", in);
     } else {
-        std::string scheme = in.substr(0, schemePos);
+        std::string scheme = in.substr(0, scheme_pos);
         if (!(scheme == "http" || scheme == "https"))
             return Unex(LinkError{.code = kUnsupportedScheme});
     }
-    if (usz(in) > urlBytesMax)
+    if (usz(in) > url_bytes_max)
         return Unex(LinkError{.code = kUrlTooLong});
     auto url = ada::parse<ada::url_aggregator>(in);
     if (!url)
         return Unex(LinkError{.code = kFailedToParse});
-    auto parsedUrl = Url::fromParsed(std::move(*url));
-    if (!parsedUrl.isHttpOrHttps())
+    auto parsed_url = Url::FromParsed(std::move(*url));
+    if (!parsed_url.IsHttpOrHttps())
         return Unex(LinkError{.code = kUnsupportedScheme});
-    if (!parsedUrl.hasHostname())
+    if (!parsed_url.HasHostname())
         return Unex(LinkError{.code = kMissingHostname});
 
-    if (isIpLiteralHostname(parsedUrl.hostname()))
+    if (IsIpLiteralHostname(parsed_url.Hostname()))
         return Unex(LinkError{.code = kIpAddressNotAllowed});
 
-    if (!parsedUrl.hasValidDomain())
+    if (!parsed_url.HasValidDomain())
         return Unex(LinkError{.code = kInvalidHost});
 
-    auto normalized = parsedUrl.copyParsed();
+    auto normalized = parsed_url.CopyParsed();
     normalized.set_username("");
     normalized.set_password("");
     normalized.clear_hash();
@@ -87,38 +85,31 @@ Expected<Link, LinkError> fromTextImpl(const String &text, usize urlBytesMax)
     if (auto hostname = normalized.get_hostname(); !hostname.empty() && hostname.back() == '.')
         normalized.set_hostname(std::string(begin(hostname), end(hostname) - 1));
 
-    return Link{Url::fromParsed(std::move(normalized))};
+    return Link{Url::FromParsed(std::move(normalized))};
 }
 
-} // namespace
+String Link::Host() const { return url.Hostname(); }
 
-Expected<Link, LinkError> Link::fromText(const String &text, usize urlBytesMax)
+String Link::HttpUrl() const
 {
-    return fromTextImpl(text, urlBytesMax);
-}
-
-String Link::host() const { return url.hostname(); }
-
-String Link::httpUrl() const
-{
-    auto copy = url.copyParsed();
+    auto copy = url.CopyParsed();
     copy.set_protocol("http");
-    return String::fromBytes(serializeHref(copy)).expect();
+    return String::FromBytes(SerializeHref(copy)).Expect();
 }
 
-String Link::httpsUrl() const
+String Link::HttpsUrl() const
 {
-    auto copy = url.copyParsed();
+    auto copy = url.CopyParsed();
     copy.set_protocol("https");
-    return String::fromBytes(serializeHref(copy)).expect();
+    return String::FromBytes(SerializeHref(copy)).Expect();
 }
 
-String Link::normalized() const
+String Link::Normalized() const
 {
-    auto copy = url.copyParsed();
+    auto copy = url.CopyParsed();
     copy.set_protocol("http");
-    constexpr std::string_view kHttpPrefix = "http://";
-    return String::fromBytes(serializeHref(copy).substr(kHttpPrefix.size())).expect();
+    constexpr std::string_view http_prefix = "http://";
+    return String::FromBytes(SerializeHref(copy).substr(http_prefix.size())).Expect();
 }
 
 } // namespace v1

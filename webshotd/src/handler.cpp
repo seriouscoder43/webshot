@@ -37,6 +37,11 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+} // namespace v1
+
 using namespace v1;
 using namespace std::chrono_literals;
 using namespace text::literals;
@@ -44,10 +49,10 @@ using namespace text::literals;
 Handler::Handler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      config(context.FindComponent<Config>()), denylist(context.FindComponent<Denylist>()),
-      metrics(context.FindComponent<Metrics>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()), denylist_(context.FindComponent<Denylist>()),
+      metrics_(context.FindComponent<Metrics>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -73,69 +78,69 @@ std::string Handler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, config};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
 
     if (request.GetMethod() == kPost) {
-        const auto req = requestSupport.parseJsonBody<dto::CreateCaptureRequest>(request);
+        const auto req = request_support.ParseJsonBody<dto::CreateCaptureRequest>(request);
         if (!req)
-            return httpu::respondError(response, kBadRequest, req.error());
+            return httpu::RespondError(response, kBadRequest, req.Error());
 
-        auto parsed = requestSupport.parseLinkBytes(req->link, "link"_t);
+        auto parsed = request_support.ParseLinkBytes(req->link, "link"_t);
         if (!parsed)
-            return httpu::respondError(response, kBadRequest, "invalid parameter"_t);
-        auto prefixKey = prefix::makePrefixKey(*parsed);
-        const auto decision = denylist.evaluatePrefix(
-            prefixKey,
-            config.allowlistOnly() ? AccessPolicyMode::kAllowlistOnly : AccessPolicyMode::kRegular
+            return httpu::RespondError(response, kBadRequest, "invalid parameter"_t);
+        auto prefix_key = prefix::MakePrefixKey(*parsed);
+        const auto decision = denylist_.EvaluatePrefix(
+            prefix_key,
+            config_.AllowlistOnly() ? AccessPolicyMode::kAllowlistOnly : AccessPolicyMode::kRegular
         );
         if (!decision) {
-            metrics.accountError(Metrics::Error::kDenylistCheck);
-            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+            metrics_.AccountError(Metrics::Error::kDenylistCheck);
+            return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
         }
         if (!decision->allowed)
-            return httpu::respondError(
-                response, kForbidden, accessDecisionMessage(decision->reason)
+            return httpu::RespondError(
+                response, kForbidden, AccessDecisionMessage(decision->reason)
             );
 
-        const auto cooldown = requestSupport.checkClientIpCooldown(request);
+        const auto cooldown = request_support.CheckClientIpCooldown(request);
         if (!cooldown)
-            return respondClientRequestError(response, cooldown.error());
+            return RespondClientRequestError(response, cooldown.Error());
         if (*cooldown)
-            return httpu::respondClientIpCooldown(response, (*cooldown)->retryAfter);
+            return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-        auto job = crud.createCaptureJob(std::move(*parsed));
+        auto job = crud_.CreateCaptureJob(std::move(*parsed));
         if (!job)
-            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-        return httpu::respondJson(response, kAccepted, *job);
+            return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondJson(response, kAccepted, *job);
     }
 
-    const auto link = requestSupport.parseRequiredQueryLink(request, "link"_t);
+    const auto link = request_support.ParseRequiredQueryLink(request, "link"_t);
     if (!link)
-        return httpu::respondParamError(
-            response, kBadRequest, link.error().name, link.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, link.Error().name, link.Error().message
         );
 
-    const auto token = requestSupport.parseQueryText(request, "page_token"_t);
+    const auto token = request_support.ParseQueryText(request, "page_token"_t);
     if (!token)
-        return httpu::respondParamError(
-            response, kBadRequest, token.error().name, token.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, token.Error().name, token.Error().message
         );
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
-        return respondClientRequestError(response, cooldown.error());
+        return RespondClientRequestError(response, cooldown.Error());
     if (*cooldown)
-        return httpu::respondClientIpCooldown(response, (*cooldown)->retryAfter);
+        return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-    auto page = crud.findCapturesByLinkPage(*link, *token);
+    auto page = crud_.FindCapturesByLinkPage(*link, *token);
     if (!page) {
         using enum errors::CapturePageError;
-        if (page.error() == kDbFailure)
-            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-        return httpu::respondParamError(
+        if (page.Error() == kDbFailure)
+            return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondParamError(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t
         );
     }
-    return httpu::respondJson(response, kOk, *page);
+    return httpu::RespondJson(response, kOk, *page);
 }

@@ -4,7 +4,6 @@
 #include "crawler/fallback.hpp"
 #include "crawler/limits.hpp"
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <optional>
@@ -15,66 +14,68 @@
 #include <userver/engine/task/task_processor_fwd.hpp>
 
 namespace v1 {
+namespace us = userver;
+namespace eng = us::engine;
 class Denylist;
 class Config;
 namespace crawler {
 
 struct [[nodiscard]] CaptureTimings {
-    std::chrono::seconds postLoadDelay;
-    std::chrono::seconds netIdleWait;
-    std::chrono::seconds pageExtraDelay;
-    std::chrono::seconds behaviorTimeout;
+    std::chrono::seconds post_load_delay;
+    std::chrono::seconds net_idle_wait;
+    std::chrono::seconds page_extra_delay;
+    std::chrono::seconds behavior_timeout;
 };
 
 struct [[nodiscard]] CrawlerTunables {
-    std::chrono::seconds devtoolsStartupTimeout;
-    std::chrono::seconds cdpHandshakeTimeout;
-    std::chrono::seconds cdpCommandTimeout;
-    std::chrono::milliseconds devtoolsPollInterval;
-    std::chrono::milliseconds browserStopTimeout;
-    std::chrono::milliseconds proxyStopTimeout;
-    bool enableLocalFixtureRewrite;
+    std::chrono::seconds devtools_startup_timeout;
+    std::chrono::seconds cdp_handshake_timeout;
+    std::chrono::seconds cdp_command_timeout;
+    std::chrono::milliseconds devtools_poll_interval;
+    std::chrono::milliseconds browser_stop_timeout;
+    std::chrono::milliseconds proxy_stop_timeout;
+    bool enable_local_fixture_rewrite;
 };
 
 } // namespace crawler
 
 struct [[nodiscard]] CrawlerRunArtifacts {
     crawler::AttemptSummary attempt;
-    std::string stdoutLog;
-    std::string stderrLog;
+    std::string stdout_log;
+    std::string stderr_log;
     std::optional<std::string> wacz;
-    std::optional<std::string> pagesJsonl;
-    std::optional<std::string> contentSha256;
-    std::optional<String> replayUrl;
+    std::optional<std::string> pages_jsonl;
+    std::optional<std::string> content_sha256;
+    std::optional<String> replay_url;
 };
 
 class [[nodiscard]] CrawlerRunner final {
 public:
     CrawlerRunner(
-        Denylist &denylist, const Config &config, us::clients::dns::Resolver &dnsResolver,
-        eng::subprocess::ProcessStarter &processStarter, std::chrono::seconds runTimeout,
-        eng::TaskProcessor &fsTaskProcessor, std::string stateDir,
-        std::optional<crawler::CgroupLimits> limits, i64 maxArchiveBytes,
+        Denylist &denylist, const Config &config, us::clients::dns::Resolver &dns_resolver,
+        eng::subprocess::ProcessStarter &process_starter, std::chrono::seconds run_timeout,
+        eng::TaskProcessor &fs_task_processor, std::string state_dir,
+        std::optional<crawler::CgroupLimits> limits, i64 max_archive_bytes,
         crawler::CaptureTimings timings, crawler::CrawlerTunables tunables,
-        i64 networkDownBytesRatioMax
+        i64 network_down_bytes_ratio_max
     );
 
-    [[nodiscard]] CrawlerRunArtifacts run(const String &seedUrl) const;
+    [[nodiscard]] CrawlerRunArtifacts Run(const String &seed_url) const;
 
 private:
-    Denylist &denylist;
-    const Config &config;
-    us::clients::dns::Resolver &dnsResolver;
-    eng::subprocess::ProcessStarter &processStarter;
-    eng::TaskProcessor &fsTaskProcessor;
-    std::chrono::seconds runTimeout;
-    std::string browserRunsRoot;
-    std::string cgroupRootPath;
-    std::optional<crawler::CgroupLimits> cgroupLimits;
-    i64 maxArchiveBytes;
-    crawler::CaptureTimings timings;
-    crawler::CrawlerTunables tunables;
-    i64 networkDownBytesRatioMax;
+    Denylist &denylist_;
+    const Config &config_;
+    us::clients::dns::Resolver &dns_resolver_;
+    eng::subprocess::ProcessStarter &process_starter_;
+    eng::TaskProcessor &fs_task_processor_;
+    std::chrono::seconds run_timeout_;
+    std::string browser_runs_root_;
+    std::string cgroup_root_path_;
+    std::optional<crawler::CgroupLimits> cgroup_limits_;
+    i64 max_archive_bytes_;
+    crawler::CaptureTimings timings_;
+    crawler::CrawlerTunables tunables_;
+    i64 network_down_bytes_ratio_max_;
 };
 
 } // namespace v1

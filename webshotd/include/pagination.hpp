@@ -25,7 +25,7 @@ using Uuid = boost::uuids::uuid;
  * cursor boundary.
  */
 struct [[nodiscard]] Cursor {
-    Clock::time_point createdAt;
+    Clock::time_point created_at;
     Uuid id;
     PageDirection direction;
 };
@@ -36,7 +36,7 @@ struct [[nodiscard]] Cursor {
  * The resulting string is suitable for direct use as a page_token.
  */
 [[nodiscard]] String
-encodeCursor(Clock::time_point createdAt, const Uuid &id, PageDirection direction);
+EncodeCursor(Clock::time_point created_at, const Uuid &id, PageDirection direction);
 
 /**
  * @brief Decode an opaque token into a link-based cursor.
@@ -44,6 +44,6 @@ encodeCursor(Clock::time_point createdAt, const Uuid &id, PageDirection directio
  * @param token Serialized page_token from a previous response.
  * @return Parsed cursor, or empty optional if the token is invalid.
  */
-[[nodiscard]] std::optional<Cursor> decodeCursor(const String &token);
+[[nodiscard]] std::optional<Cursor> DecodeCursor(const String &token);
 
 } // namespace v1::crud

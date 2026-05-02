@@ -30,14 +30,17 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+namespace eng = us::engine;
 using namespace std::chrono_literals;
 
 DenylistCheckHandler::DenylistCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), config(context.FindComponent<Config>()),
-      denylist(context.FindComponent<Denylist>()), metrics(context.FindComponent<Metrics>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
+      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -64,22 +67,22 @@ std::string DenylistCheckHandler::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
 
-    auto finalDeadline = computeHandlerDeadline(request, requestTimeout);
-    eng::current_task::SetDeadline(finalDeadline);
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    eng::current_task::SetDeadline(final_deadline);
 
     if (request.GetMethod() != kPost) {
         response.SetStatus(kMethodNotAllowed);
         return {};
     }
 
-    const auto link = parseJsonLinkBody(request, config);
+    const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
-        return httpu::respondError(response, kBadRequest, link.error());
+        return httpu::RespondError(response, kBadRequest, link.Error());
 
-    auto prefixKey = prefix::makePrefixKey(*link);
-    const auto allowed = denylist.isAllowedPrefix(prefixKey);
+    auto prefix_key = prefix::MakePrefixKey(*link);
+    const auto allowed = denylist_.IsAllowedPrefix(prefix_key);
     if (!allowed) {
-        metrics.accountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kDenylistCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }

@@ -5,7 +5,6 @@
 #include "schema/public/webshot.hpp"
 #include "server_errors.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <optional>
@@ -19,18 +18,20 @@
 using Uuid = boost::uuids::uuid;
 
 namespace v1 {
+namespace us = userver;
+namespace datetime = us::utils::datetime;
 enum class DenylistError;
 class Config;
 
 struct [[nodiscard]] ClientIpCooldown final {
-    std::chrono::milliseconds retryAfter;
+    std::chrono::milliseconds retry_after;
 };
 
 struct [[nodiscard]] CaptureRecord final {
     Uuid uuid;
-    datetime::TimePointTz createdAt;
+    datetime::TimePointTz created_at;
     String link;
-    Url replayUrl;
+    Url replay_url;
 };
 
 /**
@@ -55,7 +56,7 @@ public:
      * On success returns a single capture descriptor including UUID, creation
      * time and normalized link.
      */
-    [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure> createCapture(Link link);
+    [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CrawlFailure> CreateCapture(Link link);
 
     /**
      * @brief Enqueue a crawl job for the given link and return its job descriptor.
@@ -64,33 +65,33 @@ public:
      * succeeds. Job execution is scheduled asynchronously; callers should poll
      * job status via findCaptureJob().
      */
-    [[nodiscard]] Expected<dto::CaptureJob, errors::CreateJobError> createCaptureJob(Link link);
+    [[nodiscard]] Expected<dto::CaptureJob, errors::CreateJobError> CreateCaptureJob(Link link);
     /** @brief Acquire per-IP cooldown for an HTTP CRUD operation. */
     [[nodiscard]] Expected<std::optional<ClientIpCooldown>, errors::CrudError>
-    acquireClientIpCooldown(String clientIp);
+    AcquireClientIpCooldown(String client_ip);
     /** @brief Look up capture metadata by id. */
-    [[nodiscard]] Expected<std::optional<CaptureRecord>, errors::CrudError> findCapture(Uuid uuid);
+    [[nodiscard]] Expected<std::optional<CaptureRecord>, errors::CrudError> FindCapture(Uuid uuid);
 
     /** @brief Look up a capture job by id. */
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, errors::CrudError>
-    findCaptureJob(Uuid uuid);
+    FindCaptureJob(Uuid uuid);
 
     /** @brief All capture ids for a link (newest first). */
     [[nodiscard]] Expected<std::vector<dto::UuidWithTime>, errors::CrudError>
-    findCapturesByLink(const Link &link);
+    FindCapturesByLink(const Link &link);
     /** @brief Paged variant for capture ids by link. */
     [[nodiscard]] Expected<dto::PagedFindCapturesByUrlResponse, errors::CapturePageError>
-    findCapturesByLinkPage(const Link &link, String pageToken);
+    FindCapturesByLinkPage(const Link &link, String page_token);
     /** @brief Paged list of captures grouped by normalized link prefix. */
     [[nodiscard]] Expected<dto::PagedFindCapturesByPrefixResponse, errors::CapturePageError>
-    findCapturesByPrefixPage(String normalizedPrefix, String pageToken);
+    FindCapturesByPrefixPage(String normalized_prefix, String page_token);
     /** @brief Disallow a prefix and enqueue purge of its captures. */
-    [[nodiscard]] Expected<void, DenylistError> disallowAndPurgePrefix(String prefixKey) noexcept;
+    [[nodiscard]] Expected<void, DenylistError> DisallowAndPurgePrefix(String prefix_key) noexcept;
     /** @brief Static config schema for this component. */
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
 private:
     class Impl;
-    std::unique_ptr<Impl> impl;
+    std::unique_ptr<Impl> impl_;
 };
 } // namespace v1

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <optional>
 #include <string>
@@ -14,16 +13,18 @@
 
 namespace v1 {
 
+namespace us = userver;
+namespace json = us::formats::json;
 namespace detail {
 
 template <typename Credential>
 [[nodiscard]] std::optional<Credential>
-credentialTextField(const json::Value &creds, std::string_view fieldName)
+CredentialTextField(const json::Value &creds, std::string_view field_name)
 {
-    const auto value = creds[std::string{fieldName}];
+    const auto value = creds[std::string{field_name}];
     if (value.IsMissing())
         return {};
-    return Credential(String::fromBytes(value.As<std::string>()).expect());
+    return Credential(String::FromBytes(value.As<std::string>()).Expect());
 }
 
 } // namespace detail
@@ -36,19 +37,19 @@ credentialTextField(const json::Value &creds, std::string_view fieldName)
  * `session_token` is also supported for temporary credentials.
  */
 struct S3CredentialsSecdist {
-    std::optional<s3v4::AccessKeyId> accessKeyId;
-    std::optional<s3v4::SecretAccessKey> secretAccessKey;
-    std::optional<s3v4::SessionToken> sessionToken;
+    std::optional<s3v4::AccessKeyId> access_key_id;
+    std::optional<s3v4::SecretAccessKey> secret_access_key;
+    std::optional<s3v4::SessionToken> session_token;
 
-    explicit S3CredentialsSecdist(const json::Value &secdistDoc)
+    explicit S3CredentialsSecdist(const json::Value &secdist_doc)
     {
-        const auto creds = secdistDoc["s3_credentials"];
+        const auto creds = secdist_doc["s3_credentials"];
         if (!creds.IsMissing()) {
-            accessKeyId = detail::credentialTextField<s3v4::AccessKeyId>(creds, "access_key_id");
-            secretAccessKey = detail::credentialTextField<s3v4::SecretAccessKey>(
+            access_key_id = detail::CredentialTextField<s3v4::AccessKeyId>(creds, "access_key_id");
+            secret_access_key = detail::CredentialTextField<s3v4::SecretAccessKey>(
                 creds, "secret_access_key"
             );
-            sessionToken = detail::credentialTextField<s3v4::SessionToken>(creds, "session_token");
+            session_token = detail::CredentialTextField<s3v4::SessionToken>(creds, "session_token");
         }
     }
 };

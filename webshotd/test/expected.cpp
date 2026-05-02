@@ -11,33 +11,33 @@ enum class TestError {
     kBeta,
 };
 
-[[nodiscard]] v1::Expected<int, TestError> makeValue(bool ok)
+[[nodiscard]] v1::Expected<int, TestError> MakeValue(bool ok)
 {
     if (!ok)
         return v1::Unex(TestError::kAlpha);
     return 42;
 }
 
-[[nodiscard]] v1::Expected<void, TestError> makeVoid(bool ok)
+[[nodiscard]] v1::Expected<void, TestError> MakeVoid(bool ok)
 {
     if (!ok)
         return v1::Unex(TestError::kBeta);
     return {};
 }
 
-[[nodiscard]] v1::Expected<void, TestError> propagateValueError(bool ok)
+[[nodiscard]] v1::Expected<void, TestError> PropagateValueError(bool ok)
 {
-    const auto value = makeValue(ok);
+    const auto value = MakeValue(ok);
     if (!value)
-        return v1::Unex(value.error());
+        return v1::Unex(value.Error());
     return {};
 }
 
-[[nodiscard]] v1::Expected<int, TestError> propagateVoidError(bool ok)
+[[nodiscard]] v1::Expected<int, TestError> PropagateVoidError(bool ok)
 {
-    const auto result = makeVoid(ok);
+    const auto result = MakeVoid(ok);
     if (!result)
-        return v1::Unex(result.error());
+        return v1::Unex(result.Error());
     return 7;
 }
 
@@ -45,50 +45,50 @@ enum class TestError {
 
 UTEST(Expected, UnexBuildsValueExpectedError)
 {
-    const auto value = makeValue(false);
+    const auto value = MakeValue(false);
     ASSERT_FALSE(value);
-    EXPECT_EQ(value.error(), TestError::kAlpha);
+    EXPECT_EQ(value.Error(), TestError::kAlpha);
 }
 
 UTEST(Expected, UnexBuildsVoidExpectedError)
 {
-    const auto value = makeVoid(false);
+    const auto value = MakeVoid(false);
     ASSERT_FALSE(value);
-    EXPECT_EQ(value.error(), TestError::kBeta);
+    EXPECT_EQ(value.Error(), TestError::kBeta);
 }
 
 UTEST(Expected, ExplicitErrorPropagationFromValueExpected)
 {
-    const auto value = propagateValueError(false);
+    const auto value = PropagateValueError(false);
     ASSERT_FALSE(value);
-    EXPECT_EQ(value.error(), TestError::kAlpha);
+    EXPECT_EQ(value.Error(), TestError::kAlpha);
 }
 
 UTEST(Expected, ExplicitErrorPropagationFromVoidExpected)
 {
-    const auto value = propagateVoidError(false);
+    const auto value = PropagateVoidError(false);
     ASSERT_FALSE(value);
-    EXPECT_EQ(value.error(), TestError::kBeta);
+    EXPECT_EQ(value.Error(), TestError::kBeta);
 }
 
 UTEST(Expected, TransformAndThenAndTransformErrorStillWork)
 {
-    const auto transformed = makeValue(true).transform(
+    const auto transformed = MakeValue(true).Transform(
                                                 [](int value) { return value + 1; }
-    ).andThen([](int value) -> v1::Expected<int, TestError> { return value * 2; });
+    ).AndThen([](int value) -> v1::Expected<int, TestError> { return value * 2; });
     ASSERT_TRUE(transformed);
     EXPECT_EQ(*transformed, 86);
 
-    const auto mappedError = makeValue(false).transformError([](TestError error) {
+    const auto mapped_error = MakeValue(false).TransformError([](TestError error) {
         return error == TestError::kAlpha;
     });
-    ASSERT_FALSE(mappedError);
-    EXPECT_TRUE(mappedError.error());
+    ASSERT_FALSE(mapped_error);
+    EXPECT_TRUE(mapped_error.Error());
 }
 
 UTEST(Expected, AcceptsStdUnexpectedForCompatibility)
 {
     const v1::Expected<int, TestError> value{std::unexpected(TestError::kBeta)};
     ASSERT_FALSE(value);
-    EXPECT_EQ(value.error(), TestError::kBeta);
+    EXPECT_EQ(value.Error(), TestError::kBeta);
 }

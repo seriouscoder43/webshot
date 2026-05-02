@@ -7,6 +7,7 @@
 
 namespace v1 {
 
-void appendTestOnlyComponents(us::components::ComponentList &) {}
+namespace us = userver;
+void AppendTestOnlyComponents(us::components::ComponentList &) {}
 
 } // namespace v1

@@ -11,9 +11,10 @@
 
 namespace v1 {
 
-void appendTestOnlyComponents(us::components::ComponentList &componentList)
+namespace us = userver;
+void AppendTestOnlyComponents(us::components::ComponentList &component_list)
 {
-    componentList.Append<us::components::TestsuiteSupport>().Append<BrowserProbeHandler>();
+    component_list.Append<us::components::TestsuiteSupport>().Append<BrowserProbeHandler>();
 }
 
 } // namespace v1

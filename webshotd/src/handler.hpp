@@ -1,7 +1,6 @@
 #pragma once
 
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <string>
@@ -13,6 +12,8 @@
 #include <userver/yaml_config/schema.hpp>
 
 namespace v1 {
+namespace us = userver;
+namespace server = us::server;
 class Config;
 class Denylist;
 class Crud;
@@ -41,10 +42,10 @@ public:
     ) const final;
 
 private:
-    Crud &crud;
-    const Config &config;
-    Denylist &denylist;
-    Metrics &metrics;
-    const std::chrono::milliseconds requestTimeout;
+    Crud &crud_;
+    const Config &config_;
+    Denylist &denylist_;
+    Metrics &metrics_;
+    const std::chrono::milliseconds request_timeout;
 };
 } // namespace v1

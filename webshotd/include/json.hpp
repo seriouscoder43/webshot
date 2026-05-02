@@ -4,7 +4,6 @@
 #include "grab_value.hpp"
 #include "text.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 
 #include <concepts>
 #include <exception>
@@ -18,7 +17,9 @@
 #include <userver/formats/json/value.hpp>
 #include <userver/formats/json/value_builder.hpp>
 
-namespace v1::exu {
+namespace v1::ex {
+namespace us = userver;
+namespace ujson = us::formats::json;
 
 namespace detail {
 
@@ -36,7 +37,7 @@ concept SupportedErrorMapper =
     std::constructible_from<E, std::invoke_result_t<G, const Exception &>>;
 
 template <typename Exception, typename E, typename F, typename G>
-[[nodiscard]] auto catchExceptionImpl(F &&f, G &&mapError) -> Expected<ExpectedValue<F>, E>
+[[nodiscard]] auto CatchExceptionImpl(F &&f, G &&map_error) -> Expected<ExpectedValue<F>, E>
 {
     try {
         if constexpr (std::is_void_v<InvokeResult<F>>) {
@@ -46,7 +47,7 @@ template <typename Exception, typename E, typename F, typename G>
             return std::invoke(std::forward<F>(f));
         }
     } catch (const Exception &e) {
-        return Unex(E(std::invoke(std::forward<G>(mapError), e)));
+        return Unex(E(std::invoke(std::forward<G>(map_error), e)));
     }
 }
 
@@ -54,73 +55,73 @@ template <typename Exception, typename E, typename F, typename G>
 
 template <typename Exception, typename E, typename F, typename G>
     requires detail::SupportedErrorMapper<Exception, E, F, G>
-[[nodiscard]] auto catchException(F &&f, G &&mapError) -> Expected<detail::ExpectedValue<F>, E>
+[[nodiscard]] auto CatchException(F &&f, G &&map_error) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return detail::catchExceptionImpl<Exception, E>(std::forward<F>(f), std::forward<G>(mapError));
+    return detail::CatchExceptionImpl<Exception, E>(std::forward<F>(f), std::forward<G>(map_error));
 }
 
 template <typename Exception, typename E, typename F>
     requires std::invocable<F> && std::copy_constructible<E>
-[[nodiscard]] auto catchException(F &&f, E error) -> Expected<detail::ExpectedValue<F>, E>
+[[nodiscard]] auto CatchException(F &&f, E error) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return catchException<Exception, E>(
+    return CatchException<Exception, E>(
         std::forward<F>(f), [error = std::move(error)](const Exception &) { return error; }
     );
 }
 
 template <typename E, typename F, typename G>
     requires detail::SupportedErrorMapper<std::exception, E, F, G>
-[[nodiscard]] auto catchUserver(F &&f, G &&mapError) -> Expected<detail::ExpectedValue<F>, E>
+[[nodiscard]] auto CatchUserver(F &&f, G &&map_error) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return detail::catchExceptionImpl<std::exception, E>(
-        std::forward<F>(f), std::forward<G>(mapError)
+    return detail::CatchExceptionImpl<std::exception, E>(
+        std::forward<F>(f), std::forward<G>(map_error)
     );
 }
 
 template <typename E, typename F>
     requires std::invocable<F> && std::copy_constructible<E>
-[[nodiscard]] auto catchUserver(F &&f, E error) -> Expected<detail::ExpectedValue<F>, E>
+[[nodiscard]] auto CatchUserver(F &&f, E error) -> Expected<detail::ExpectedValue<F>, E>
 {
-    return catchException<std::exception, E>(std::forward<F>(f), std::move(error));
+    return CatchException<std::exception, E>(std::forward<F>(f), std::move(error));
 }
 
 namespace json {
 
 template <typename T, typename E, typename G>
-    requires std::invocable<G, const ::json::Exception &> &&
-             std::constructible_from<E, std::invoke_result_t<G, const ::json::Exception &>>
-[[nodiscard]] Expected<T, E> parse(const String &jsonText, G &&mapError)
+    requires std::invocable<G, const ujson::Exception &> &&
+             std::constructible_from<E, std::invoke_result_t<G, const ujson::Exception &>>
+[[nodiscard]] Expected<T, E> Parse(const String &json_text, G &&map_error)
 {
-    return catchException<::json::Exception, E>(
-        [&]() { return ::json::FromString(jsonText.view()).template As<T>(); },
-        std::forward<G>(mapError)
+    return CatchException<ujson::Exception, E>(
+        [&]() { return ujson::FromString(json_text.View()).template As<T>(); },
+        std::forward<G>(map_error)
     );
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E>
-[[nodiscard]] Expected<T, E> parse(const String &jsonText, E error)
+[[nodiscard]] Expected<T, E> Parse(const String &json_text, E error)
 {
-    return catchException<::json::Exception, E>(
-        [&]() { return ::json::FromString(jsonText.view()).template As<T>(); }, std::move(error)
+    return CatchException<ujson::Exception, E>(
+        [&]() { return ujson::FromString(json_text.View()).template As<T>(); }, std::move(error)
     );
 }
 
 template <typename T, typename E, typename G>
-    requires std::invocable<G, const ::json::Exception &> &&
-             std::constructible_from<E, std::invoke_result_t<G, const ::json::Exception &>>
-[[nodiscard]] Expected<T, E> as(const ::json::Value &value, G &&mapError)
+    requires std::invocable<G, const ujson::Exception &> &&
+             std::constructible_from<E, std::invoke_result_t<G, const ujson::Exception &>>
+[[nodiscard]] Expected<T, E> As(const ujson::Value &value, G &&map_error)
 {
-    return catchException<::json::Exception, E>(
-        [&]() { return value.template As<T>(); }, std::forward<G>(mapError)
+    return CatchException<ujson::Exception, E>(
+        [&]() { return value.template As<T>(); }, std::forward<G>(map_error)
     );
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E>
-[[nodiscard]] Expected<T, E> as(const ::json::Value &value, E error)
+[[nodiscard]] Expected<T, E> As(const ujson::Value &value, E error)
 {
-    return catchException<::json::Exception, E>(
+    return CatchException<ujson::Exception, E>(
         [&]() { return value.template As<T>(); }, std::move(error)
     );
 }
@@ -128,86 +129,86 @@ template <typename T, typename E>
 template <typename T, typename E, typename G>
     requires std::invocable<G, const std::exception &> &&
              std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
-[[nodiscard]] Expected<::json::Value, E> valueOf(const T &value, G &&mapError)
+[[nodiscard]] Expected<ujson::Value, E> ValueOf(const T &value, G &&map_error)
 {
-    return catchUserver<E>(
-        [&]() { return ::json::ValueBuilder(value).ExtractValue(); }, std::forward<G>(mapError)
+    return CatchUserver<E>(
+        [&]() { return ujson::ValueBuilder(value).ExtractValue(); }, std::forward<G>(map_error)
     );
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E>
-[[nodiscard]] Expected<::json::Value, E> valueOf(const T &value, E error)
+[[nodiscard]] Expected<ujson::Value, E> ValueOf(const T &value, E error)
 {
-    return catchUserver<E>(
-        [&]() { return ::json::ValueBuilder(value).ExtractValue(); }, std::move(error)
+    return CatchUserver<E>(
+        [&]() { return ujson::ValueBuilder(value).ExtractValue(); }, std::move(error)
     );
 }
 
 template <typename E, typename G>
     requires std::invocable<G, const std::exception &> &&
              std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
-[[nodiscard]] Expected<std::string, E> stringifyBytes(::json::Value value, G &&mapError)
+[[nodiscard]] Expected<std::string, E> StringifyBytes(ujson::Value value, G &&map_error)
 {
-    return catchUserver<E>(
-        [&]() { return ::json::ToString(std::move(value)); }, std::forward<G>(mapError)
+    return CatchUserver<E>(
+        [&]() { return ujson::ToString(std::move(value)); }, std::forward<G>(map_error)
     );
 }
 
 template <typename E>
     requires std::copy_constructible<E>
-[[nodiscard]] Expected<std::string, E> stringifyBytes(::json::Value value, E error)
+[[nodiscard]] Expected<std::string, E> StringifyBytes(ujson::Value value, E error)
 {
-    return catchUserver<E>([&]() { return ::json::ToString(std::move(value)); }, std::move(error));
+    return CatchUserver<E>([&]() { return ujson::ToString(std::move(value)); }, std::move(error));
 }
 
 template <typename T, typename E, typename G>
     requires std::copy_constructible<std::remove_cvref_t<G>> && (!detail::JsonTextInput<T>)
-[[nodiscard]] Expected<std::string, E> stringifyBytes(const T &value, G &&mapError)
+[[nodiscard]] Expected<std::string, E> StringifyBytes(const T &value, G &&map_error)
 {
-    auto mapper = std::forward<G>(mapError);
-    return stringifyBytes<E>(TRY(valueOf<T, E>(value, mapper)), mapper);
+    auto mapper = std::forward<G>(map_error);
+    return StringifyBytes<E>(TRY(ValueOf<T, E>(value, mapper)), mapper);
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E> && (!detail::JsonTextInput<T>)
-[[nodiscard]] Expected<std::string, E> stringifyBytes(const T &value, E error)
+[[nodiscard]] Expected<std::string, E> StringifyBytes(const T &value, E error)
 {
-    return stringifyBytes<E>(TRY(valueOf<T, E>(value, error)), std::move(error));
+    return StringifyBytes<E>(TRY(ValueOf<T, E>(value, error)), std::move(error));
 }
 
 template <typename E, typename G>
     requires std::invocable<G, const std::exception &> &&
              std::constructible_from<E, std::invoke_result_t<G, const std::exception &>>
-[[nodiscard]] Expected<String, E> stringify(::json::Value value, G &&mapError)
+[[nodiscard]] Expected<String, E> Stringify(ujson::Value value, G &&map_error)
 {
-    auto jsonBytes = TRY(stringifyBytes<E>(std::move(value), std::forward<G>(mapError)));
-    return String::fromBytes(jsonBytes).expect();
+    auto json_bytes = TRY(StringifyBytes<E>(std::move(value), std::forward<G>(map_error)));
+    return String::FromBytes(json_bytes).Expect();
 }
 
 template <typename E>
     requires std::copy_constructible<E>
-[[nodiscard]] Expected<String, E> stringify(::json::Value value, E error)
+[[nodiscard]] Expected<String, E> Stringify(ujson::Value value, E error)
 {
-    auto jsonBytes = TRY(stringifyBytes<E>(std::move(value), std::move(error)));
-    return String::fromBytes(jsonBytes).expect();
+    auto json_bytes = TRY(StringifyBytes<E>(std::move(value), std::move(error)));
+    return String::FromBytes(json_bytes).Expect();
 }
 
 template <typename T, typename E, typename G>
     requires std::copy_constructible<std::remove_cvref_t<G>> && (!detail::JsonTextInput<T>)
-[[nodiscard]] Expected<String, E> stringify(const T &value, G &&mapError)
+[[nodiscard]] Expected<String, E> Stringify(const T &value, G &&map_error)
 {
-    auto mapper = std::forward<G>(mapError);
-    return stringify<E>(TRY(valueOf<T, E>(value, mapper)), mapper);
+    auto mapper = std::forward<G>(map_error);
+    return stringify<E>(TRY(ValueOf<T, E>(value, mapper)), mapper);
 }
 
 template <typename T, typename E>
     requires std::copy_constructible<E> && (!detail::JsonTextInput<T>)
-[[nodiscard]] Expected<String, E> stringify(const T &value, E error)
+[[nodiscard]] Expected<String, E> Stringify(const T &value, E error)
 {
-    return stringify<E>(TRY(valueOf<T, E>(value, error)), std::move(error));
+    return stringify<E>(TRY(ValueOf<T, E>(value, error)), std::move(error));
 }
 
 } // namespace json
 
-} // namespace v1::exu
+} // namespace v1::ex

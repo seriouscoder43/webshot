@@ -21,32 +21,33 @@ using ArchiveEntryPtr = std::unique_ptr<archive_entry, decltype(&archive_entry_f
 
 template <typename T>
 [[nodiscard]] std::optional<T>
-fail(ZipArchiveError &errorOut, ZipArchiveErrorCode code, std::string detail)
+Fail(ZipArchiveError &error_out, ZipArchiveErrorCode code, std::string detail)
 {
-    errorOut.code = code;
-    errorOut.detail = std::move(detail);
+    error_out.code = code;
+    error_out.detail = std::move(detail);
     return {};
 }
 
-[[nodiscard]] bool failBool(ZipArchiveError &errorOut, ZipArchiveErrorCode code, std::string detail)
+[[nodiscard]] bool
+FailBool(ZipArchiveError &error_out, ZipArchiveErrorCode code, std::string detail)
 {
-    errorOut.code = code;
-    errorOut.detail = std::move(detail);
+    error_out.code = code;
+    error_out.detail = std::move(detail);
     return false;
 }
 
-[[nodiscard]] std::string formatArchiveDetail(archive *handle, std::string_view context)
+[[nodiscard]] std::string FormatArchiveDetail(archive *handle, std::string_view context)
 {
     auto detail = std::string(context);
-    const auto *archiveDetail = archive_error_string(handle);
-    if (archiveDetail != nullptr) {
+    const auto *archive_detail = archive_error_string(handle);
+    if (archive_detail != nullptr) {
         detail += ": ";
-        detail += archiveDetail;
+        detail += archive_detail;
     }
     return detail;
 }
 
-[[nodiscard]] bool isAllowedZipPath(std::string_view path) noexcept
+[[nodiscard]] bool IsAllowedZipPath(std::string_view path) noexcept
 {
     if (path.empty() || path == "." || path == "..")
         return false;
@@ -55,7 +56,7 @@ fail(ZipArchiveError &errorOut, ZipArchiveErrorCode code, std::string detail)
     if (path.back() == '/' || path.back() == '\\')
         return false;
 
-    size_t componentStart = 0;
+    size_t component_start = 0;
     for (size_t index = 0; index <= path.size(); index++) {
         if (index < path.size()) {
             const auto ch = path[index];
@@ -67,117 +68,118 @@ fail(ZipArchiveError &errorOut, ZipArchiveErrorCode code, std::string detail)
                 continue;
         }
 
-        const auto componentSize = index - componentStart;
-        if (componentSize == 0)
+        const auto component_size = index - component_start;
+        if (component_size == 0)
             return false;
 
-        const auto component = path.substr(componentStart, componentSize);
+        const auto component = path.substr(component_start, component_size);
         if (component == "." || component == "..")
             return false;
-        componentStart = index + 1;
+        component_start = index + 1;
     }
 
     return true;
 }
 
 [[nodiscard]] ArchiveEntryPtr
-makeRegularFileEntry(std::string_view path, ZipArchiveError &errorOut, std::string_view body)
+MakeRegularFileEntry(std::string_view path, ZipArchiveError &error_out, std::string_view body)
 {
     auto entry = ArchiveEntryPtr(archive_entry_new(), &archive_entry_free);
     if (!entry) {
-        errorOut.code = ZipArchiveErrorCode::kWriterInitFailed;
-        errorOut.detail = "failed to allocate zip entry";
+        error_out.code = ZipArchiveErrorCode::kWriterInitFailed;
+        error_out.detail = "failed to allocate zip entry";
         return {nullptr, &archive_entry_free};
     }
 
-    const auto pathText = std::string(path);
-    archive_entry_set_pathname(entry.get(), pathText.c_str());
+    const auto path_text = std::string(path);
+    archive_entry_set_pathname(entry.get(), path_text.c_str());
     archive_entry_set_filetype(entry.get(), AE_IFREG);
     archive_entry_set_perm(entry.get(), 0644);
     archive_entry_set_size(entry.get(), static_cast<la_int64_t>(body.size()));
     return entry;
 }
 
-int openStringArchive(archive *, void *) { return ARCHIVE_OK; }
+int OpenStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-la_ssize_t appendArchiveBytes(archive *, void *ctx, const void *buffer, size_t nbytes)
+la_ssize_t AppendArchiveBytes(archive *, void *ctx, const void *buffer, size_t nbytes)
 {
     auto &out = *static_cast<std::string *>(ctx);
     out.append(static_cast<const char *>(buffer), nbytes);
     return static_cast<la_ssize_t>(nbytes);
 }
 
-int closeStringArchive(archive *, void *) { return ARCHIVE_OK; }
+int CloseStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-[[nodiscard]] std::optional<ArchiveWriterPtr> makeZipWriter(ZipArchiveError &errorOut)
+[[nodiscard]] std::optional<ArchiveWriterPtr> MakeZipWriter(ZipArchiveError &error_out)
 {
     auto *writer = archive_write_new();
     if (writer == nullptr)
-        return fail<ArchiveWriterPtr>(
-            errorOut, ZipArchiveErrorCode::kWriterInitFailed, "failed to allocate zip writer"
+        return Fail<ArchiveWriterPtr>(
+            error_out, ZipArchiveErrorCode::kWriterInitFailed, "failed to allocate zip writer"
         );
 
-    auto writerPtr = ArchiveWriterPtr(writer, &archive_write_free);
-    if (archive_write_set_format_zip(writerPtr.get()) != ARCHIVE_OK) {
-        return fail<ArchiveWriterPtr>(
-            errorOut, ZipArchiveErrorCode::kWriterInitFailed,
-            formatArchiveDetail(writerPtr.get(), "failed to enable zip writer")
+    auto writer_ptr = ArchiveWriterPtr(writer, &archive_write_free);
+    if (archive_write_set_format_zip(writer_ptr.get()) != ARCHIVE_OK) {
+        return Fail<ArchiveWriterPtr>(
+            error_out, ZipArchiveErrorCode::kWriterInitFailed,
+            FormatArchiveDetail(writer_ptr.get(), "failed to enable zip writer")
         );
     }
-    if (archive_write_zip_set_compression_store(writerPtr.get()) != ARCHIVE_OK) {
-        return fail<ArchiveWriterPtr>(
-            errorOut, ZipArchiveErrorCode::kWriterInitFailed,
-            formatArchiveDetail(writerPtr.get(), "failed to configure stored zip output")
+    if (archive_write_zip_set_compression_store(writer_ptr.get()) != ARCHIVE_OK) {
+        return Fail<ArchiveWriterPtr>(
+            error_out, ZipArchiveErrorCode::kWriterInitFailed,
+            FormatArchiveDetail(writer_ptr.get(), "failed to configure stored zip output")
         );
     }
 
-    return writerPtr;
+    return writer_ptr;
 }
 
-[[nodiscard]] std::optional<ArchiveReaderPtr> makeZipReader(ZipArchiveError &errorOut)
+[[nodiscard]] std::optional<ArchiveReaderPtr> MakeZipReader(ZipArchiveError &error_out)
 {
     auto *reader = archive_read_new();
     if (reader == nullptr)
-        return fail<ArchiveReaderPtr>(
-            errorOut, ZipArchiveErrorCode::kReaderInitFailed, "failed to allocate zip reader"
+        return Fail<ArchiveReaderPtr>(
+            error_out, ZipArchiveErrorCode::kReaderInitFailed, "failed to allocate zip reader"
         );
 
-    auto readerPtr = ArchiveReaderPtr(reader, &archive_read_free);
-    if (archive_read_support_format_zip(readerPtr.get()) != ARCHIVE_OK) {
-        return fail<ArchiveReaderPtr>(
-            errorOut, ZipArchiveErrorCode::kReaderInitFailed,
-            formatArchiveDetail(readerPtr.get(), "failed to enable zip reader")
+    auto reader_ptr = ArchiveReaderPtr(reader, &archive_read_free);
+    if (archive_read_support_format_zip(reader_ptr.get()) != ARCHIVE_OK) {
+        return Fail<ArchiveReaderPtr>(
+            error_out, ZipArchiveErrorCode::kReaderInitFailed,
+            FormatArchiveDetail(reader_ptr.get(), "failed to enable zip reader")
         );
     }
 
-    return readerPtr;
+    return reader_ptr;
 }
 
 [[nodiscard]] std::optional<std::string>
-readEntryBytes(archive *reader, archive_entry *entry, ZipArchiveError &errorOut)
+ReadEntryBytes(archive *reader, archive_entry *entry, ZipArchiveError &error_out)
 {
-    const auto entrySize = archive_entry_size(entry);
-    if (entrySize < 0) {
-        return fail<std::string>(
-            errorOut, ZipArchiveErrorCode::kInvalidEntrySize, "zip entry size must not be negative"
+    const auto entry_size = archive_entry_size(entry);
+    if (entry_size < 0) {
+        return Fail<std::string>(
+            error_out, ZipArchiveErrorCode::kInvalidEntrySize, "zip entry size must not be negative"
         );
     }
-    if (static_cast<uint64_t>(entrySize) >
+    if (static_cast<uint64_t>(entry_size) >
         static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-        return fail<std::string>(
-            errorOut, ZipArchiveErrorCode::kEntryTooLarge, "zip entry is too large to fit in memory"
+        return Fail<std::string>(
+            error_out, ZipArchiveErrorCode::kEntryTooLarge,
+            "zip entry is too large to fit in memory"
         );
     }
 
-    auto data = std::string(static_cast<size_t>(entrySize), '\0');
+    auto data = std::string(static_cast<size_t>(entry_size), '\0');
     size_t copied = 0;
 
     while (copied < data.size()) {
         const auto rc = archive_read_data(reader, data.data() + copied, data.size() - copied);
         if (rc < 0) {
-            return fail<std::string>(
-                errorOut, ZipArchiveErrorCode::kReadDataFailed,
-                formatArchiveDetail(reader, "failed to read zip entry body")
+            return Fail<std::string>(
+                error_out, ZipArchiveErrorCode::kReadDataFailed,
+                FormatArchiveDetail(reader, "failed to read zip entry body")
             );
         }
         if (rc == 0)
@@ -186,8 +188,8 @@ readEntryBytes(archive *reader, archive_entry *entry, ZipArchiveError &errorOut)
     }
 
     if (copied != data.size()) {
-        return fail<std::string>(
-            errorOut, ZipArchiveErrorCode::kTruncatedEntry, "zip entry body was truncated"
+        return Fail<std::string>(
+            error_out, ZipArchiveErrorCode::kTruncatedEntry, "zip entry body was truncated"
         );
     }
 
@@ -196,71 +198,72 @@ readEntryBytes(archive *reader, archive_entry *entry, ZipArchiveError &errorOut)
 
 } // namespace
 
-bool ZipArchiveBuilder::addStoredFile(
-    std::string_view path, ZipArchiveError &errorOut, std::string_view body
+bool ZipArchiveBuilder::AddStoredFile(
+    std::string_view path, ZipArchiveError &error_out, std::string_view body
 )
 {
-    errorOut = {};
+    error_out = {};
 
-    if (!isAllowedZipPath(path)) {
-        return failBool(
-            errorOut, ZipArchiveErrorCode::kInvalidPath,
+    if (!IsAllowedZipPath(path)) {
+        return FailBool(
+            error_out, ZipArchiveErrorCode::kInvalidPath,
             "zip entry path is not allowed: " + std::string(path)
         );
     }
 
-    const auto pathText = std::string(path);
-    if (entryPaths.contains(pathText)) {
-        return failBool(
-            errorOut, ZipArchiveErrorCode::kDuplicateEntry, "duplicate zip entry: " + pathText
+    const auto path_text = std::string(path);
+    if (entry_paths_.contains(path_text)) {
+        return FailBool(
+            error_out, ZipArchiveErrorCode::kDuplicateEntry, "duplicate zip entry: " + path_text
         );
     }
 
-    entries.push_back({pathText, std::string(body)});
-    entryPaths.insert(entries.back().path);
+    entries_.push_back({path_text, std::string(body)});
+    entry_paths_.insert(entries_.back().path);
     return true;
 }
 
-std::optional<std::string> ZipArchiveBuilder::finish(ZipArchiveError &errorOut) const
+std::optional<std::string> ZipArchiveBuilder::Finish(ZipArchiveError &error_out) const
 {
-    errorOut = {};
+    error_out = {};
 
-    auto writer = makeZipWriter(errorOut);
+    auto writer = MakeZipWriter(error_out);
     if (!writer)
         return {};
 
     std::string out;
     if (archive_write_open(
-            writer->get(), &out, &openStringArchive, &appendArchiveBytes, &closeStringArchive
+            writer->get(), &out, &OpenStringArchive, &AppendArchiveBytes, &CloseStringArchive
         ) != ARCHIVE_OK) {
-        return fail<std::string>(
-            errorOut, ZipArchiveErrorCode::kOpenFailed,
-            formatArchiveDetail(writer->get(), "failed to open zip writer")
+        return Fail<std::string>(
+            error_out, ZipArchiveErrorCode::kOpenFailed,
+            FormatArchiveDetail(writer->get(), "failed to open zip writer")
         );
     }
 
-    for (const auto &entrySpec : entries) {
-        auto entry = makeRegularFileEntry(entrySpec.path, errorOut, entrySpec.body);
+    for (const auto &entry_spec : entries_) {
+        auto entry = MakeRegularFileEntry(entry_spec.path, error_out, entry_spec.body);
         if (!entry)
             return {};
 
         if (archive_write_header(writer->get(), entry.get()) != ARCHIVE_OK) {
-            return fail<std::string>(
-                errorOut, ZipArchiveErrorCode::kWriteHeaderFailed,
-                formatArchiveDetail(
-                    writer->get(), std::string("failed to write zip header for ") + entrySpec.path
+            return Fail<std::string>(
+                error_out, ZipArchiveErrorCode::kWriteHeaderFailed,
+                FormatArchiveDetail(
+                    writer->get(), std::string("failed to write zip header for ") + entry_spec.path
                 )
             );
         }
-        if (!entrySpec.body.empty()) {
+        if (!entry_spec.body.empty()) {
             const auto written = archive_write_data(
-                writer->get(), entrySpec.body.data(), entrySpec.body.size()
+                writer->get(), entry_spec.body.data(), entry_spec.body.size()
             );
-            if (written != static_cast<la_ssize_t>(entrySpec.body.size())) {
-                return fail<std::string>(
-                    errorOut, ZipArchiveErrorCode::kWriteDataFailed,
-                    formatArchiveDetail(
-                        writer->get(), std::string("failed to write zip body for ") + entrySpec.path
+            if (written != static_cast<la_ssize_t>(entry_spec.body.size())) {
+                return Fail<std::string>(
+                    error_out, ZipArchiveErrorCode::kWriteDataFailed,
+                    FormatArchiveDetail(
+                        writer->get(),
+                        std::string("failed to write zip body for ") + entry_spec.path
                     )
                 );
             }
@@ -268,40 +271,40 @@ std::optional<std::string> ZipArchiveBuilder::finish(ZipArchiveError &errorOut) 
     }
 
     if (archive_write_close(writer->get()) != ARCHIVE_OK) {
-        return fail<std::string>(
-            errorOut, ZipArchiveErrorCode::kFinishFailed,
-            formatArchiveDetail(writer->get(), "failed to close zip writer")
+        return Fail<std::string>(
+            error_out, ZipArchiveErrorCode::kFinishFailed,
+            FormatArchiveDetail(writer->get(), "failed to close zip writer")
         );
     }
 
-    errorOut = {};
+    error_out = {};
     return out;
 }
 
 ZipArchive::ZipArchive(
     std::map<std::string, std::string, std::less<>> files, std::vector<std::string> paths
 )
-    : files(std::move(files)), paths(std::move(paths))
+    : files_(std::move(files)), paths_(std::move(paths))
 {
 }
 
-std::optional<ZipArchive> ZipArchive::fromBytes(std::string_view bytes, ZipArchiveError &errorOut)
+std::optional<ZipArchive> ZipArchive::FromBytes(std::string_view bytes, ZipArchiveError &error_out)
 {
-    errorOut = {};
+    error_out = {};
 
-    auto reader = makeZipReader(errorOut);
+    auto reader = MakeZipReader(error_out);
     if (!reader)
         return {};
 
     if (archive_read_open_memory(reader->get(), bytes.data(), bytes.size()) != ARCHIVE_OK) {
-        return fail<ZipArchive>(
-            errorOut, ZipArchiveErrorCode::kOpenFailed,
-            formatArchiveDetail(reader->get(), "failed to open zip archive from memory")
+        return Fail<ZipArchive>(
+            error_out, ZipArchiveErrorCode::kOpenFailed,
+            FormatArchiveDetail(reader->get(), "failed to open zip archive from memory")
         );
     }
 
-    std::map<std::string, std::string, std::less<>> filesOut;
-    std::vector<std::string> pathsOut;
+    std::map<std::string, std::string, std::less<>> files_out;
+    std::vector<std::string> paths_out;
     archive_entry *entry = nullptr;
 
     while (true) {
@@ -309,67 +312,67 @@ std::optional<ZipArchive> ZipArchive::fromBytes(std::string_view bytes, ZipArchi
         if (rc == ARCHIVE_EOF)
             break;
         if (rc != ARCHIVE_OK) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kReadHeaderFailed,
-                formatArchiveDetail(reader->get(), "failed to read zip entry header")
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kReadHeaderFailed,
+                FormatArchiveDetail(reader->get(), "failed to read zip entry header")
             );
         }
 
-        const auto *pathBytes = archive_entry_pathname(entry);
-        if (pathBytes == nullptr) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kMissingPath, "zip entry is missing a pathname"
+        const auto *path_bytes = archive_entry_pathname(entry);
+        if (path_bytes == nullptr) {
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kMissingPath, "zip entry is missing a pathname"
             );
         }
 
-        const auto path = std::string_view(pathBytes);
-        if (!isAllowedZipPath(path)) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kInvalidPath,
+        const auto path = std::string_view(path_bytes);
+        if (!IsAllowedZipPath(path)) {
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kInvalidPath,
                 "zip entry path is not allowed: " + std::string(path)
             );
         }
 
         if (archive_entry_filetype(entry) != AE_IFREG) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kUnsupportedEntryType,
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kUnsupportedEntryType,
                 "zip entry is not a regular file: " + std::string(path)
             );
         }
         if (archive_entry_symlink(entry) != nullptr || archive_entry_hardlink(entry) != nullptr) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kUnsupportedEntryType,
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kUnsupportedEntryType,
                 "zip entry must not be a link: " + std::string(path)
             );
         }
 
-        auto [it, inserted] = filesOut.emplace(std::string(path), std::string());
+        auto [it, inserted] = files_out.emplace(std::string(path), std::string());
         if (!inserted) {
-            return fail<ZipArchive>(
-                errorOut, ZipArchiveErrorCode::kDuplicateEntry,
+            return Fail<ZipArchive>(
+                error_out, ZipArchiveErrorCode::kDuplicateEntry,
                 "duplicate zip entry: " + std::string(path)
             );
         }
 
-        auto body = readEntryBytes(reader->get(), entry, errorOut);
+        auto body = ReadEntryBytes(reader->get(), entry, error_out);
         if (!body)
             return {};
         it->second = std::move(body.value());
-        pathsOut.push_back(std::string(path));
+        paths_out.push_back(std::string(path));
     }
 
-    errorOut = {};
-    return ZipArchive{std::move(filesOut), std::move(pathsOut)};
+    error_out = {};
+    return ZipArchive{std::move(files_out), std::move(paths_out)};
 }
 
-std::optional<std::string_view> ZipArchive::findFile(std::string_view path) const noexcept
+std::optional<std::string_view> ZipArchive::FindFile(std::string_view path) const noexcept
 {
-    const auto it = files.find(path);
-    if (it == files.end())
+    const auto it = files_.find(path);
+    if (it == files_.end())
         return {};
     return std::string_view{it->second.data(), it->second.size()};
 }
 
-const std::vector<std::string> &ZipArchive::entryPathsInOrder() const noexcept { return paths; }
+const std::vector<std::string> &ZipArchive::EntryPathsInOrder() const noexcept { return paths_; }
 
 } // namespace arkhiv

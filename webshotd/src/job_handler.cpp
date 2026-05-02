@@ -30,29 +30,34 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+} // namespace v1
+
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
 
 namespace {
 
-[[nodiscard]] std::string respondJobPollCooldown(
-    server::http::HttpResponse &response, const Uuid &uuid, std::chrono::milliseconds retryAfter
+[[nodiscard]] std::string RespondJobPollCooldown(
+    server::http::HttpResponse &response, const Uuid &uuid, std::chrono::milliseconds retry_after
 )
 {
     using enum server::http::HttpStatus;
 
-    const auto retryAfterSeconds = std::max(
-        1s, std::chrono::ceil<std::chrono::seconds>(retryAfter)
+    const auto retry_after_seconds = std::max(
+        1s, std::chrono::ceil<std::chrono::seconds>(retry_after)
     );
     dto::CaptureJobCooldownResponse body{
         .uuid = uuid,
-        .retry_after_sec = i64{retryAfterSeconds.count()},
+        .retry_after_sec = i64{retry_after_seconds.count()},
         .error = dto::CaptureJobCooldownResponse::Error{"client IP in cooldown"},
     };
 
-    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retryAfterSeconds.count()));
-    return httpu::respondJson(response, kTooManyRequests, body);
+    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count()));
+    return httpu::RespondJson(response, kTooManyRequests, body);
 }
 
 } // namespace
@@ -60,9 +65,9 @@ namespace {
 JobHandler::JobHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      config(context.FindComponent<Config>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -87,25 +92,25 @@ std::string JobHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, config};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
 
-    const auto uuid = requestSupport.parseUuidPathArg(request, "uuid"_t);
+    const auto uuid = request_support.ParseUuidPathArg(request, "uuid"_t);
     if (!uuid)
-        return httpu::respondParamError(
-            response, kBadRequest, uuid.error().name, uuid.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, uuid.Error().name, uuid.Error().message
         );
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
-        return respondClientRequestError(response, cooldown.error());
+        return RespondClientRequestError(response, cooldown.Error());
     if (*cooldown)
-        return respondJobPollCooldown(response, *uuid, (*cooldown)->retryAfter);
+        return RespondJobPollCooldown(response, *uuid, (*cooldown)->retry_after);
 
-    auto job = crud.findCaptureJob(*uuid);
+    auto job = crud_.FindCaptureJob(*uuid);
     if (!job)
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     if (!*job)
-        return httpu::respondError(response, kNotFound, "job not found"_t);
-    return httpu::respondJson(response, kOk, **job);
+        return httpu::RespondError(response, kNotFound, "job not found"_t);
+    return httpu::RespondJson(response, kOk, **job);
 }

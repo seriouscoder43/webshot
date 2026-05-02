@@ -52,15 +52,16 @@ struct [[nodiscard]] Link {
      * @param urlBytesMax Maximum allowed URL length in bytes.
      * @return Normalized Link.
      */
-    [[nodiscard]] static Expected<Link, LinkError> fromText(const String &text, usize urlBytesMax);
+    [[nodiscard]] static Expected<Link, LinkError>
+    FromText(const String &text, usize url_bytes_max);
 
     /** @return Normalized, lower-cased host, punycode if applicable. */
-    [[nodiscard]] String host() const;
+    [[nodiscard]] String Host() const;
     /** @return Full URL using the http scheme. */
-    [[nodiscard]] String httpUrl() const;
-    [[nodiscard]] String httpsUrl() const;
+    [[nodiscard]] String HttpUrl() const;
+    [[nodiscard]] String HttpsUrl() const;
     /** @return Scheme-less normalized representation used for lookups. */
-    [[nodiscard]] String normalized() const;
+    [[nodiscard]] String Normalized() const;
 };
 
 } // namespace v1

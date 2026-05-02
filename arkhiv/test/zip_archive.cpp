@@ -25,77 +25,77 @@ using ArchiveEntryPtr = std::unique_ptr<archive_entry, decltype(&archive_entry_f
 struct ZipEntrySpec {
     std::string path;
     std::string body;
-    mode_t fileType = AE_IFREG;
+    mode_t file_type = AE_IFREG;
 };
 
-int openStringArchive(archive *, void *) { return ARCHIVE_OK; }
+int OpenStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-la_ssize_t appendArchiveBytes(archive *, void *ctx, const void *buffer, size_t nbytes)
+la_ssize_t AppendArchiveBytes(archive *, void *ctx, const void *buffer, size_t nbytes)
 {
     auto &out = *static_cast<std::string *>(ctx);
     out.append(static_cast<const char *>(buffer), nbytes);
     return static_cast<la_ssize_t>(nbytes);
 }
 
-int closeStringArchive(archive *, void *) { return ARCHIVE_OK; }
+int CloseStringArchive(archive *, void *) { return ARCHIVE_OK; }
 
-[[noreturn]] void fail(std::string_view message)
+[[noreturn]] void Fail(std::string_view message)
 {
     ADD_FAILURE() << message;
     std::abort();
 }
 
-[[nodiscard]] ArchiveWriterPtr makeWriter()
+[[nodiscard]] ArchiveWriterPtr MakeWriter()
 {
     auto *writer = archive_write_new();
     if (writer == nullptr)
-        fail("failed to allocate zip writer");
-    auto writerPtr = ArchiveWriterPtr(writer, &archive_write_free);
+        Fail("failed to allocate zip writer");
+    auto writer_ptr = ArchiveWriterPtr(writer, &archive_write_free);
 
-    if (archive_write_set_format_zip(writerPtr.get()) != ARCHIVE_OK)
-        fail("failed to enable zip output");
-    if (archive_write_zip_set_compression_store(writerPtr.get()) != ARCHIVE_OK)
-        fail("failed to enable stored zip output");
+    if (archive_write_set_format_zip(writer_ptr.get()) != ARCHIVE_OK)
+        Fail("failed to enable zip output");
+    if (archive_write_zip_set_compression_store(writer_ptr.get()) != ARCHIVE_OK)
+        Fail("failed to enable stored zip output");
 
-    return writerPtr;
+    return writer_ptr;
 }
 
-[[nodiscard]] std::string makeZip(const std::vector<ZipEntrySpec> &entries)
+[[nodiscard]] std::string MakeZip(const std::vector<ZipEntrySpec> &entries)
 {
-    auto writer = makeWriter();
+    auto writer = MakeWriter();
     std::string out;
 
     if (archive_write_open(
-            writer.get(), &out, &openStringArchive, &appendArchiveBytes, &closeStringArchive
+            writer.get(), &out, &OpenStringArchive, &AppendArchiveBytes, &CloseStringArchive
         ) != ARCHIVE_OK) {
-        fail("failed to open zip writer");
+        Fail("failed to open zip writer");
     }
 
     for (const auto &spec : entries) {
         auto entry = ArchiveEntryPtr(archive_entry_new(), &archive_entry_free);
         if (!entry)
-            fail("failed to allocate zip entry");
+            Fail("failed to allocate zip entry");
 
         archive_entry_set_pathname(entry.get(), spec.path.c_str());
-        archive_entry_set_filetype(entry.get(), spec.fileType);
-        archive_entry_set_perm(entry.get(), spec.fileType == AE_IFDIR ? 0755 : 0644);
+        archive_entry_set_filetype(entry.get(), spec.file_type);
+        archive_entry_set_perm(entry.get(), spec.file_type == AE_IFDIR ? 0755 : 0644);
         archive_entry_set_size(
-            entry.get(), spec.fileType == AE_IFREG ? static_cast<la_int64_t>(spec.body.size()) : 0
+            entry.get(), spec.file_type == AE_IFREG ? static_cast<la_int64_t>(spec.body.size()) : 0
         );
 
         if (archive_write_header(writer.get(), entry.get()) != ARCHIVE_OK)
-            fail("failed to write zip header");
-        if (spec.fileType == AE_IFREG && !spec.body.empty()) {
+            Fail("failed to write zip header");
+        if (spec.file_type == AE_IFREG && !spec.body.empty()) {
             const auto written = archive_write_data(
                 writer.get(), spec.body.data(), spec.body.size()
             );
             if (written != static_cast<la_ssize_t>(spec.body.size()))
-                fail("failed to write zip body");
+                Fail("failed to write zip body");
         }
     }
 
     if (archive_write_close(writer.get()) != ARCHIVE_OK)
-        fail("failed to close zip writer");
+        Fail("failed to close zip writer");
     return out;
 }
 
@@ -106,37 +106,37 @@ TEST(ZipArchive, WritesAndReadsStoredFilesByPath)
     ZipArchiveBuilder builder;
     ZipArchiveError error;
 
-    ASSERT_TRUE(builder.addStoredFile("datapackage.json", error, R"({"profile":"data-package"})"));
-    ASSERT_TRUE(builder.addStoredFile("archive/data.warc", error, "warc bytes"));
-    ASSERT_TRUE(builder.addStoredFile("pages/pages.jsonl", error, "{\"id\":\"pages\"}\n"));
+    ASSERT_TRUE(builder.AddStoredFile("datapackage.json", error, R"({"profile":"data-package"})"));
+    ASSERT_TRUE(builder.AddStoredFile("archive/data.warc", error, "warc bytes"));
+    ASSERT_TRUE(builder.AddStoredFile("pages/pages.jsonl", error, "{\"id\":\"pages\"}\n"));
 
-    const auto zipBytes = builder.finish(error);
-    ASSERT_TRUE(zipBytes);
-    if (!zipBytes)
+    const auto zip_bytes = builder.Finish(error);
+    ASSERT_TRUE(zip_bytes);
+    if (!zip_bytes)
         return;
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kNone);
 
-    const auto archive = ZipArchive::fromBytes(zipBytes.value(), error);
+    const auto archive = ZipArchive::FromBytes(zip_bytes.value(), error);
     ASSERT_TRUE(archive);
     if (!archive)
         return;
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kNone);
 
     EXPECT_EQ(
-        archive->entryPathsInOrder(), (std::vector<std::string>{
+        archive->EntryPathsInOrder(), (std::vector<std::string>{
                                           "datapackage.json",
                                           "archive/data.warc",
                                           "pages/pages.jsonl",
                                       })
     );
 
-    const auto datapackage = archive->findFile("datapackage.json");
+    const auto datapackage = archive->FindFile("datapackage.json");
     ASSERT_TRUE(datapackage);
     if (!datapackage)
         return;
     EXPECT_EQ(datapackage.value(), std::string_view{R"({"profile":"data-package"})"});
 
-    const auto warc = archive->findFile("archive/data.warc");
+    const auto warc = archive->FindFile("archive/data.warc");
     ASSERT_TRUE(warc);
     if (!warc)
         return;
@@ -148,8 +148,8 @@ TEST(ZipArchive, BuilderRejectsDuplicateEntryNames)
     ZipArchiveBuilder builder;
     ZipArchiveError error;
 
-    ASSERT_TRUE(builder.addStoredFile("logs/stdout.log", error, "first"));
-    EXPECT_FALSE(builder.addStoredFile("logs/stdout.log", error, "second"));
+    ASSERT_TRUE(builder.AddStoredFile("logs/stdout.log", error, "first"));
+    EXPECT_FALSE(builder.AddStoredFile("logs/stdout.log", error, "second"));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kDuplicateEntry);
 }
 
@@ -158,28 +158,28 @@ TEST(ZipArchive, BuilderRejectsInvalidPaths)
     ZipArchiveBuilder builder;
     ZipArchiveError error;
 
-    EXPECT_FALSE(builder.addStoredFile("/absolute.txt", error, ""));
+    EXPECT_FALSE(builder.AddStoredFile("/absolute.txt", error, ""));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kInvalidPath);
 
-    EXPECT_FALSE(builder.addStoredFile("logs\\stderr.log", error, ""));
+    EXPECT_FALSE(builder.AddStoredFile("logs\\stderr.log", error, ""));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kInvalidPath);
 
-    EXPECT_FALSE(builder.addStoredFile("logs/../stderr.log", error, ""));
+    EXPECT_FALSE(builder.AddStoredFile("logs/../stderr.log", error, ""));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kInvalidPath);
 
-    EXPECT_FALSE(builder.addStoredFile("logs//stderr.log", error, ""));
+    EXPECT_FALSE(builder.AddStoredFile("logs//stderr.log", error, ""));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kInvalidPath);
 }
 
 TEST(ZipArchive, RejectsDuplicateEntriesOnRead)
 {
     ZipArchiveError error;
-    const auto zipBytes = makeZip({
+    const auto zip_bytes = MakeZip({
         ZipEntrySpec{.path = "logs/stdout.log", .body = "first"},
         ZipEntrySpec{.path = "logs/stdout.log", .body = "second"},
     });
 
-    EXPECT_FALSE(ZipArchive::fromBytes(zipBytes, error));
+    EXPECT_FALSE(ZipArchive::FromBytes(zip_bytes, error));
     EXPECT_EQ(error.code, ZipArchiveErrorCode::kDuplicateEntry);
 }
 
@@ -187,7 +187,7 @@ TEST(ZipArchive, RejectsInvalidZipBytes)
 {
     ZipArchiveError error;
 
-    EXPECT_FALSE(ZipArchive::fromBytes(std::string_view{"not a zip archive"}, error));
+    EXPECT_FALSE(ZipArchive::FromBytes(std::string_view{"not a zip archive"}, error));
     EXPECT_TRUE(
         error.code == ZipArchiveErrorCode::kOpenFailed ||
         error.code == ZipArchiveErrorCode::kReadHeaderFailed

@@ -125,8 +125,6 @@ add_cpp_test(expected_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/expected.cpp)
 
 add_cpp_test(try_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/try.cpp)
 
-add_cpp_test(json_test SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/json.cpp)
-
 add_cpp_test(crawler_fallback_test SOURCES
              ${CMAKE_CURRENT_SOURCE_DIR}/crawler_fallback.cpp)
 

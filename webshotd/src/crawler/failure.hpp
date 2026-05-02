@@ -2,7 +2,6 @@
 
 #include "crawler/fallback.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <optional>
 #include <string>
@@ -12,15 +11,17 @@
 
 namespace v1::crawler {
 
-[[nodiscard]] String sanitizeProcessOutputTail(std::string_view bytes);
+namespace us = userver;
+namespace eng = us::engine;
+[[nodiscard]] String SanitizeProcessOutputTail(std::string_view bytes);
 
-[[nodiscard]] std::optional<String> summarizeProcessOutputs(
-    eng::TaskProcessor &fsTaskProcessor, const std::string &stdoutPath,
-    const std::string &stderrPath
+[[nodiscard]] std::optional<String> SummarizeProcessOutputs(
+    eng::TaskProcessor &fs_task_processor, const std::string &stdout_path,
+    const std::string &stderr_path
 );
 
-[[nodiscard]] String formatAttemptContext(const AttemptSummary &attempt);
+[[nodiscard]] String FormatAttemptContext(const AttemptSummary &attempt);
 
-[[nodiscard]] String formatAttemptStatus(std::string_view label, const AttemptSummary &attempt);
+[[nodiscard]] String FormatAttemptStatus(std::string_view label, const AttemptSummary &attempt);
 
 } // namespace v1::crawler

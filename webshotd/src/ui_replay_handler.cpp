@@ -6,7 +6,6 @@
 #include "config.hpp"
 #include "crud.hpp"
 #include "handler_request_support.hpp"
-#include "integers.hpp"
 #include "storage_url.hpp"
 #include "text.hpp"
 #include "try.hpp"
@@ -33,7 +32,7 @@ using namespace std::chrono_literals;
 
 namespace {
 
-[[nodiscard]] std::string escapeHtml(std::string_view text)
+[[nodiscard]] std::string EscapeHtml(std::string_view text)
 {
     std::string out;
     out.reserve(text.size());
@@ -62,26 +61,26 @@ namespace {
     return out;
 }
 
-[[nodiscard]] Expected<std::string, StorageUrlError> renderReplayLocation(
-    const CaptureRecord &capture, const Config &config, const std::optional<String> &requestHost
+[[nodiscard]] Expected<std::string, StorageUrlError> RenderReplayLocation(
+    const CaptureRecord &capture, const Config &config, const std::optional<String> &request_host
 )
 {
-    const auto downloadUrl = TRY(
-        buildCaptureDownloadUrl(capture.uuid, config.s3Mode(), config.publicBaseUrl(), requestHost)
+    const auto download_url = TRY(
+        BuildCaptureDownloadUrl(capture.uuid, config.S3Mode(), config.PublicBaseUrl(), request_host)
     );
 
     std::string out = "/vendor/replaywebpage/index.html?source=";
     out += ada::unicode::percent_encode(
-        downloadUrl.href().view(), ada::character_sets::WWW_FORM_URLENCODED_PERCENT_ENCODE
+        download_url.Href().View(), ada::character_sets::WWW_FORM_URLENCODED_PERCENT_ENCODE
     );
     out += "#url=";
     out += ada::unicode::percent_encode(
-        capture.replayUrl.href().view(), ada::character_sets::WWW_FORM_URLENCODED_PERCENT_ENCODE
+        capture.replay_url.Href().View(), ada::character_sets::WWW_FORM_URLENCODED_PERCENT_ENCODE
     );
     return out;
 }
 
-[[nodiscard]] std::string renderErrorPage(std::string_view message)
+[[nodiscard]] std::string RenderErrorPage(std::string_view message)
 {
     std::string out = R"(<!doctype html>
 <html lang="en">
@@ -99,7 +98,7 @@ namespace {
   </head>
   <body>
     <pre>)";
-    out += escapeHtml(message);
+    out += EscapeHtml(message);
     out += R"(</pre>
   </body>
 </html>
@@ -111,12 +110,14 @@ namespace {
 
 namespace v1 {
 
+namespace us = userver;
+namespace server = us::server;
 UiReplayHandler::UiReplayHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      config(context.FindComponent<Config>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -141,60 +142,61 @@ std::string UiReplayHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, config};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
     response.SetContentType("text/html; charset=utf-8");
 
-    const auto uuid = requestSupport.parseUuidPathArg(request, "uuid"_t);
+    const auto uuid = request_support.ParseUuidPathArg(request, "uuid"_t);
     if (!uuid) {
         response.SetStatus(kBadRequest);
-        return renderErrorPage(
-            std::format("{}: {}", uuid.error().name.view(), uuid.error().message.view())
+        return RenderErrorPage(
+            std::format("{}: {}", uuid.Error().name.View(), uuid.Error().message.View())
         );
     }
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown) {
-        if (cooldown.error() == ClientRequestError::kInvalidClientIp) {
+        if (cooldown.Error() == ClientRequestError::kInvalidClientIp) {
             response.SetStatus(kBadRequest);
-            return renderErrorPage("invalid client ip");
+            return RenderErrorPage("invalid client ip");
         }
 
         response.SetStatus(kInternalServerError);
-        return renderErrorPage("internal server error");
+        return RenderErrorPage("internal server error");
     }
     if (*cooldown) {
-        const auto retryAfterSeconds = std::chrono::ceil<std::chrono::seconds>(
-            (*cooldown)->retryAfter
+        const auto retry_after_seconds = std::chrono::ceil<std::chrono::seconds>(
+            (*cooldown)->retry_after
         );
         response.SetStatus(kTooManyRequests);
         response.SetHeader(
-            us::http::headers::kRetryAfter, std::to_string(retryAfterSeconds.count())
+            us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count())
         );
-        return renderErrorPage("client IP in cooldown");
+        return RenderErrorPage("client IP in cooldown");
     }
 
-    auto capture = crud.findCapture(*uuid);
+    auto capture = crud_.FindCapture(*uuid);
     if (!capture) {
         response.SetStatus(kInternalServerError);
-        return renderErrorPage("internal server error");
+        return RenderErrorPage("internal server error");
     }
     if (!*capture) {
         response.SetStatus(kNotFound);
-        return renderErrorPage("capture not found");
+        return RenderErrorPage("capture not found");
     }
     response.SetStatus(kFound);
-    auto replayLocation = renderReplayLocation(
-        **capture, config, requestSupport.requestHost(request)
+    auto replay_location = RenderReplayLocation(
+        **capture, config_, request_support.RequestHost(request)
     );
-    if (!replayLocation) {
+    if (!replay_location) {
         LOG_ERROR() << std::format(
-            "Failed to build replay storage URL: {}", storageUrlErrorMessage(replayLocation.error())
+            "Failed to build replay storage URL: {}",
+            StorageUrlErrorMessage(replay_location.Error())
         );
         response.SetStatus(kInternalServerError);
-        return renderErrorPage("internal server error");
+        return RenderErrorPage("internal server error");
     }
-    response.SetHeader(us::http::headers::kLocation, *replayLocation);
+    response.SetHeader(us::http::headers::kLocation, *replay_location);
     return {};
 }
 

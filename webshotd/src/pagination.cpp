@@ -13,7 +13,7 @@
 namespace v1::crud {
 
 namespace {
-[[nodiscard]] dto::PaginationCursor::D toDto(PageDirection direction)
+[[nodiscard]] dto::PaginationCursor::D ToDto(PageDirection direction)
 {
     using namespace text::literals;
 
@@ -23,11 +23,11 @@ namespace {
     case PageDirection::kPrevious:
         return dto::PaginationCursor::D::kPrevious;
     default:
-        invariant("invalid page direction"_t);
+        Invariant("invalid page direction"_t);
     }
 }
 
-[[nodiscard]] PageDirection fromDto(dto::PaginationCursor::D direction)
+[[nodiscard]] PageDirection FromDto(dto::PaginationCursor::D direction)
 {
     using namespace text::literals;
 
@@ -37,26 +37,26 @@ namespace {
     case dto::PaginationCursor::D::kPrevious:
         return PageDirection::kPrevious;
     default:
-        invariant("invalid page direction"_t);
+        Invariant("invalid page direction"_t);
     }
 }
 } // namespace
 
 [[nodiscard]] String
-encodeCursor(Clock::time_point createdAt, const Uuid &id, PageDirection direction)
+EncodeCursor(Clock::time_point created_at, const Uuid &id, PageDirection direction)
 {
-    const auto micros = timePointToMicros(createdAt);
-    dto::PaginationCursor cur(micros, id, toDto(direction));
-    return encodeToken(cur);
+    const auto micros = TimePointToMicros(created_at);
+    dto::PaginationCursor cur(micros, id, ToDto(direction));
+    return EncodeToken(cur);
 }
 
-[[nodiscard]] std::optional<Cursor> decodeCursor(const String &token)
+[[nodiscard]] std::optional<Cursor> DecodeCursor(const String &token)
 {
-    const auto cur = TRY(decodeToken<dto::PaginationCursor>(token));
+    const auto cur = TRY(DecodeToken<dto::PaginationCursor>(token));
     return Cursor{
-        .createdAt = microsToTimePoint(cur.t),
+        .created_at = MicrosToTimePoint(cur.t),
         .id = cur.i,
-        .direction = fromDto(cur.d),
+        .direction = FromDto(cur.d),
     };
 }
 

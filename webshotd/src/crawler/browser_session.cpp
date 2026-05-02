@@ -7,7 +7,6 @@
 #include "grab_value.hpp"
 #include "invariant.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 #include "uuid_format.hpp"
 
 #include <generated/browser_sandbox.sh.hpp>
@@ -47,9 +46,12 @@ namespace chrono = std::chrono;
 using namespace std::chrono_literals;
 
 using namespace text::literals;
-using v1::uuidu::toBytes;
+using v1::uuidu::ToBytes;
 
 namespace v1::crawler {
+namespace us = userver;
+namespace eng = us::engine;
+namespace datetime = us::utils::datetime;
 namespace {
 
 constexpr auto kMaxLogBytes = 64_i64 * 1024_i64;
@@ -66,13 +68,13 @@ constexpr std::string_view kWebsocketPathFileName{"websocket_path.txt"};
 constexpr std::string_view kBwrapStatusWrapperPath{WEBSHOT_BWRAP_STATUS_WRAPPER_PATH};
 constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX_FONTCONFIG_FILE};
 
-[[nodiscard]] const std::string &browserSandboxScript()
+[[nodiscard]] const std::string &BrowserSandboxScript()
 {
     static const std::string script = us::utils::FindResource("webshot_browser_sandbox_sh");
     return script;
 }
 
-[[nodiscard]] const std::string &browserSandboxClosurePaths()
+[[nodiscard]] const std::string &BrowserSandboxClosurePaths()
 {
     static const std::string paths = us::utils::FindResource(
         "webshot_browser_sandbox_closure_paths"
@@ -80,75 +82,75 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
     return paths;
 }
 
-[[nodiscard]] const std::string &browserSandboxPathEnv()
+[[nodiscard]] const std::string &BrowserSandboxPathEnv()
 {
     static const std::string path = us::utils::FindResource("webshot_browser_sandbox_path");
     return path;
 }
 
-[[nodiscard]] std::string normalizeDirPath(std::string value)
+[[nodiscard]] std::string NormalizeDirPath(std::string value)
 {
     while (value.size() > 1 && value.back() == '/')
         value.pop_back();
     return value;
 }
 
-[[nodiscard]] std::string browserSandboxPath(std::string_view relativePath)
+[[nodiscard]] std::string BrowserSandboxPath(std::string_view relative_path)
 {
-    invariant(!relativePath.empty(), "browser sandbox path must not be empty"_t);
-    invariant(relativePath.front() != '/', "browser sandbox path must be relative"_t);
-    return std::format("{}/{}", kBrowserSandboxRoot, relativePath);
+    Invariant(!relative_path.empty(), "browser sandbox path must not be empty"_t);
+    Invariant(relative_path.front() != '/', "browser sandbox path must be relative"_t);
+    return std::format("{}/{}", kBrowserSandboxRoot, relative_path);
 }
 
-[[noreturn]] void abortCgroupConfig(std::string_view message) noexcept
+[[noreturn]] void AbortCgroupConfig(std::string_view message) noexcept
 {
     us::utils::AbortWithStacktrace(std::string(message));
 }
 
-[[nodiscard]] std::string readSelfCgroupV2Path(eng::TaskProcessor &fsTaskProcessor)
+[[nodiscard]] std::string ReadSelfCgroupV2Path(eng::TaskProcessor &fs_task_processor)
 {
-    const auto raw = us::fs::ReadFileContents(fsTaskProcessor, "/proc/self/cgroup");
+    const auto raw = us::fs::ReadFileContents(fs_task_processor, "/proc/self/cgroup");
     std::string_view remaining{raw};
     while (true) {
         const auto next = remaining.find('\n');
         const auto line = next == std::string::npos ? remaining : remaining.substr(0, next);
         if (line.starts_with("0::")) {
-            auto path = normalizeDirPath(std::string(line.substr(3)));
+            auto path = NormalizeDirPath(std::string(line.substr(3)));
             if (path.empty() || path.front() != '/')
-                abortCgroupConfig("invalid cgroup v2 path in /proc/self/cgroup");
+                AbortCgroupConfig("invalid cgroup v2 path in /proc/self/cgroup");
             return path;
         }
         if (next == std::string::npos)
             break;
         remaining.remove_prefix(next + 1);
     }
-    abortCgroupConfig("failed to locate cgroup v2 path in /proc/self/cgroup");
+    AbortCgroupConfig("failed to locate cgroup v2 path in /proc/self/cgroup");
 }
 
-[[nodiscard]] std::string parentCgroupPath(const std::string &path)
+[[nodiscard]] std::string ParentCgroupPath(const std::string &path)
 {
     if (path.empty() || path.front() != '/')
-        abortCgroupConfig("cgroup path must be absolute");
+        AbortCgroupConfig("cgroup path must be absolute");
     if (path == "/")
-        abortCgroupConfig("webshotd must run inside the managed cgroup subgroup");
+        AbortCgroupConfig("webshotd must run inside the managed cgroup subgroup");
 
-    const auto slashPos = path.find_last_of('/');
-    if (slashPos == std::string::npos)
-        abortCgroupConfig("failed to locate parent cgroup path");
-    if (slashPos == 0)
+    const auto slash_pos = path.find_last_of('/');
+    if (slash_pos == std::string::npos)
+        AbortCgroupConfig("failed to locate parent cgroup path");
+    if (slash_pos == 0)
         return "/";
-    return path.substr(0, slashPos);
+    return path.substr(0, slash_pos);
 }
 
-[[nodiscard]] bool isManagedCgroupRootName(std::string_view name)
+[[nodiscard]] bool IsManagedCgroupRootName(std::string_view name)
 {
     return name.starts_with(kManagedCgroupPrefix) && name.ends_with(kManagedCgroupScopeSuffix);
 }
 
-[[nodiscard]] std::string managedCgroupRootPathFromServiceSubgroup(const std::string &path)
+[[nodiscard]] std::string ManagedCgroupRootPathFromServiceSubgroup(const std::string &path)
 {
     if (!path.ends_with(kManagedCgroupServiceSubgroup)) {
-        abortCgroupConfig(
+        AbortCgroupConfig(
             std::format(
                 "webshotd must run inside managed cgroup subgroup '{}', got {}",
                 kManagedCgroupServiceSubgroup, path
@@ -156,48 +158,50 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
         );
     }
 
-    const auto managedRootPath = parentCgroupPath(path);
-    const auto managedRootNamePos = managedRootPath.find_last_of('/');
-    const auto managedRootName = managedRootNamePos == std::string::npos
-                                     ? std::string_view{managedRootPath}
-                                     : std::string_view{managedRootPath}.substr(
-                                           managedRootNamePos + 1
-                                       );
-    if (!isManagedCgroupRootName(managedRootName)) {
-        abortCgroupConfig(
+    const auto managed_root_path = ParentCgroupPath(path);
+    const auto managed_root_name_pos = managed_root_path.find_last_of('/');
+    const auto managed_root_name = managed_root_name_pos == std::string::npos
+                                       ? std::string_view{managed_root_path}
+                                       : std::string_view{managed_root_path}.substr(
+                                             managed_root_name_pos + 1
+                                         );
+    if (!IsManagedCgroupRootName(managed_root_name)) {
+        AbortCgroupConfig(
             std::format("webshotd is not running inside a managed cgroup root: {}", path)
         );
     }
 
-    return managedRootPath;
+    return managed_root_path;
 }
 
-[[nodiscard]] String currentTimestamp()
+[[nodiscard]] String CurrentTimestamp()
 {
-    return String::fromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format))
-        .expect();
+    return String::FromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format))
+        .Expect();
 }
 
-[[nodiscard]] Expected<void, String> copyFileContents(
-    eng::TaskProcessor &fsTaskProcessor, const std::string &sourcePath,
-    const std::string &destinationPath
+[[nodiscard]] Expected<void, String> CopyFileContents(
+    eng::TaskProcessor &fs_task_processor, const std::string &source_path,
+    const std::string &destination_path
 )
 {
-    if (!us::fs::FileExists(fsTaskProcessor, sourcePath))
-        return Unex(text::format("source file does not exist: {}", sourcePath));
+    if (!us::fs::FileExists(fs_task_processor, source_path))
+        return Unex(text::Format("source file does not exist: {}", source_path));
     us::fs::RewriteFileContents(
-        fsTaskProcessor, destinationPath, us::fs::ReadFileContents(fsTaskProcessor, sourcePath)
+        fs_task_processor, destination_path,
+        us::fs::ReadFileContents(fs_task_processor, source_path)
     );
     return {};
 }
 
-[[nodiscard]] std::vector<std::string> buildChromiumArgs(
-    const std::string &userDataDir, const std::string &netlogPath, bool useLocalFixtureTrustDb
+[[nodiscard]] std::vector<std::string> BuildChromiumArgs(
+    const std::string &user_data_dir, const std::string &netlog_path,
+    bool use_local_fixture_trust_db
 )
 {
-    auto disabledFeatures = std::string("Vulkan,VulkanFromANGLE,DefaultANGLEVulkan");
-    if (useLocalFixtureTrustDb)
-        disabledFeatures += ",ChromeRootStoreUsed";
+    auto disabled_features = std::string("Vulkan,VulkanFromANGLE,DefaultANGLEVulkan");
+    if (use_local_fixture_trust_db)
+        disabled_features += ",ChromeRootStoreUsed";
 
     return {
         "--headless=new",
@@ -218,9 +222,9 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
         "--no-sandbox",
         "--no-zygote",
         "--use-gl=swiftshader",
-        std::format("--disable-features={}", disabledFeatures),
-        std::format("--user-data-dir={}", userDataDir),
-        std::format("--log-net-log={}", netlogPath),
+        std::format("--disable-features={}", disabled_features),
+        std::format("--user-data-dir={}", user_data_dir),
+        std::format("--log-net-log={}", netlog_path),
         "--net-log-capture-mode=IncludeSensitive",
         std::format("--proxy-server=http://127.0.0.1:{}", kProxyListenPort),
         "--proxy-bypass-list=<-loopback>",
@@ -235,34 +239,34 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
 
 class [[nodiscard]] SeccompFilter final {
 public:
-    explicit SeccompFilter(uint32_t defaultAction) : ctx(seccomp_init(defaultAction))
+    explicit SeccompFilter(uint32_t default_action) : ctx_(seccomp_init(default_action))
     {
-        invariant(ctx != nullptr, "failed to initialize browser seccomp filter"_t);
+        Invariant(ctx_ != nullptr, "failed to initialize browser seccomp filter"_t);
     }
     SeccompFilter(const SeccompFilter &) = delete;
     SeccompFilter(SeccompFilter &&) = delete;
     SeccompFilter &operator=(const SeccompFilter &) = delete;
     SeccompFilter &operator=(SeccompFilter &&) = delete;
-    ~SeccompFilter() { seccomp_release(ctx); }
+    ~SeccompFilter() { seccomp_release(ctx_); }
 
-    [[nodiscard]] scmp_filter_ctx get() const noexcept { return ctx; }
+    [[nodiscard]] scmp_filter_ctx Get() const noexcept { return ctx_; }
 
 private:
-    scmp_filter_ctx ctx;
+    scmp_filter_ctx ctx_;
 };
 
-void denyBrowserSyscall(SeccompFilter &filter, const char *name)
+void DenyBrowserSyscall(SeccompFilter &filter, const char *name)
 {
     const auto syscall = seccomp_syscall_resolve_name(name);
-    invariant(syscall >= 0, text::format("browser seccomp syscall is unknown: {}", name));
+    Invariant(syscall >= 0, text::Format("browser seccomp syscall is unknown: {}", name));
 
-    const auto rc = seccomp_rule_add(filter.get(), SCMP_ACT_ERRNO(EPERM), syscall, 0);
-    invariant(rc == 0, text::format("failed to deny browser syscall {}: {}", name, rc));
+    const auto rc = seccomp_rule_add(filter.Get(), SCMP_ACT_ERRNO(EPERM), syscall, 0);
+    Invariant(rc == 0, text::Format("failed to deny browser syscall {}: {}", name, rc));
 }
 
-void writeBrowserSeccompPolicy(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+void WriteBrowserSeccompPolicy(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
-    eng::AsyncNoSpan(fsTaskProcessor, [&path] {
+    eng::AsyncNoSpan(fs_task_processor, [&path] {
         auto filter = SeccompFilter{SCMP_ACT_ALLOW};
         for (const auto *name : std::array{
                  "bpf",
@@ -274,7 +278,7 @@ void writeBrowserSeccompPolicy(eng::TaskProcessor &fsTaskProcessor, const std::s
                  "request_key",
                  "keyctl",
              }) {
-            denyBrowserSyscall(filter, name);
+            DenyBrowserSyscall(filter, name);
         }
 
         auto fd = us::fs::blocking::FileDescriptor::Open(
@@ -284,140 +288,145 @@ void writeBrowserSeccompPolicy(eng::TaskProcessor &fsTaskProcessor, const std::s
                       us::fs::blocking::OpenFlag::kTruncate,
                   }
         );
-        const auto rc = seccomp_export_bpf(filter.get(), fd.GetNative());
-        invariant(rc == 0, text::format("failed to export browser seccomp policy: {}", rc));
+        const auto rc = seccomp_export_bpf(filter.Get(), fd.GetNative());
+        Invariant(rc == 0, text::Format("failed to export browser seccomp policy: {}", rc));
     }).Get();
 }
 
 struct [[nodiscard]] BrowserPaths final {
-    std::string rootDir;
-    std::string runId;
-    std::string userDataDir;
-    std::string userDataTrustDbDir;
-    std::string xdgConfigHome;
-    std::string xdgCacheHome;
-    std::string crashpadDir;
-    std::string proxySocketPath;
-    std::string cdpSocketPath;
-    std::string websocketPathFilePath;
-    std::string netlogPath;
-    std::string cdpTracePath;
-    std::string stdoutLogPath;
-    std::string stderrLogPath;
-    std::string chromiumStderrLogPath;
-    std::string bwrapStatusFilePath;
-    std::string seccompBpfPath;
-    std::string phaseFilePath;
-    std::string devNullPath;
-    std::string etcDir;
-    std::string passwdPath;
-    std::string groupPath;
-    std::string nsswitchConfPath;
-    std::string hostsPath;
-    std::string localFixtureTrustDbDir;
+    std::string root_dir;
+    std::string run_id;
+    std::string user_data_dir;
+    std::string user_data_trust_db_dir;
+    std::string xdg_config_home;
+    std::string xdg_cache_home;
+    std::string crashpad_dir;
+    std::string proxy_socket_path;
+    std::string cdp_socket_path;
+    std::string websocket_pathfile_path;
+    std::string netlog_path;
+    std::string cdp_trace_path;
+    std::string stdout_log_path;
+    std::string stderr_log_path;
+    std::string chromium_stderr_log_path;
+    std::string bwrap_status_file_path;
+    std::string seccomp_bpf_path;
+    std::string phase_file_path;
+    std::string dev_null_path;
+    std::string etc_dir;
+    std::string passwd_path;
+    std::string group_path;
+    std::string nsswitch_conf_path;
+    std::string hosts_path;
+    std::string local_fixture_trust_db_dir;
 };
 
 [[nodiscard]] BrowserPaths
-createBrowserPaths(eng::TaskProcessor &fsTaskProcessor, std::string_view browserRunsRoot)
+CreateBrowserPaths(eng::TaskProcessor &fs_task_processor, std::string_view browser_runs_root)
 {
-    auto tempRoot = normalizeDirPath(std::string(browserRunsRoot));
-    us::fs::CreateDirectories(fsTaskProcessor, tempRoot);
+    auto temp_root = NormalizeDirPath(std::string(browser_runs_root));
+    us::fs::CreateDirectories(fs_task_processor, temp_root);
 
-    const auto runId = toBytes(us::utils::generators::GenerateBoostUuid());
-    const auto rootDir = std::format("{}/browser_{}", tempRoot, runId);
+    const auto run_id = ToBytes(us::utils::generators::GenerateBoostUuid());
+    const auto root_dir = std::format("{}/browser_{}", temp_root, run_id);
     BrowserPaths paths{
-        .rootDir = rootDir,
-        .runId = runId,
-        .userDataDir = rootDir + "/profile",
-        .userDataTrustDbDir = rootDir + "/profile/.pki/nssdb",
-        .xdgConfigHome = rootDir + "/xdg_config",
-        .xdgCacheHome = rootDir + "/xdg_cache",
-        .crashpadDir = rootDir + "/crashpad",
-        .proxySocketPath = rootDir + "/proxy.sock",
-        .cdpSocketPath = rootDir + "/cdp.sock",
-        .websocketPathFilePath = rootDir + "/websocket_path.txt",
-        .netlogPath = rootDir + "/netlog.json",
-        .cdpTracePath = rootDir + "/cdp_trace.jsonl",
-        .stdoutLogPath = rootDir + "/stdout.log",
-        .stderrLogPath = rootDir + "/stderr.log",
-        .chromiumStderrLogPath = rootDir + "/chromium_stderr.log",
-        .bwrapStatusFilePath = rootDir + "/bwrap_status.jsonl",
-        .seccompBpfPath = rootDir + "/seccomp.bpf",
-        .phaseFilePath = rootDir + "/phase.txt",
-        .devNullPath = rootDir + "/devnull",
-        .etcDir = rootDir + "/etc",
-        .passwdPath = rootDir + "/etc/passwd",
-        .groupPath = rootDir + "/etc/group",
-        .nsswitchConfPath = rootDir + "/etc/nsswitch.conf",
-        .hostsPath = rootDir + "/etc/hosts",
-        .localFixtureTrustDbDir = rootDir + "/.pki/nssdb",
+        .root_dir = root_dir,
+        .run_id = run_id,
+        .user_data_dir = root_dir + "/profile",
+        .user_data_trust_db_dir = root_dir + "/profile/.pki/nssdb",
+        .xdg_config_home = root_dir + "/xdg_config",
+        .xdg_cache_home = root_dir + "/xdg_cache",
+        .crashpad_dir = root_dir + "/crashpad",
+        .proxy_socket_path = root_dir + "/proxy.sock",
+        .cdp_socket_path = root_dir + "/cdp.sock",
+        .websocket_pathfile_path = root_dir + "/websocket_path.txt",
+        .netlog_path = root_dir + "/netlog.json",
+        .cdp_trace_path = root_dir + "/cdp_trace.jsonl",
+        .stdout_log_path = root_dir + "/stdout.log",
+        .stderr_log_path = root_dir + "/stderr.log",
+        .chromium_stderr_log_path = root_dir + "/chromium_stderr.log",
+        .bwrap_status_file_path = root_dir + "/bwrap_status.jsonl",
+        .seccomp_bpf_path = root_dir + "/seccomp.bpf",
+        .phase_file_path = root_dir + "/phase.txt",
+        .dev_null_path = root_dir + "/devnull",
+        .etc_dir = root_dir + "/etc",
+        .passwd_path = root_dir + "/etc/passwd",
+        .group_path = root_dir + "/etc/group",
+        .nsswitch_conf_path = root_dir + "/etc/nsswitch.conf",
+        .hosts_path = root_dir + "/etc/hosts",
+        .local_fixture_trust_db_dir = root_dir + "/.pki/nssdb",
     };
-    us::fs::CreateDirectories(fsTaskProcessor, paths.rootDir);
+    us::fs::CreateDirectories(fs_task_processor, paths.root_dir);
     us::fs::RewriteFileContents(
-        fsTaskProcessor, rootDir + "/browser_sandbox.sh", browserSandboxScript()
+        fs_task_processor, root_dir + "/browser_sandbox.sh", BrowserSandboxScript()
     );
-    writeBrowserSeccompPolicy(fsTaskProcessor, paths.seccompBpfPath);
+    WriteBrowserSeccompPolicy(fs_task_processor, paths.seccomp_bpf_path);
 
     for (const auto &path : std::array{
-             paths.userDataDir,
-             paths.xdgConfigHome,
-             paths.xdgCacheHome,
-             paths.crashpadDir,
-             paths.etcDir,
+             paths.user_data_dir,
+             paths.xdg_config_home,
+             paths.xdg_cache_home,
+             paths.crashpad_dir,
+             paths.etc_dir,
          }) {
-        us::fs::CreateDirectories(fsTaskProcessor, path);
+        us::fs::CreateDirectories(fs_task_processor, path);
     }
     for (const auto &path :
-         std::array{paths.phaseFilePath, paths.cdpTracePath, paths.devNullPath}) {
-        us::fs::RewriteFileContents(fsTaskProcessor, path, {});
+         std::array{paths.phase_file_path, paths.cdp_trace_path, paths.dev_null_path}) {
+        us::fs::RewriteFileContents(fs_task_processor, path, {});
     }
     us::fs::RewriteFileContents(
-        fsTaskProcessor, paths.passwdPath,
+        fs_task_processor, paths.passwd_path,
         "root:x:0:0:root:/browser:/bin/sh\n"
         "webshot:x:1000:1000:webshot:/browser:/bin/sh\n"
     );
-    us::fs::RewriteFileContents(fsTaskProcessor, paths.groupPath, "root:x:0:\nwebshot:x:1000:\n");
     us::fs::RewriteFileContents(
-        fsTaskProcessor, paths.nsswitchConfPath, "passwd: files\ngroup: files\nhosts: files dns\n"
+        fs_task_processor, paths.group_path, "root:x:0:\nwebshot:x:1000:\n"
     );
     us::fs::RewriteFileContents(
-        fsTaskProcessor, paths.hostsPath, "127.0.0.1 localhost\n::1 localhost\n"
+        fs_task_processor, paths.nsswitch_conf_path,
+        "passwd: files\ngroup: files\nhosts: files dns\n"
+    );
+    us::fs::RewriteFileContents(
+        fs_task_processor, paths.hosts_path, "127.0.0.1 localhost\n::1 localhost\n"
     );
     return paths;
 }
 
 [[nodiscard]] Expected<us::fs::blocking::FileDescriptor, String>
-openBrowserRunDir(eng::TaskProcessor &fsTaskProcessor, const BrowserPaths &paths)
+OpenBrowserRunDir(eng::TaskProcessor &fs_task_processor, const BrowserPaths &paths)
 {
     try {
         return eng::AsyncNoSpan(
-                   fsTaskProcessor, [&paths] {
-                       return us::fs::blocking::FileDescriptor::OpenDirectory(paths.rootDir);
+                   fs_task_processor, [&paths] {
+                       return us::fs::blocking::FileDescriptor::OpenDirectory(paths.root_dir);
                    }
         ).Get();
     } catch (const std::runtime_error &e) {
-        return Unex(text::format("failed to open browser run dir {}: {}", paths.rootDir, e.what()));
+        return Unex(
+            text::Format("failed to open browser run dir {}: {}", paths.root_dir, e.what())
+        );
     }
 }
 
 [[nodiscard]] std::string
-browserRunFdPath(const us::fs::blocking::FileDescriptor &dirFd, std::string_view fileName)
+BrowserRunFdPath(const us::fs::blocking::FileDescriptor &dir_fd, std::string_view file_name)
 {
-    invariant(!fileName.empty(), "browser run fd path file name must not be empty"_t);
-    invariant(fileName.front() != '/', "browser run fd path file name must be relative"_t);
-    return std::format("/proc/self/fd/{}/{}", dirFd.GetNative(), fileName);
+    Invariant(!file_name.empty(), "browser run fd path file name must not be empty"_t);
+    Invariant(file_name.front() != '/', "browser run fd path file name must be relative"_t);
+    return std::format("/proc/self/fd/{}/{}", dir_fd.GetNative(), file_name);
 }
 
-[[nodiscard]] Expected<void, String> copyLocalFixtureTrustDb(
-    eng::TaskProcessor &fsTaskProcessor, const std::string &sourcePath,
-    const std::string &destinationPath
+[[nodiscard]] Expected<void, String> CopyLocalFixtureTrustDb(
+    eng::TaskProcessor &fs_task_processor, const std::string &source_path,
+    const std::string &destination_path
 )
 {
-    us::fs::CreateDirectories(fsTaskProcessor, destinationPath);
+    us::fs::CreateDirectories(fs_task_processor, destination_path);
 
-    for (const auto &fileName : {"cert9.db", "key4.db", "pkcs11.txt"}) {
-        auto copied = copyFileContents(
-            fsTaskProcessor, sourcePath + "/" + fileName, destinationPath + "/" + fileName
+    for (const auto &file_name : {"cert9.db", "key4.db", "pkcs11.txt"}) {
+        auto copied = CopyFileContents(
+            fs_task_processor, source_path + "/" + file_name, destination_path + "/" + file_name
         );
         if (!copied)
             return copied;
@@ -425,104 +434,107 @@ browserRunFdPath(const us::fs::blocking::FileDescriptor &dirFd, std::string_view
     return {};
 }
 
-[[nodiscard]] Expected<void, String> stageLocalFixtureTrustDb(
-    eng::TaskProcessor &fsTaskProcessor, const BrowserPaths &paths, const std::string &sourcePath
+[[nodiscard]] Expected<void, String> StageLocalFixtureTrustDb(
+    eng::TaskProcessor &fs_task_processor, const BrowserPaths &paths, const std::string &source_path
 )
 {
-    us::fs::CreateDirectories(fsTaskProcessor, paths.rootDir + "/.pki");
-    us::fs::CreateDirectories(fsTaskProcessor, paths.userDataDir + "/.pki");
+    us::fs::CreateDirectories(fs_task_processor, paths.root_dir + "/.pki");
+    us::fs::CreateDirectories(fs_task_processor, paths.user_data_dir + "/.pki");
 
-    TRY(copyLocalFixtureTrustDb(fsTaskProcessor, sourcePath, paths.localFixtureTrustDbDir));
-    TRY(copyLocalFixtureTrustDb(fsTaskProcessor, sourcePath, paths.userDataTrustDbDir));
+    TRY(CopyLocalFixtureTrustDb(fs_task_processor, source_path, paths.local_fixture_trust_db_dir));
+    TRY(CopyLocalFixtureTrustDb(fs_task_processor, source_path, paths.user_data_trust_db_dir));
     return {};
 }
 
-[[nodiscard]] Expected<void, String> stageLocalFixtureTrustDbIfNeeded(
-    eng::TaskProcessor &fsTaskProcessor, const BrowserPaths &paths,
+[[nodiscard]] Expected<void, String> StageLocalFixtureTrustDbIfNeeded(
+    eng::TaskProcessor &fs_task_processor, const BrowserPaths &paths,
     const BrowserSessionConfig &config
 )
 {
-    if (!config.enableLocalFixtureRewrite)
+    if (!config.enable_local_fixture_rewrite)
         return {};
 
     TRY_MAP_ERR(
-        stageLocalFixtureTrustDb(fsTaskProcessor, paths, config.localFixtureTrustDbSourcePath),
-        [](auto error) { return text::format("failed to stage local fixture trust db: {}", error); }
+        StageLocalFixtureTrustDb(
+            fs_task_processor, paths, config.local_fixture_trust_db_source_path
+        ),
+        [](auto error) { return text::Format("failed to stage local fixture trust db: {}", error); }
     );
     return {};
 }
 
-void truncateLogBuffer(std::string &value)
+void TruncateLogBuffer(std::string &value)
 {
     if (ssize(value) <= kMaxLogBytes)
         return;
-    const auto dropBytes = ssize(value) - kMaxLogBytes;
-    value.erase(0, numericCast<size_t>(dropBytes));
+    const auto drop_bytes = ssize(value) - kMaxLogBytes;
+    value.erase(0, NumericCast<size_t>(drop_bytes));
 }
 
-[[nodiscard]] std::string readLogTail(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+[[nodiscard]] std::string
+ReadLogTail(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
-    if (!us::fs::FileExists(fsTaskProcessor, path))
+    if (!us::fs::FileExists(fs_task_processor, path))
         return {};
-    auto value = us::fs::ReadFileContents(fsTaskProcessor, path);
-    truncateLogBuffer(value);
+    auto value = us::fs::ReadFileContents(fs_task_processor, path);
+    TruncateLogBuffer(value);
     return value;
 }
 
-void writePhaseMarker(
-    eng::TaskProcessor &fsTaskProcessor, const std::string &path, std::string_view phase
+void WritePhaseMarker(
+    eng::TaskProcessor &fs_task_processor, const std::string &path, std::string_view phase
 )
 {
     us::fs::RewriteFileContents(
-        fsTaskProcessor, path, std::format("{} {}\n", currentTimestamp(), phase)
+        fs_task_processor, path, std::format("{} {}\n", CurrentTimestamp(), phase)
     );
 }
 
-[[nodiscard]] std::string formatBrowserLogs(const std::pair<std::string, std::string> &logs)
+[[nodiscard]] std::string FormatBrowserLogs(const std::pair<std::string, std::string> &logs)
 {
-    const auto &[stdoutLog, stderrLog] = logs;
+    const auto &[stdout_log, stderr_log] = logs;
     return std::format(
-        "stdout={}, stderr={}", stdoutLog.empty() ? "empty" : stdoutLog,
-        stderrLog.empty() ? "empty" : stderrLog
+        "stdout={}, stderr={}", stdout_log.empty() ? "empty" : stdout_log,
+        stderr_log.empty() ? "empty" : stderr_log
     );
 }
 
-[[nodiscard]] std::string formatLaunchLogs(
-    const std::pair<std::string, std::string> &browserLogs, const std::string &bwrapStatus
+[[nodiscard]] std::string FormatLaunchLogs(
+    const std::pair<std::string, std::string> &browser_logs, const std::string &bwrap_status
 )
 {
-    auto value = formatBrowserLogs(browserLogs);
-    if (!bwrapStatus.empty())
-        value = std::format("{}, bwrap_status={}", value, bwrapStatus);
+    auto value = FormatBrowserLogs(browser_logs);
+    if (!bwrap_status.empty())
+        value = std::format("{}, bwrap_status={}", value, bwrap_status);
     return value;
 }
 
-void appendDiagnosticField(String &out, const String &label, const String &value)
+void AppendDiagnosticField(String &out, const String &label, const String &value)
 {
-    if (!out.empty())
+    if (!out.Empty())
         out += ", "_t;
-    out += text::format("{}={}", label, value);
+    out += text::Format("{}={}", label, value);
 }
 
 [[nodiscard]] std::optional<std::string>
-readBrowserFileIfExists(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+ReadBrowserFileIfExists(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
     try {
-        if (!us::fs::FileExists(fsTaskProcessor, path))
+        if (!us::fs::FileExists(fs_task_processor, path))
             return {};
-        return us::fs::ReadFileContents(fsTaskProcessor, path);
+        return us::fs::ReadFileContents(fs_task_processor, path);
     } catch (const std::runtime_error &) {
         return {};
     }
 }
 
 [[nodiscard]] std::optional<std::string>
-removeBrowserRunDirectory(eng::TaskProcessor &fsTaskProcessor, const std::string &path) noexcept
+RemoveBrowserRunDirectory(eng::TaskProcessor &fs_task_processor, const std::string &path) noexcept
 {
     try {
-        eng::AsyncNoSpan(fsTaskProcessor, [&path] {
-            auto tempDir = us::fs::blocking::TempDirectory::Adopt(path);
-            std::move(tempDir).Remove();
+        eng::AsyncNoSpan(fs_task_processor, [&path] {
+            auto temp_dir = us::fs::blocking::TempDirectory::Adopt(path);
+            std::move(temp_dir).Remove();
         }).Get();
         return {};
     } catch (const std::runtime_error &e) {
@@ -531,64 +543,64 @@ removeBrowserRunDirectory(eng::TaskProcessor &fsTaskProcessor, const std::string
 }
 
 [[nodiscard]] std::optional<String>
-readSanitizedLogTail(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+ReadSanitizedLogTail(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
-    const auto bytes = readBrowserFileIfExists(fsTaskProcessor, path);
+    const auto bytes = ReadBrowserFileIfExists(fs_task_processor, path);
     if (!bytes)
         return {};
-    const auto sanitized = sanitizeProcessOutputTail(*bytes);
-    if (!sanitized.empty())
+    const auto sanitized = SanitizeProcessOutputTail(*bytes);
+    if (!sanitized.Empty())
         return sanitized;
     return {};
 }
 
-void removeBrowserRunDir(eng::TaskProcessor &fsTaskProcessor, const std::string &path) noexcept
+void RemoveBrowserRunDir(eng::TaskProcessor &fs_task_processor, const std::string &path) noexcept
 {
     if (path.empty())
         return;
-    if (const auto error = removeBrowserRunDirectory(fsTaskProcessor, path))
+    if (const auto error = RemoveBrowserRunDirectory(fs_task_processor, path))
         LOG_WARNING() << std::format("Failed to remove browser dir {}: {}", path, *error);
 }
 
 [[nodiscard]] std::optional<String>
-readWebsocketPathFile(eng::TaskProcessor &fsTaskProcessor, const std::string &path)
+ReadWebsocketPathFile(eng::TaskProcessor &fs_task_processor, const std::string &path)
 {
-    auto value = readBrowserFileIfExists(fsTaskProcessor, path);
+    auto value = ReadBrowserFileIfExists(fs_task_processor, path);
     if (!value)
         return {};
     absl::StripTrailingAsciiWhitespace(&*value);
     if (value->empty())
         return {};
-    return TRY(text::optionalString(value));
+    return TRY(text::OptionalString(value));
 }
 
-[[nodiscard]] eng::subprocess::ChildProcess spawnProcess(
-    eng::subprocess::ProcessStarter &processStarter, const std::string &executablePath,
-    const std::vector<std::string> &args, const std::string &stdoutPath,
-    const std::string &stderrPath
+[[nodiscard]] eng::subprocess::ChildProcess SpawnProcess(
+    eng::subprocess::ProcessStarter &process_starter, const std::string &executable_path,
+    const std::vector<std::string> &args, const std::string &stdout_path,
+    const std::string &stderr_path
 )
 {
     eng::subprocess::ExecOptions options;
     options.use_path = true;
-    options.stdout_file = stdoutPath;
-    options.stderr_file = stderrPath;
-    return processStarter.Exec(executablePath, args, std::move(options));
+    options.stdout_file = stdout_path;
+    options.stderr_file = stderr_path;
+    return process_starter.Exec(executable_path, args, std::move(options));
 }
 
-[[nodiscard]] eng::subprocess::ChildProcess spawnSandboxedBrowser(
-    eng::subprocess::ProcessStarter &processStarter, const BrowserPaths &paths,
-    std::string_view cgroupRootPath, const std::optional<CgroupLimits> &cgroupLimits,
-    std::string_view cgroupNamePrefix, bool useLocalFixtureTrustDb
+[[nodiscard]] eng::subprocess::ChildProcess SpawnSandboxedBrowser(
+    eng::subprocess::ProcessStarter &process_starter, const BrowserPaths &paths,
+    std::string_view cgroup_root_path, const std::optional<CgroupLimits> &cgroup_limits,
+    std::string_view cgroup_name_prefix, bool use_local_fixture_trust_db
 )
 {
-    const i64 cpuCores{cgroupLimits ? cgroupLimits->cpuCores : 0_i64};
-    const i64 memoryBytes{cgroupLimits ? cgroupLimits->memoryBytes : 0_i64};
-    const auto cgroupName = std::format("{}_{}", cgroupNamePrefix, paths.runId);
+    const i64 cpu_cores{cgroup_limits ? cgroup_limits->cpu_cores : 0_i64};
+    const i64 memory_bytes{cgroup_limits ? cgroup_limits->memory_bytes : 0_i64};
+    const auto cgroup_name = std::format("{}_{}", cgroup_name_prefix, paths.run_id);
 
-    auto chromiumArgs = buildChromiumArgs(
-        browserSandboxPath("profile"), browserSandboxPath("netlog.json"), useLocalFixtureTrustDb
+    auto chromium_args = BuildChromiumArgs(
+        BrowserSandboxPath("profile"), BrowserSandboxPath("netlog.json"), use_local_fixture_trust_db
     );
-    std::vector<std::string> bwrapArgs{
+    std::vector<std::string> bwrap_args{
         "bwrap",
         "--json-status-fd",
         "3",
@@ -618,130 +630,132 @@ readWebsocketPathFile(eng::TaskProcessor &fsTaskProcessor, const std::string &pa
         "--dir",
         "/nix/store",
     };
-    for (const auto &closurePath : us::utils::text::Split(browserSandboxClosurePaths(), "\n")) {
-        if (closurePath.empty())
+    for (const auto &closure_path : us::utils::text::Split(BrowserSandboxClosurePaths(), "\n")) {
+        if (closure_path.empty())
             continue;
-        bwrapArgs.insert(std::end(bwrapArgs), {"--ro-bind", closurePath, closurePath});
+        bwrap_args.insert(std::end(bwrap_args), {"--ro-bind", closure_path, closure_path});
     }
-    bwrapArgs.insert(
-        std::end(bwrapArgs), {
-                                 "--dir",
-                                 "/etc",
-                                 "--ro-bind",
-                                 paths.passwdPath,
-                                 "/etc/passwd",
-                                 "--ro-bind",
-                                 paths.groupPath,
-                                 "/etc/group",
-                                 "--ro-bind",
-                                 paths.nsswitchConfPath,
-                                 "/etc/nsswitch.conf",
-                                 "--ro-bind",
-                                 paths.hostsPath,
-                                 "/etc/hosts",
-                                 "--tmpfs",
-                                 "/tmp",
-                                 "--chmod",
-                                 "1777",
-                                 "/tmp",
-                                 "--bind",
-                                 paths.rootDir,
-                                 std::string(kBrowserSandboxRoot),
-                                 "--bind",
-                                 paths.devNullPath,
-                                 "/dev/null",
-                                 "--setenv",
-                                 "FONTCONFIG_FILE",
-                                 std::string(kBrowserSandboxFontconfigFile),
-                                 "--setenv",
-                                 "PATH",
-                                 browserSandboxPathEnv(),
-                                 "--setenv",
-                                 "HOME",
-                                 std::string(kBrowserSandboxRoot),
-                                 "--setenv",
-                                 "TMPDIR",
-                                 "/tmp",
-                                 "--setenv",
-                                 "XDG_CONFIG_HOME",
-                                 browserSandboxPath("xdg_config"),
-                                 "--setenv",
-                                 "XDG_CACHE_HOME",
-                                 browserSandboxPath("xdg_cache"),
-                                 "--setenv",
-                                 "BREAKPAD_DUMP_LOCATION",
-                                 browserSandboxPath("crashpad"),
-                                 "--chdir",
-                                 std::string(kBrowserSandboxRoot),
-                                 "setpriv",
-                                 "--no-new-privs",
-                                 "--",
-                                 "bash",
-                                 "browser_sandbox.sh",
-                                 browserSandboxPath(kProxySocketFileName),
-                                 browserSandboxPath(kCdpSocketFileName),
-                                 browserSandboxPath(kWebsocketPathFileName),
-                                 std::format("{}", kProxyListenPort),
-                                 std::format("{}", kDevtoolsPort),
-                                 "--",
-                                 "chromium",
-                             }
+    bwrap_args.insert(
+        std::end(bwrap_args), {
+                                  "--dir",
+                                  "/etc",
+                                  "--ro-bind",
+                                  paths.passwd_path,
+                                  "/etc/passwd",
+                                  "--ro-bind",
+                                  paths.group_path,
+                                  "/etc/group",
+                                  "--ro-bind",
+                                  paths.nsswitch_conf_path,
+                                  "/etc/nsswitch.conf",
+                                  "--ro-bind",
+                                  paths.hosts_path,
+                                  "/etc/hosts",
+                                  "--tmpfs",
+                                  "/tmp",
+                                  "--chmod",
+                                  "1777",
+                                  "/tmp",
+                                  "--bind",
+                                  paths.root_dir,
+                                  std::string(kBrowserSandboxRoot),
+                                  "--bind",
+                                  paths.dev_null_path,
+                                  "/dev/null",
+                                  "--setenv",
+                                  "FONTCONFIG_FILE",
+                                  std::string(kBrowserSandboxFontconfigFile),
+                                  "--setenv",
+                                  "PATH",
+                                  BrowserSandboxPathEnv(),
+                                  "--setenv",
+                                  "HOME",
+                                  std::string(kBrowserSandboxRoot),
+                                  "--setenv",
+                                  "TMPDIR",
+                                  "/tmp",
+                                  "--setenv",
+                                  "XDG_CONFIG_HOME",
+                                  BrowserSandboxPath("xdg_config"),
+                                  "--setenv",
+                                  "XDG_CACHE_HOME",
+                                  BrowserSandboxPath("xdg_cache"),
+                                  "--setenv",
+                                  "BREAKPAD_DUMP_LOCATION",
+                                  BrowserSandboxPath("crashpad"),
+                                  "--chdir",
+                                  std::string(kBrowserSandboxRoot),
+                                  "setpriv",
+                                  "--no-new-privs",
+                                  "--",
+                                  "bash",
+                                  "browser_sandbox.sh",
+                                  BrowserSandboxPath(kProxySocketFileName),
+                                  BrowserSandboxPath(kCdpSocketFileName),
+                                  BrowserSandboxPath(kWebsocketPathFileName),
+                                  std::format("{}", kProxyListenPort),
+                                  std::format("{}", kDevtoolsPort),
+                                  "--",
+                                  "chromium",
+                              }
     );
-    bwrapArgs.insert(std::end(bwrapArgs), std::begin(chromiumArgs), std::end(chromiumArgs));
+    bwrap_args.insert(std::end(bwrap_args), std::begin(chromium_args), std::end(chromium_args));
 
     std::vector<std::string> args{
         std::string(kBwrapStatusWrapperPath),
-        paths.bwrapStatusFilePath,
-        std::string(cgroupRootPath),
-        cgroupName,
-        std::format("{}", cpuCores),
-        std::format("{}", memoryBytes),
-        paths.seccompBpfPath,
+        paths.bwrap_status_file_path,
+        std::string(cgroup_root_path),
+        cgroup_name,
+        std::format("{}", cpu_cores),
+        std::format("{}", memory_bytes),
+        paths.seccomp_bpf_path,
     };
-    args.insert(std::end(args), std::begin(bwrapArgs), std::end(bwrapArgs));
-    return spawnProcess(processStarter, "bash", args, paths.stdoutLogPath, paths.stderrLogPath);
+    args.insert(std::end(args), std::begin(bwrap_args), std::end(bwrap_args));
+    return SpawnProcess(
+        process_starter, "bash", args, paths.stdout_log_path, paths.stderr_log_path
+    );
 }
 
-[[nodiscard]] Expected<std::unique_ptr<EgressProxy>, String> startBrowserProxy(
-    us::clients::dns::Resolver &dnsResolver, eng::TaskProcessor &fsTaskProcessor,
+[[nodiscard]] Expected<std::unique_ptr<EgressProxy>, String> StartBrowserProxy(
+    us::clients::dns::Resolver &dns_resolver, eng::TaskProcessor &fs_task_processor,
     const BrowserPaths &paths, const BrowserSessionConfig &config, eng::Deadline deadline
 )
 {
-    auto runDirFd = TRY(openBrowserRunDir(fsTaskProcessor, paths));
+    auto run_dir_fd = TRY(OpenBrowserRunDir(fs_task_processor, paths));
     auto proxy = std::make_unique<EgressProxy>(EgressProxyConfig{
-        browserRunFdPath(runDirFd, kProxySocketFileName),
-        paths.runId,
-        config.urlBytesMax,
-        config.proxyDownBytesMax,
-        config.proxyRequireAuth,
-        config.enableLocalFixtureRewrite,
-        config.testsuiteLoopbackPorts,
+        BrowserRunFdPath(run_dir_fd, kProxySocketFileName),
+        paths.run_id,
+        config.url_bytes_max,
+        config.proxy_down_bytes_max,
+        config.proxy_require_auth,
+        config.enable_local_fixture_rewrite,
+        config.testsuite_loopback_ports,
     });
-    TRY_MAP_ERR(proxy->start(dnsResolver, deadline), [](auto detail) {
-        return text::format("proxy failed to start: {}", detail);
+    TRY_MAP_ERR(proxy->Start(dns_resolver, deadline), [](auto detail) {
+        return text::Format("proxy failed to start: {}", detail);
     });
     return proxy;
 }
 
-[[nodiscard]] Expected<std::unique_ptr<CdpClient>, String> connectCdpOnce(
-    eng::TaskProcessor &fsTaskProcessor, const BrowserPaths &paths,
-    const BrowserSessionConfig &config, const String &websocketPath, eng::Deadline deadline
+[[nodiscard]] Expected<std::unique_ptr<CdpClient>, String> ConnectCdpOnce(
+    eng::TaskProcessor &fs_task_processor, const BrowserPaths &paths,
+    const BrowserSessionConfig &config, const String &websocket_path, eng::Deadline deadline
 )
 {
-    auto runDirFd = TRY(openBrowserRunDir(fsTaskProcessor, paths));
+    auto run_dir_fd = TRY(OpenBrowserRunDir(fs_task_processor, paths));
     return TRY_MAP_ERR(
-        CdpClient::connect(
-            browserRunFdPath(runDirFd, kCdpSocketFileName), websocketPath, paths.cdpTracePath,
-            fsTaskProcessor, deadline, config.cdpHandshakeTimeout, config.cdpCommandTimeout,
-            config.cdpMaxRemotePayloadBytes
+        CdpClient::Connect(
+            BrowserRunFdPath(run_dir_fd, kCdpSocketFileName), websocket_path, paths.cdp_trace_path,
+            fs_task_processor, deadline, config.cdp_handshake_timeout, config.cdp_command_timeout,
+            config.cdp_max_remote_payload_bytes
         ),
         [](auto failure) {
-            return describeCdpFailure("devtools websocket handshake failed"_t, std::move(failure));
+            return DescribeCdpFailure("devtools websocket handshake failed"_t, std::move(failure));
         }
     );
 }
 
-template <typename Process> void stopProcess(Process &process, chrono::milliseconds timeout)
+template <typename Process> void StopProcess(Process &process, chrono::milliseconds timeout)
 {
     if (!process)
         return;
@@ -762,472 +776,484 @@ template <typename Process> void stopProcess(Process &process, chrono::milliseco
 
 struct BrowserSession::Impl final {
     Impl(
-        us::clients::dns::Resolver &dnsResolverIn,
-        eng::subprocess::ProcessStarter &processStarterIn, eng::TaskProcessor &fsTaskProcessorIn,
-        BrowserSessionConfig configIn
+        us::clients::dns::Resolver &dns_resolverin,
+        eng::subprocess::ProcessStarter &process_starter_in,
+        eng::TaskProcessor &fs_task_processorin, BrowserSessionConfig config_in
     )
-        : dnsResolver(dnsResolverIn), processStarter(processStarterIn),
-          fsTaskProcessor(fsTaskProcessorIn), config(std::move(configIn))
+        : dns_resolver(dns_resolverin), process_starter_(process_starter_in),
+          fs_task_processor(fs_task_processorin), config(std::move(config_in))
     {
     }
 
-    [[nodiscard]] Expected<void, String> launch()
+    [[nodiscard]] Expected<void, String> Launch()
     {
-        paths = createBrowserPaths(fsTaskProcessor, config.browserRunsRoot);
-        TRY(stageLocalFixtureTrustDbIfNeeded(fsTaskProcessor, paths, config));
+        paths = CreateBrowserPaths(fs_task_processor, config.browser_runs_root_);
+        TRY(StageLocalFixtureTrustDbIfNeeded(fs_task_processor, paths, config));
 
-        markPhase("launch_browser");
-        const auto devtoolsDeadline = eng::Deadline::FromDuration(config.devtoolsStartupTimeout);
+        MarkPhase("launch_browser");
+        const auto devtools_deadline = eng::Deadline::FromDuration(config.devtools_startup_timeout);
         proxy = TRY(
-            startBrowserProxy(dnsResolver, fsTaskProcessor, paths, config, devtoolsDeadline)
+            StartBrowserProxy(dns_resolver, fs_task_processor, paths, config, devtools_deadline)
         );
 
-        process.emplace(spawnSandboxedBrowser(
-            processStarter, paths, config.cgroupRootPath, config.cgroupLimits,
-            config.cgroupNamePrefix, config.enableLocalFixtureRewrite
+        process.emplace(SpawnSandboxedBrowser(
+            process_starter_, paths, config.cgroup_root_path_, config.cgroup_limits_,
+            config.cgroup_name_prefix, config.enable_local_fixture_rewrite
         ));
-        websocketPath = TRY_MAP_ERR(waitForDevtoolsPath(devtoolsDeadline), [this](auto detail) {
-            return buildFailureDetail(std::move(detail));
+        websocket_path = TRY_MAP_ERR(WaitForDevtoolsPath(devtools_deadline), [this](auto detail) {
+            return BuildFailureDetail(std::move(detail));
         });
         return {};
     }
 
     [[nodiscard]] Expected<std::unique_ptr<CdpClient>, String>
-    connectCdp(eng::Deadline overallDeadline) const
+    ConnectCdp(eng::Deadline overall_deadline) const
     {
-        invariant(overallDeadline.IsReachable(), "cdp overall deadline must be reachable"_t);
+        Invariant(overall_deadline.IsReachable(), "cdp overall deadline must be reachable"_t);
 
-        std::optional<String> lastFailure;
+        std::optional<String> last_failure;
         i64 attempts{0};
-        while (!overallDeadline.IsReached()) {
+        while (!overall_deadline.IsReached()) {
             attempts++;
-            auto cdp = connectCdpOnce(
-                fsTaskProcessor, paths, config, websocketPath, overallDeadline
+            auto cdp = ConnectCdpOnce(
+                fs_task_processor, paths, config, websocket_path, overall_deadline
             );
             if (cdp)
-                return std::move(cdp).value();
+                return GrabValueOf(std::move(cdp));
 
-            lastFailure = text::format("{} ({})", cdp.error(), currentLaunchLogs());
+            last_failure = text::Format("{} ({})", cdp.Error(), CurrentLaunchLogs());
 
-            if (!overallDeadline.IsReached())
-                eng::SleepFor(config.devtoolsPollInterval);
+            if (!overall_deadline.IsReached())
+                eng::SleepFor(config.devtools_poll_interval);
         }
 
-        if (lastFailure)
-            return Unex(std::move(*lastFailure));
+        if (last_failure)
+            return Unex(std::move(*last_failure));
         return Unex(
-            text::format(
+            text::Format(
                 "devtools websocket handshake failed after {} attempt(s) ({})", attempts,
-                currentLaunchLogs()
+                CurrentLaunchLogs()
             )
         );
     }
 
-    [[nodiscard]] std::pair<std::string, std::string> drainBrowserLogs() const
+    [[nodiscard]] std::pair<std::string, std::string> DrainBrowserLogs() const
     {
         return {
-            readLogTail(fsTaskProcessor, paths.stdoutLogPath),
-            readLogTail(fsTaskProcessor, paths.stderrLogPath),
+            ReadLogTail(fs_task_processor, paths.stdout_log_path),
+            ReadLogTail(fs_task_processor, paths.stderr_log_path),
         };
     }
 
-    void markPhase(std::string_view phase) const
+    void MarkPhase(std::string_view phase) const
     {
-        if (paths.phaseFilePath.empty())
+        if (paths.phase_file_path.empty())
             return;
-        writePhaseMarker(fsTaskProcessor, paths.phaseFilePath, phase);
+        WritePhaseMarker(fs_task_processor, paths.phase_file_path, phase);
     }
 
-    [[nodiscard]] std::string currentLaunchLogs() const
+    [[nodiscard]] std::string CurrentLaunchLogs() const
     {
-        return formatLaunchLogs(
-            drainBrowserLogs(), readLogTail(fsTaskProcessor, paths.bwrapStatusFilePath)
+        return FormatLaunchLogs(
+            DrainBrowserLogs(), ReadLogTail(fs_task_processor, paths.bwrap_status_file_path)
         );
     }
 
-    [[nodiscard]] String buildFailureDetail(const String &message)
+    [[nodiscard]] String BuildFailureDetail(const String &message)
     {
         String diagnostics{};
 
-        if (const auto browserLogs = summarizeProcessOutputs(
-                fsTaskProcessor, paths.stdoutLogPath, paths.stderrLogPath
+        if (const auto browser_logs = SummarizeProcessOutputs(
+                fs_task_processor, paths.stdout_log_path, paths.stderr_log_path
             )) {
-            appendDiagnosticField(diagnostics, "browser_logs"_t, *browserLogs);
+            AppendDiagnosticField(diagnostics, "browser_logs"_t, *browser_logs);
         }
-        if (const auto chromiumStderr =
-                readSanitizedLogTail(fsTaskProcessor, paths.chromiumStderrLogPath))
-            appendDiagnosticField(diagnostics, "chromium_stderr"_t, *chromiumStderr);
-        if (const auto bwrapStatus =
-                readSanitizedLogTail(fsTaskProcessor, paths.bwrapStatusFilePath))
-            appendDiagnosticField(diagnostics, "bwrap_status"_t, *bwrapStatus);
-        if (const auto phaseMarker = readSanitizedLogTail(fsTaskProcessor, paths.phaseFilePath))
-            appendDiagnosticField(diagnostics, "phase"_t, *phaseMarker);
-        if (const auto cdpTrace = readSanitizedLogTail(fsTaskProcessor, paths.cdpTracePath))
-            appendDiagnosticField(diagnostics, "cdp_trace_tail"_t, *cdpTrace);
-        if (const auto websocketPathFromFile =
-                readWebsocketPathFile(fsTaskProcessor, paths.websocketPathFilePath))
-            appendDiagnosticField(diagnostics, "websocket_path"_t, *websocketPathFromFile);
-        appendDiagnosticField(
-            diagnostics, "websocket_path_file_exists"_t,
-            us::fs::FileExists(fsTaskProcessor, paths.websocketPathFilePath) ? "true"_t : "false"_t
+        if (const auto chromium_stderr =
+                ReadSanitizedLogTail(fs_task_processor, paths.chromium_stderr_log_path))
+            AppendDiagnosticField(diagnostics, "chromium_stderr"_t, *chromium_stderr);
+        if (const auto bwrap_status =
+                ReadSanitizedLogTail(fs_task_processor, paths.bwrap_status_file_path))
+            AppendDiagnosticField(diagnostics, "bwrap_status"_t, *bwrap_status);
+        if (const auto phase_marker =
+                ReadSanitizedLogTail(fs_task_processor, paths.phase_file_path))
+            AppendDiagnosticField(diagnostics, "phase"_t, *phase_marker);
+        if (const auto cdp_trace = ReadSanitizedLogTail(fs_task_processor, paths.cdp_trace_path))
+            AppendDiagnosticField(diagnostics, "cdp_trace_tail"_t, *cdp_trace);
+        if (const auto websocket_pathfrom_file =
+                ReadWebsocketPathFile(fs_task_processor, paths.websocket_pathfile_path))
+            AppendDiagnosticField(diagnostics, "websocket_path"_t, *websocket_pathfrom_file);
+        AppendDiagnosticField(
+            diagnostics, "websocket_pathfile_exists"_t,
+            us::fs::FileExists(fs_task_processor, paths.websocket_pathfile_path) ? "true"_t
+                                                                                 : "false"_t
         );
-        appendDiagnosticField(
+        AppendDiagnosticField(
             diagnostics, "netlog_exists"_t,
-            us::fs::FileExists(fsTaskProcessor, paths.netlogPath) ? "true"_t : "false"_t
+            us::fs::FileExists(fs_task_processor, paths.netlog_path) ? "true"_t : "false"_t
         );
-        appendDiagnosticField(
+        AppendDiagnosticField(
             diagnostics, "browser_process_running"_t,
             process && !process->WaitFor(0ms) ? "true"_t : "false"_t
         );
-        appendDiagnosticField(
+        AppendDiagnosticField(
             diagnostics, "cdp_socket_exists"_t,
-            us::fs::FileExists(fsTaskProcessor, paths.cdpSocketPath) ? "true"_t : "false"_t
+            us::fs::FileExists(fs_task_processor, paths.cdp_socket_path) ? "true"_t : "false"_t
         );
         if (proxy) {
-            appendDiagnosticField(
-                diagnostics, "proxy_down_bytes"_t, text::format("{}", proxy->downBytes())
+            AppendDiagnosticField(
+                diagnostics, "proxy_down_bytes"_t, text::Format("{}", proxy->DownBytes())
             );
-            if (const auto proxyFailure = proxy->failureReason())
-                appendDiagnosticField(diagnostics, "proxy_failure"_t, *proxyFailure);
+            if (const auto proxy_failure = proxy->FailureReason())
+                AppendDiagnosticField(diagnostics, "proxy_failure"_t, *proxy_failure);
         }
 
-        if (diagnostics.empty())
+        if (diagnostics.Empty())
             return message;
-        return text::format("{}, {}", message, diagnostics);
+        return text::Format("{}, {}", message, diagnostics);
     }
 
-    void close()
+    void Close()
     {
         if (closed)
             return;
         closed = true;
 
-        stopProcess(process, config.browserStopTimeout);
+        StopProcess(process, config.browser_stop_timeout);
         if (proxy)
-            proxy->close();
-        if (!paths.rootDir.empty())
-            removeBrowserRunDir(fsTaskProcessor, paths.rootDir);
+            proxy->Close();
+        if (!paths.root_dir.empty())
+            RemoveBrowserRunDir(fs_task_processor, paths.root_dir);
     }
 
-    [[nodiscard]] i64 proxyDownBytes() const noexcept { return proxy ? proxy->downBytes() : 0_i64; }
-    [[nodiscard]] const std::string &runId() const noexcept { return paths.runId; }
-    [[nodiscard]] std::optional<String> proxyFailureReason() const noexcept
+    [[nodiscard]] i64 ProxyDownBytes() const noexcept { return proxy ? proxy->DownBytes() : 0_i64; }
+    [[nodiscard]] const std::string &RunId() const noexcept { return paths.run_id; }
+    [[nodiscard]] std::optional<String> ProxyFailureReason() const noexcept
     {
         if (!proxy)
             return {};
-        return proxy->failureReason();
+        return proxy->FailureReason();
     }
 
-    [[nodiscard]] Expected<String, String> waitForDevtoolsPath(eng::Deadline deadline)
+    [[nodiscard]] Expected<String, String> WaitForDevtoolsPath(eng::Deadline deadline)
     {
-        invariant(deadline.IsReachable(), "devtools deadline must be reachable"_t);
-        auto sawCdpSocket = false;
-        auto sawWebsocketPath = false;
+        Invariant(deadline.IsReachable(), "devtools deadline must be reachable"_t);
+        auto saw_cdp_socket = false;
+        auto saw_websocket_path = false;
         while (!deadline.IsReached()) {
-            sawCdpSocket = sawCdpSocket || us::fs::FileExists(fsTaskProcessor, paths.cdpSocketPath);
-            sawWebsocketPath = sawWebsocketPath ||
-                               us::fs::FileExists(fsTaskProcessor, paths.websocketPathFilePath);
+            saw_cdp_socket = saw_cdp_socket ||
+                             us::fs::FileExists(fs_task_processor, paths.cdp_socket_path);
+            saw_websocket_path = saw_websocket_path ||
+                                 us::fs::FileExists(
+                                     fs_task_processor, paths.websocket_pathfile_path
+                                 );
             if (process && process->WaitFor(0ms)) {
                 return Unex(
-                    text::format(
-                        "chromium exited before exposing devtools ({})", currentLaunchLogs()
+                    text::Format(
+                        "chromium exited before exposing devtools ({})", CurrentLaunchLogs()
                     )
                 );
             }
-            auto websocketPathFromFile = readWebsocketPathFile(
-                fsTaskProcessor, paths.websocketPathFilePath
+            auto websocket_pathfrom_file = ReadWebsocketPathFile(
+                fs_task_processor, paths.websocket_pathfile_path
             );
-            if (sawCdpSocket && websocketPathFromFile)
-                return grabValueOf(websocketPathFromFile);
-            eng::SleepFor(config.devtoolsPollInterval);
+            if (saw_cdp_socket && websocket_pathfrom_file)
+                return GrabValueOf(websocket_pathfrom_file);
+            eng::SleepFor(config.devtools_poll_interval);
         }
         if (process && process->WaitFor(0ms)) {
             return Unex(
-                text::format("chromium exited before exposing devtools ({})", currentLaunchLogs())
+                text::Format("chromium exited before exposing devtools ({})", CurrentLaunchLogs())
             );
         }
         return Unex(
-            text::format(
+            text::Format(
                 "{} ({})",
-                !sawWebsocketPath ? "devtools websocket path was never written"
-                : !sawCdpSocket
+                !saw_websocket_path ? "devtools websocket path was never written"
+                : !saw_cdp_socket
                     ? "devtools websocket path was written but cdp socket never appeared"
                     : "devtools websocket path and cdp socket appeared but handshake never started",
-                currentLaunchLogs()
+                CurrentLaunchLogs()
             )
         );
     }
 
-    us::clients::dns::Resolver &dnsResolver;
-    eng::subprocess::ProcessStarter &processStarter;
-    eng::TaskProcessor &fsTaskProcessor;
+    us::clients::dns::Resolver &dns_resolver;
+    eng::subprocess::ProcessStarter &process_starter_;
+    eng::TaskProcessor &fs_task_processor;
     BrowserSessionConfig config;
     BrowserPaths paths;
     std::unique_ptr<EgressProxy> proxy;
     std::optional<eng::subprocess::ChildProcess> process;
-    String websocketPath;
+    String websocket_path;
     bool closed{false};
 };
 
 BrowserSession::BrowserSession(
-    us::clients::dns::Resolver &dnsResolver, eng::subprocess::ProcessStarter &processStarter,
-    eng::TaskProcessor &fsTaskProcessor, BrowserSessionConfig config
+    us::clients::dns::Resolver &dns_resolver, eng::subprocess::ProcessStarter &process_starter,
+    eng::TaskProcessor &fs_task_processor, BrowserSessionConfig config
 )
-    : impl(std::make_unique<Impl>(dnsResolver, processStarter, fsTaskProcessor, std::move(config)))
+    : impl_(
+          std::make_unique<Impl>(
+              dns_resolver, process_starter, fs_task_processor, std::move(config)
+          )
+      )
 {
 }
 
 BrowserSession::~BrowserSession() = default;
 
-Expected<void, String> BrowserSession::launch() { return impl->launch(); }
+Expected<void, String> BrowserSession::Launch() { return impl_->Launch(); }
 
 Expected<std::unique_ptr<CdpClient>, String>
-BrowserSession::connectCdp(eng::Deadline overallDeadline) const
+BrowserSession::ConnectCdp(eng::Deadline overall_deadline) const
 {
-    return impl->connectCdp(overallDeadline);
+    return impl_->ConnectCdp(overall_deadline);
 }
 
-std::pair<std::string, std::string> BrowserSession::drainBrowserLogs() const
+std::pair<std::string, std::string> BrowserSession::DrainBrowserLogs() const
 {
-    return impl->drainBrowserLogs();
+    return impl_->DrainBrowserLogs();
 }
 
-void BrowserSession::markPhase(std::string_view phase) const { impl->markPhase(phase); }
+void BrowserSession::MarkPhase(std::string_view phase) const { impl_->MarkPhase(phase); }
 
-std::string BrowserSession::currentLaunchLogs() const { return impl->currentLaunchLogs(); }
+std::string BrowserSession::CurrentLaunchLogs() const { return impl_->CurrentLaunchLogs(); }
 
-String BrowserSession::buildFailureDetail(const String &message)
+String BrowserSession::BuildFailureDetail(const String &message)
 {
-    return impl->buildFailureDetail(message);
+    return impl_->BuildFailureDetail(message);
 }
 
-void BrowserSession::close() { impl->close(); }
+void BrowserSession::Close() { impl_->Close(); }
 
-i64 BrowserSession::proxyDownBytes() const noexcept { return impl->proxyDownBytes(); }
+i64 BrowserSession::ProxyDownBytes() const noexcept { return impl_->ProxyDownBytes(); }
 
-const std::string &BrowserSession::runId() const noexcept { return impl->runId(); }
+const std::string &BrowserSession::RunId() const noexcept { return impl_->RunId(); }
 
-std::optional<String> BrowserSession::proxyFailureReason() const noexcept
+std::optional<String> BrowserSession::ProxyFailureReason() const noexcept
 {
-    return impl->proxyFailureReason();
+    return impl_->ProxyFailureReason();
 }
 
 namespace {
 
 template <typename T, typename... Args>
-[[nodiscard]] Expected<T, String> sendCdp(auto &cdpEndpoint, const String &method, Args &&...args)
+[[nodiscard]] Expected<T, String> SendCdp(auto &cdp_endpoint, const String &method, Args &&...args)
 {
     return TRY_MAP_ERR(
-        cdpEndpoint.template send<T>(method, std::forward<Args>(args)...), [&method](auto failure) {
-            return describeCdpFailure(text::format("{} failed", method), std::move(failure));
+        cdp_endpoint.template Send<T>(method, std::forward<Args>(args)...),
+        [&method](auto failure) {
+            return DescribeCdpFailure(text::Format("{} failed", method), std::move(failure));
         }
     );
 }
 
 template <typename... Args>
 [[nodiscard]] Expected<void, String>
-sendCdpVoid(auto &cdpEndpoint, const String &method, Args &&...args)
+SendCdpVoid(auto &cdp_endpoint, const String &method, Args &&...args)
 {
-    TRY(sendCdp<dto::CdpEmptyObject>(cdpEndpoint, method, std::forward<Args>(args)...));
+    TRY(SendCdp<dto::CdpEmptyObject>(cdp_endpoint, method, std::forward<Args>(args)...));
     return {};
 }
 
 } // namespace
 
-BrowserPageSession::BrowserPageSession(CdpClient &cdpClient) : cdpClient(cdpClient) {}
+BrowserPageSession::BrowserPageSession(CdpClient &cdp_client) : cdp_client_(cdp_client) {}
 
-Expected<void, String> BrowserPageSession::createBrowserContext()
+Expected<void, String> BrowserPageSession::CreateBrowserContext()
 {
-    const auto browserContext = TRY(
-        sendCdp<dto::TargetCreateBrowserContextResult>(cdpClient, "Target.createBrowserContext"_t)
+    const auto browser_context = TRY(
+        SendCdp<dto::TargetCreateBrowserContextResult>(cdp_client_, "Target.createBrowserContext"_t)
     );
-    browserContextIdValue = String::fromBytes(browserContext.browserContextId).expect();
-    invariant(
-        lifecycle.markBrowserContextCreated(),
+    browser_context_id_ = String::FromBytes(browser_context.browserContextId).Expect();
+    Invariant(
+        lifecycle_.MarkBrowserContextCreated(),
         "invalid browser page lifecycle transition after creating browser context"_t
     );
     return {};
 }
 
-Expected<void, String> BrowserPageSession::createBlankTarget()
+Expected<void, String> BrowserPageSession::CreateBlankTarget()
 {
-    invariant(browserContextIdValue, "browser context must exist before creating a target"_t);
+    Invariant(browser_context_id_, "browser context must exist before creating a target"_t);
 
-    dto::TargetCreateTargetParams targetParams{
+    dto::TargetCreateTargetParams target_params{
         .url = "about:blank",
-        .browserContextId = text::toBytes(*browserContextIdValue),
+        .browserContextId = text::ToBytes(*browser_context_id_),
     };
     const auto target = TRY(
-        sendCdp<dto::TargetCreateTargetResult>(cdpClient, "Target.createTarget"_t, targetParams)
+        SendCdp<dto::TargetCreateTargetResult>(cdp_client_, "Target.createTarget"_t, target_params)
     );
-    targetIdValue = String::fromBytes(target.targetId).expect();
-    invariant(
-        lifecycle.markTargetCreated(),
+    target_id_ = String::FromBytes(target.targetId).Expect();
+    Invariant(
+        lifecycle_.MarkTargetCreated(),
         "invalid browser page lifecycle transition after creating target"_t
     );
     return {};
 }
 
-Expected<void, String> BrowserPageSession::attachToTarget()
+Expected<void, String> BrowserPageSession::AttachToTarget()
 {
-    invariant(targetIdValue, "target must exist before attaching"_t);
+    Invariant(target_id_, "target must exist before attaching"_t);
 
-    dto::TargetAttachToTargetParams attachParams{
-        .targetId = text::toBytes(*targetIdValue),
+    dto::TargetAttachToTargetParams attach_params{
+        .targetId = text::ToBytes(*target_id_),
         .flatten = true,
     };
     const auto attached = TRY(
-        sendCdp<dto::TargetAttachToTargetResult>(cdpClient, "Target.attachToTarget"_t, attachParams)
+        SendCdp<dto::TargetAttachToTargetResult>(
+            cdp_client_, "Target.attachToTarget"_t, attach_params
+        )
     );
-    auto sessionId = String::fromBytes(attached.sessionId).expect();
-    auto cdpSession = cdpClient.createSession(sessionId, *targetIdValue);
-    if (!cdpSession)
+    auto session_id = String::FromBytes(attached.sessionId).Expect();
+    auto cdp_session = cdp_client_.CreateSession(session_id, *target_id_);
+    if (!cdp_session)
         return Unex(
-            describeCdpFailure("failed to register cdp target session"_t, cdpSession.error())
+            DescribeCdpFailure("failed to register cdp target session"_t, cdp_session.Error())
         );
-    sessionIdValue = std::move(sessionId);
-    cdpSessionValue = grabValueOf(cdpSession);
-    invariant(
-        lifecycle.markAttached(),
+    session_id_ = std::move(session_id);
+    cdp_session_ = GrabValueOf(cdp_session);
+    Invariant(
+        lifecycle_.MarkAttached(),
         "invalid browser page lifecycle transition after attaching target"_t
     );
     return {};
 }
 
 Expected<void, String>
-BrowserPageSession::attachFreshTarget(const std::function<void(std::string_view)> &markPhase)
+BrowserPageSession::AttachFreshTarget(const std::function<void(std::string_view)> &mark_phase)
 {
-    markPhase("create_browser_context");
-    TRY(createBrowserContext());
-    markPhase("create_target");
-    TRY(createBlankTarget());
-    markPhase("attach_target");
-    TRY(attachToTarget());
+    mark_phase("create_browser_context");
+    TRY(CreateBrowserContext());
+    mark_phase("create_target");
+    TRY(CreateBlankTarget());
+    mark_phase("attach_target");
+    TRY(AttachToTarget());
     return {};
 }
 
 Expected<void, String>
-BrowserPageSession::enableBaseDomains(const std::function<void(std::string_view)> &markPhase)
+BrowserPageSession::EnableBaseDomains(const std::function<void(std::string_view)> &mark_phase)
 {
-    markPhase("enable_page");
-    TRY(sendCdpVoid(cdpSession(), "Page.enable"_t));
-    markPhase("enable_runtime");
-    TRY(sendCdpVoid(cdpSession(), "Runtime.enable"_t));
-    markPhase("enable_network");
-    TRY(sendCdpVoid(cdpSession(), "Network.enable"_t));
-    markPhase("enable_lifecycle_events");
-    dto::PageSetLifecycleEventsEnabledParams lifecycleParams;
-    lifecycleParams.enabled = true;
-    TRY(sendCdpVoid(cdpSession(), "Page.setLifecycleEventsEnabled"_t, lifecycleParams));
+    mark_phase("enable_page");
+    TRY(SendCdpVoid(GetSession(), "Page.enable"_t));
+    mark_phase("enable_runtime");
+    TRY(SendCdpVoid(GetSession(), "Runtime.enable"_t));
+    mark_phase("enable_network");
+    TRY(SendCdpVoid(GetSession(), "Network.enable"_t));
+    mark_phase("enable_lifecycle_events");
+    dto::PageSetLifecycleEventsEnabledParams lifecycle_params;
+    lifecycle_params.enabled = true;
+    TRY(SendCdpVoid(GetSession(), "Page.setLifecycleEventsEnabled"_t, lifecycle_params));
 
-    invariant(
-        lifecycle.markBaseDomainsEnabled(),
+    Invariant(
+        lifecycle_.MarkBaseDomainsEnabled(),
         "invalid browser page lifecycle transition after enabling base CDP domains"_t
     );
     return {};
 }
 
 Expected<void, String>
-BrowserPageSession::close(const std::function<void(std::string_view)> &markPhase)
+BrowserPageSession::Close(const std::function<void(std::string_view)> &mark_phase)
 {
-    if (sessionIdValue) {
-        markPhase("detach_target");
-        TRY(detach());
+    if (session_id_) {
+        mark_phase("detach_target");
+        TRY(Detach());
     }
-    if (browserContextIdValue) {
-        markPhase("dispose_browser_context");
-        TRY(disposeBrowserContext());
+    if (browser_context_id_) {
+        mark_phase("dispose_browser_context");
+        TRY(DisposeBrowserContext());
     }
-    return close();
+    return Close();
 }
 
-Expected<void, String> BrowserPageSession::detach()
+Expected<void, String> BrowserPageSession::Detach()
 {
-    if (!sessionIdValue)
+    if (!session_id_)
         return {};
 
-    dto::TargetDetachFromTargetParams detachParams;
-    detachParams.sessionId = text::toBytes(*sessionIdValue);
-    TRY(sendCdpVoid(cdpClient, "Target.detachFromTarget"_t, detachParams));
-    cdpSessionValue.reset();
-    sessionIdValue.reset();
-    invariant(
-        lifecycle.markDetached(),
+    dto::TargetDetachFromTargetParams detach_params;
+    detach_params.sessionId = text::ToBytes(*session_id_);
+    TRY(SendCdpVoid(cdp_client_, "Target.detachFromTarget"_t, detach_params));
+    cdp_session_.reset();
+    session_id_.reset();
+    Invariant(
+        lifecycle_.MarkDetached(),
         "invalid browser page lifecycle transition after detaching target"_t
     );
     return {};
 }
 
-Expected<void, String> BrowserPageSession::disposeBrowserContext()
+Expected<void, String> BrowserPageSession::DisposeBrowserContext()
 {
-    if (!browserContextIdValue)
+    if (!browser_context_id_)
         return {};
 
-    dto::TargetDisposeBrowserContextParams disposeParams;
-    disposeParams.browserContextId = text::toBytes(*browserContextIdValue);
-    TRY(sendCdpVoid(cdpClient, "Target.disposeBrowserContext"_t, disposeParams));
-    browserContextIdValue.reset();
-    targetIdValue.reset();
-    invariant(
-        lifecycle.markDisposed(),
+    dto::TargetDisposeBrowserContextParams dispose_params;
+    dispose_params.browserContextId = text::ToBytes(*browser_context_id_);
+    TRY(SendCdpVoid(cdp_client_, "Target.disposeBrowserContext"_t, dispose_params));
+    browser_context_id_.reset();
+    target_id_.reset();
+    Invariant(
+        lifecycle_.MarkDisposed(),
         "invalid browser page lifecycle transition after disposing browser context"_t
     );
     return {};
 }
 
-Expected<void, String> BrowserPageSession::close()
+Expected<void, String> BrowserPageSession::Close()
 {
-    TRY(detach());
-    TRY(disposeBrowserContext());
-    invariant(
-        lifecycle.markClosed(),
+    TRY(Detach());
+    TRY(DisposeBrowserContext());
+    Invariant(
+        lifecycle_.MarkClosed(),
         "invalid browser page lifecycle transition after closing page session"_t
     );
     return {};
 }
 
-const String &BrowserPageSession::browserContextId() const
+const String &BrowserPageSession::BrowserContextId() const
 {
-    invariant(browserContextIdValue, "browser context is not created"_t);
-    return *browserContextIdValue;
+    Invariant(browser_context_id_, "browser context is not created"_t);
+    return *browser_context_id_;
 }
 
-CdpSession &BrowserPageSession::cdpSession() const
+CdpSession &BrowserPageSession::GetSession() const
 {
-    invariant(cdpSessionValue, "target session is not attached"_t);
-    return *cdpSessionValue;
+    Invariant(cdp_session_, "target session is not attached"_t);
+    return *cdp_session_;
 }
 
-const String &BrowserPageSession::targetId() const
+const String &BrowserPageSession::TargetId() const
 {
-    invariant(targetIdValue, "target is not created"_t);
-    return *targetIdValue;
+    Invariant(target_id_, "target is not created"_t);
+    return *target_id_;
 }
 
-const String &BrowserPageSession::sessionId() const
+const String &BrowserPageSession::SessionId() const
 {
-    invariant(sessionIdValue, "target is not attached"_t);
-    return *sessionIdValue;
+    Invariant(session_id_, "target is not attached"_t);
+    return *session_id_;
 }
 
-std::string buildBrowserRunsRoot(std::string stateDir)
+std::string BuildBrowserRunsRoot(std::string state_dir)
 {
-    auto root = normalizeDirPath(std::move(stateDir));
-    invariant(!root.empty(), "state_dir must not be empty"_t);
+    auto root = NormalizeDirPath(std::move(state_dir));
+    Invariant(!root.empty(), "state_dir must not be empty"_t);
     if (root == "/")
         return "/browser_runs";
     return std::format("{}/browser_runs", root);
 }
 
-std::string resolveDelegatedCgroupRootPath(eng::TaskProcessor &fsTaskProcessor)
+std::string ResolveDelegatedCgroupRootPath(eng::TaskProcessor &fs_task_processor)
 {
-    const auto currentPath = readSelfCgroupV2Path(fsTaskProcessor);
-    return std::format("/sys/fs/cgroup{}", managedCgroupRootPathFromServiceSubgroup(currentPath));
+    const auto current_path = ReadSelfCgroupV2Path(fs_task_processor);
+    return std::format("/sys/fs/cgroup{}", ManagedCgroupRootPathFromServiceSubgroup(current_path));
 }
 
-std::string localFixtureTrustDbSourcePath(std::string_view stateDir)
+std::string LocalFixtureTrustDbSourcePath(std::string_view state_dir)
 {
-    return normalizeDirPath(std::string(stateDir)) + "/test_pki/chromium_nssdb";
+    return NormalizeDirPath(std::string(state_dir)) + "/test_pki/chromium_nssdb";
 }
 
 } // namespace v1::crawler

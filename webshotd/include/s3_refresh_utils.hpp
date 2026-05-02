@@ -9,14 +9,14 @@ namespace v1::s3refresh {
  *
  * Returns max(expiresAt - now - margin, 0s) in whole seconds.
  */
-[[nodiscard]] inline std::chrono::seconds computeRefreshDelay(
-    std::chrono::system_clock::time_point now, std::chrono::system_clock::time_point expiresAt,
+[[nodiscard]] inline std::chrono::seconds ComputeRefreshDelay(
+    std::chrono::system_clock::time_point now, std::chrono::system_clock::time_point expires_at,
     std::chrono::seconds margin
 )
 {
     using namespace std::chrono_literals;
 
-    auto delay = expiresAt - now - margin;
+    auto delay = expires_at - now - margin;
     if (delay < 0s)
         return 0s;
     return std::chrono::duration_cast<std::chrono::seconds>(delay);

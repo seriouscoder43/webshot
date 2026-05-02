@@ -4,16 +4,12 @@
  * @brief Internal endpoints for checking and editing the allowlist.
  */
 #include "config.hpp"
-#include "deadline_utils.hpp"
 #include "denylist.hpp"
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
-#include "integers.hpp"
-#include "link.hpp"
 #include "metrics.hpp"
 #include "prefix_utils.hpp"
 #include "text.hpp"
-#include "try.hpp"
 
 #include <chrono>
 #include <format>
@@ -29,17 +25,20 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+namespace eng = us::engine;
 using namespace std::chrono_literals;
 using namespace text::literals;
 
 namespace {
 
-void applyDeadline(
-    const server::http::HttpRequest &request, std::chrono::milliseconds requestTimeout
+void ApplyDeadline(
+    const server::http::HttpRequest &request, std::chrono::milliseconds request_timeout
 )
 {
-    auto finalDeadline = computeHandlerDeadline(request, requestTimeout);
-    eng::current_task::SetDeadline(finalDeadline);
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    eng::current_task::SetDeadline(final_deadline);
 }
 
 } // namespace
@@ -47,9 +46,9 @@ void applyDeadline(
 AllowlistCheckHandler::AllowlistCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), config(context.FindComponent<Config>()),
-      denylist(context.FindComponent<Denylist>()), metrics(context.FindComponent<Metrics>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
+      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -75,20 +74,20 @@ std::string AllowlistCheckHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    applyDeadline(request, requestTimeout);
+    ApplyDeadline(request, request_timeout);
 
     if (request.GetMethod() != kPost) {
         response.SetStatus(kMethodNotAllowed);
         return {};
     }
 
-    const auto link = parseJsonLinkBody(request, config);
+    const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
-        return httpu::respondError(response, kBadRequest, link.error());
+        return httpu::RespondError(response, kBadRequest, link.Error());
 
-    const auto allowed = denylist.isAllowlistedPrefix(prefix::makePrefixKey(*link));
+    const auto allowed = denylist_.IsAllowlistedPrefix(prefix::MakePrefixKey(*link));
     if (!allowed) {
-        metrics.accountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kDenylistCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }
@@ -104,9 +103,9 @@ std::string AllowlistCheckHandler::HandleRequestThrow(
 AllowlistAddHandler::AllowlistAddHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), config(context.FindComponent<Config>()),
-      denylist(context.FindComponent<Denylist>()), metrics(context.FindComponent<Metrics>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
+      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -132,23 +131,23 @@ std::string AllowlistAddHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    applyDeadline(request, requestTimeout);
+    ApplyDeadline(request, request_timeout);
 
     if (request.GetMethod() != kPost) {
         response.SetStatus(kMethodNotAllowed);
         return {};
     }
 
-    const auto link = parseJsonLinkBody(request, config);
+    const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
-        return httpu::respondError(response, kBadRequest, link.error());
+        return httpu::RespondError(response, kBadRequest, link.Error());
 
-    const auto prefixKey = prefix::makePrefixKey(*link);
-    const auto inserted = denylist.insertAllowlistPrefix(prefixKey, "allowlist_add"_t);
+    const auto prefix_key = prefix::MakePrefixKey(*link);
+    const auto inserted = denylist_.InsertAllowlistPrefix(prefix_key, "allowlist_add"_t);
     if (!inserted) {
-        metrics.accountError(Metrics::Error::kDenylistCheck);
-        LOG_ERROR() << std::format("allowlist add failed for {}", prefixKey);
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        LOG_ERROR() << std::format("allowlist add failed for {}", prefix_key);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
 
     response.SetStatus(kNoContent);
@@ -158,9 +157,9 @@ std::string AllowlistAddHandler::HandleRequestThrow(
 AllowlistRemoveHandler::AllowlistRemoveHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), config(context.FindComponent<Config>()),
-      denylist(context.FindComponent<Denylist>()), metrics(context.FindComponent<Metrics>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
+      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -186,25 +185,23 @@ std::string AllowlistRemoveHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    applyDeadline(request, requestTimeout);
+    ApplyDeadline(request, request_timeout);
 
     if (request.GetMethod() != kPost) {
         response.SetStatus(kMethodNotAllowed);
         return {};
     }
-
-    const auto link = parseJsonLinkBody(request, config);
+    const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
-        return httpu::respondError(response, kBadRequest, link.error());
+        return httpu::RespondError(response, kBadRequest, link.Error());
 
-    const auto prefixKey = prefix::makePrefixKey(*link);
-    const auto removed = denylist.removeAllowlistPrefix(prefixKey);
+    const auto prefix_key = prefix::MakePrefixKey(*link);
+    const auto removed = denylist_.RemoveAllowlistPrefix(prefix_key);
     if (!removed) {
-        metrics.accountError(Metrics::Error::kDenylistCheck);
-        LOG_ERROR() << std::format("allowlist remove failed for {}", prefixKey);
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        LOG_ERROR() << std::format("allowlist remove failed for {}", prefix_key);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
-
     response.SetStatus(kNoContent);
     return {};
 }

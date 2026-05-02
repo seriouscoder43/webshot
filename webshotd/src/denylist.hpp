@@ -2,7 +2,6 @@
 
 #include "expected.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <memory>
 
@@ -11,6 +10,7 @@
 
 namespace v1 {
 
+namespace us = userver;
 enum class DenylistError {
     kDbFailure,
 };
@@ -32,7 +32,7 @@ struct [[nodiscard]] AccessDecision final {
     AccessDecisionReason reason;
 };
 
-[[nodiscard]] String accessDecisionMessage(AccessDecisionReason reason);
+[[nodiscard]] String AccessDecisionMessage(AccessDecisionReason reason);
 
 /**
  * @brief Host access-list management and purge helper.
@@ -53,27 +53,27 @@ public:
     ~Denylist() override;
 
     /** @brief Returns true if the normalized prefix key is not deny-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> isAllowedPrefix(const String &prefixKey);
+    [[nodiscard]] Expected<bool, DenylistError> IsAllowedPrefix(const String &prefix_key);
     /** @brief Returns true if the normalized prefix key is deny-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> isDeniedPrefix(const String &prefixKey);
+    [[nodiscard]] Expected<bool, DenylistError> IsDeniedPrefix(const String &prefix_key);
     /** @brief Returns true if the normalized prefix key is allow-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> isAllowlistedPrefix(const String &prefixKey);
+    [[nodiscard]] Expected<bool, DenylistError> IsAllowlistedPrefix(const String &prefix_key);
     /** @brief Evaluate the normalized prefix key against allowlist and denylist policy. */
     [[nodiscard]] Expected<AccessDecision, DenylistError>
-    evaluatePrefix(const String &prefixKey, AccessPolicyMode mode);
+    EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode);
     /** @brief Insert a prefix key into the denylist (noop if already present). */
     [[nodiscard]] Expected<void, DenylistError>
-    insertPrefix(const String &prefixKey, const String &reason);
+    InsertPrefix(const String &prefix_key, const String &reason);
     /** @brief Insert a prefix key into the allowlist (noop if already present). */
     [[nodiscard]] Expected<void, DenylistError>
-    insertAllowlistPrefix(const String &prefixKey, const String &reason);
+    InsertAllowlistPrefix(const String &prefix_key, const String &reason);
     /** @brief Remove a prefix key from the allowlist (noop if absent). */
-    [[nodiscard]] Expected<void, DenylistError> removeAllowlistPrefix(const String &prefixKey);
+    [[nodiscard]] Expected<void, DenylistError> RemoveAllowlistPrefix(const String &prefix_key);
     static us::yaml_config::Schema GetStaticConfigSchema();
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace v1

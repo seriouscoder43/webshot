@@ -31,49 +31,49 @@ struct [[nodiscard]] ArtifactFailure {
 };
 
 struct [[nodiscard]] CapturedMainDocumentRedirect {
-    String redirectUrl;
-    i64 statusCode{0};
-    String statusMessage;
+    String redirect_url;
+    i64 status_code{0};
+    String status_message;
     std::unordered_map<std::string, std::string> headers;
     String timestamp;
 };
 
 struct [[nodiscard]] CapturedResource {
-    String resourceUrl;
+    String resource_url;
     String method;
-    std::optional<String> resourceType;
-    i64 statusCode{0};
-    String statusMessage;
+    std::optional<String> resource_type;
+    i64 status_code{0};
+    String status_message;
     std::unordered_map<std::string, std::string> headers;
     std::string body;
     String timestamp;
 };
 
 struct [[nodiscard]] CapturedExchange {
-    String seedUrl;
-    String pageId;
-    String finalUrl;
-    i64 statusCode{0};
-    String statusMessage;
+    String seed_url;
+    String page_id;
+    String final_url;
+    i64 status_code{0};
+    String status_message;
     std::unordered_map<std::string, std::string> headers;
     std::string body;
     String timestamp;
-    std::vector<String> redirectChain;
-    std::vector<CapturedMainDocumentRedirect> mainDocumentRedirects;
+    std::vector<String> redirect_chain;
+    std::vector<CapturedMainDocumentRedirect> main_document_redirects;
     std::vector<CapturedResource> resources;
     std::optional<String> title;
 };
 
 struct [[nodiscard]] RunRequest {
-    String seedUrl;
+    String seed_url;
 };
 
 struct [[nodiscard]] WarcCdxRecord {
-    String recordUrl;
+    String record_url;
     String timestamp;
     String digest;
-    String recordDigest;
-    i64 statusCode{0};
+    String record_digest;
+    i64 status_code{0};
     std::unordered_map<std::string, std::string> headers;
     i64 offset{0};
     i64 length{0};
@@ -81,22 +81,22 @@ struct [[nodiscard]] WarcCdxRecord {
 
 struct [[nodiscard]] WarcBuildOutput {
     std::string bytes;
-    std::vector<WarcCdxRecord> cdxRecords;
+    std::vector<WarcCdxRecord> cdx_records;
 };
 
-[[nodiscard]] std::string buildPagesJsonl(const CapturedExchange &exchange);
+[[nodiscard]] std::string BuildPagesJsonl(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> buildSuccessStdoutLog(
-    const RunRequest &run, const CapturedExchange &exchange, i64 browserPid,
-    ReusedBrowser reusedBrowser
+[[nodiscard]] Expected<std::string, ArtifactFailure> BuildSuccessStdoutLog(
+    const RunRequest &run, const CapturedExchange &exchange, i64 browser_pid,
+    ReusedBrowser reused_browser
 );
 
 [[nodiscard]] Expected<WarcBuildOutput, ArtifactFailure>
-buildWarc(const CapturedExchange &exchange);
+BuildWarc(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> buildWacz(
-    const RunRequest &run, const std::string &pagesJsonl, const WarcBuildOutput &warc,
-    const std::string &stdoutLog, const std::string &stderrLog
+[[nodiscard]] Expected<std::string, ArtifactFailure> BuildWacz(
+    const RunRequest &run, const std::string &pages_jsonl, const WarcBuildOutput &warc,
+    const std::string &stdout_log, const std::string &stderr_log
 );
 
 /**
@@ -106,6 +106,6 @@ buildWarc(const CapturedExchange &exchange);
  * selected headers, and body digests) and intentionally excludes timestamps and
  * other non-deterministic fields.
  */
-[[nodiscard]] std::string computeContentSha256(const CapturedExchange &exchange);
+[[nodiscard]] std::string ComputeContentSha256(const CapturedExchange &exchange);
 
 } // namespace v1::crawler

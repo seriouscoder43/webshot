@@ -23,6 +23,6 @@ struct [[nodiscard]] GzipError {
 
 // Produces a single gzip "member" containing exactly `body`.
 [[nodiscard]] std::optional<std::string>
-gzipCompressMember(std::string_view body, GzipError &errorOut);
+GzipCompressMember(std::string_view body, GzipError &error_out);
 
 } // namespace arkhiv

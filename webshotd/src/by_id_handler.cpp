@@ -29,17 +29,22 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+} // namespace v1
+
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
-using text::toBytes;
+using text::ToBytes;
 
 ById::ById(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      config(context.FindComponent<Config>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -64,45 +69,45 @@ std::string ById::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, config};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
 
-    const auto uuid = requestSupport.parseUuidPathArg(request, "uuid"_t);
+    const auto uuid = request_support.ParseUuidPathArg(request, "uuid"_t);
     if (!uuid)
-        return httpu::respondParamError(
-            response, kBadRequest, uuid.error().name, uuid.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, uuid.Error().name, uuid.Error().message
         );
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
-        return respondClientRequestError(response, cooldown.error());
+        return RespondClientRequestError(response, cooldown.Error());
     if (*cooldown)
-        return httpu::respondClientIpCooldown(response, (*cooldown)->retryAfter);
+        return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-    auto capture = crud.findCapture(*uuid);
+    auto capture = crud_.FindCapture(*uuid);
     if (!capture)
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     if (!*capture) {
         LOG_INFO() << std::format("capture not found: {}", *uuid);
-        return httpu::respondError(response, kNotFound, "capture not found"_t);
+        return httpu::RespondError(response, kNotFound, "capture not found"_t);
     }
 
-    const auto downloadUrl = buildCaptureDownloadUrl(
-        (**capture).uuid, config.s3Mode(), config.publicBaseUrl(),
-        requestSupport.requestHost(request)
+    const auto download_url = BuildCaptureDownloadUrl(
+        (**capture).uuid, config_.S3Mode(), config_.PublicBaseUrl(),
+        request_support.RequestHost(request)
     );
-    if (!downloadUrl) {
+    if (!download_url) {
         LOG_ERROR() << std::format(
-            "Failed to build storage_url: {}", storageUrlErrorMessage(downloadUrl.error())
+            "Failed to build storage_url: {}", StorageUrlErrorMessage(download_url.Error())
         );
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
 
     dto::CaptureDetails details{
         (**capture).uuid,
-        (**capture).createdAt,
-        toBytes((**capture).link),
-        toBytes(downloadUrl->href()),
+        (**capture).created_at,
+        ToBytes((**capture).link),
+        ToBytes(download_url->Href()),
     };
-    return httpu::respondJson(response, kOk, details);
+    return httpu::RespondJson(response, kOk, details);
 }

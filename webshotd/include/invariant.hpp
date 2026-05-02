@@ -5,18 +5,19 @@
 #include <userver/utils/assert.hpp>
 
 namespace v1 {
+namespace us = userver;
 
-[[noreturn]] inline void invariant(const String &message) noexcept
+[[noreturn]] inline void Invariant(const String &message) noexcept
 {
-    userver::utils::AbortWithStacktrace(message.view());
+    us::utils::AbortWithStacktrace(message.View());
 }
 
 template <typename Condition>
-inline void invariant(const Condition &condition, const String &message) noexcept
+inline void Invariant(const Condition &condition, const String &message) noexcept
 {
     if (condition)
         return;
-    invariant(message);
+    Invariant(message);
 }
 
 } // namespace v1

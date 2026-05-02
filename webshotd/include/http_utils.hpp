@@ -5,7 +5,6 @@
  */
 #include "error_utils.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <format>
@@ -20,6 +19,9 @@
 
 namespace v1::httpu {
 
+namespace us = userver;
+namespace server = us::server;
+namespace json = us::formats::json;
 /**
  * @brief Serialize an object to JSON and set status and content type.
  *
@@ -31,7 +33,7 @@ namespace v1::httpu {
  */
 template <typename T>
 [[nodiscard]] inline std::string
-respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, const T &body)
+RespondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, const T &body)
 {
     resp.SetStatus(status);
     resp.SetContentType(us::http::content_type::kApplicationJson);
@@ -42,7 +44,7 @@ respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, c
  * @brief Variant that takes a prebuilt JSON value.
  */
 [[nodiscard]] inline std::string
-respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, json::Value body)
+RespondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, json::Value body)
 {
     resp.SetStatus(status);
     resp.SetContentType(us::http::content_type::kApplicationJson);
@@ -53,27 +55,27 @@ respondJson(server::http::HttpResponse &resp, server::http::HttpStatus status, j
  * @brief Write a JSON error envelope with a human-readable message.
  */
 [[nodiscard]] inline std::string
-respondError(server::http::HttpResponse &resp, server::http::HttpStatus status, String message)
+RespondError(server::http::HttpResponse &resp, server::http::HttpStatus status, String message)
 {
-    return respondJson(resp, status, v1::errors::makeError(message));
+    return RespondJson(resp, status, v1::errors::MakeError(message));
 }
 
-[[nodiscard]] inline std::string respondParamError(
-    server::http::HttpResponse &resp, server::http::HttpStatus status, String paramName,
+[[nodiscard]] inline std::string RespondParamError(
+    server::http::HttpResponse &resp, server::http::HttpStatus status, String param_name,
     String message
 )
 {
-    return respondJson(resp, status, v1::errors::makeParamError(paramName, message));
+    return RespondJson(resp, status, v1::errors::MakeParamError(param_name, message));
 }
 
 [[nodiscard]] inline std::string
-respondClientIpCooldown(server::http::HttpResponse &resp, std::chrono::milliseconds retryAfter)
+RespondClientIpCooldown(server::http::HttpResponse &resp, std::chrono::milliseconds retry_after)
 {
     using namespace text::literals;
 
-    const auto retryAfterSeconds = std::chrono::ceil<std::chrono::seconds>(retryAfter);
-    resp.SetHeader(us::http::headers::kRetryAfter, std::to_string(retryAfterSeconds.count()));
-    return respondError(
+    const auto retry_after_seconds = std::chrono::ceil<std::chrono::seconds>(retry_after);
+    resp.SetHeader(us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count()));
+    return RespondError(
         resp, server::http::HttpStatus::kTooManyRequests, "client IP in cooldown"_t
     );
 }

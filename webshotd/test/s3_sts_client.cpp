@@ -1,22 +1,27 @@
 #include <chrono>
 #include <string>
 
-#include "userver_namespaces.hpp"
-
 #include <userver/clients/http/response.hpp>
 #include <userver/utest/utest.hpp>
 
 #include "s3/s3_sts_client.hpp"
 #include "text.hpp"
 
+namespace v1 {
+namespace us = userver;
+namespace httpc = us::clients::http;
+} // namespace v1
+
+using namespace v1;
+
 using namespace std::chrono_literals;
 using v1::StsCredentials;
 using namespace text::literals;
-using text::toBytes;
+using text::ToBytes;
 
 namespace {
 
-std::string makeValidXml()
+std::string MakeValidXml()
 {
     return R"(<?xml version="1.0" encoding="UTF-8"?>
 <AssumeRoleResponse>
@@ -35,34 +40,34 @@ std::string makeValidXml()
 
 UTEST(S3StsClient, ParsesHappyPathXml)
 {
-    const auto parsed = StsCredentials::fromXml(String::fromBytes(makeValidXml()).expect());
+    const auto parsed = StsCredentials::FromXml(String::FromBytes(MakeValidXml()).Expect());
     ASSERT_TRUE(parsed);
     const auto &creds = *parsed;
 
-    EXPECT_EQ(creds.accessKeyId.GetUnderlying(), "AKIA_TEST_KEY"_t);
-    EXPECT_EQ(creds.secretAccessKey.GetUnderlying(), "SECRET_TEST_KEY"_t);
-    EXPECT_EQ(creds.sessionToken.GetUnderlying(), "TOKEN_TEST_VALUE"_t);
+    EXPECT_EQ(creds.access_key_id.GetUnderlying(), "AKIA_TEST_KEY"_t);
+    EXPECT_EQ(creds.secret_access_key.GetUnderlying(), "SECRET_TEST_KEY"_t);
+    EXPECT_EQ(creds.session_token.GetUnderlying(), "TOKEN_TEST_VALUE"_t);
 
     using std::chrono::system_clock;
     const auto expected = system_clock::from_time_t(1764547200); // 2025-12-01T00:00:00Z
-    EXPECT_EQ(system_clock::to_time_t(creds.expiresAt), system_clock::to_time_t(expected));
+    EXPECT_EQ(system_clock::to_time_t(creds.expires_at), system_clock::to_time_t(expected));
 }
 
 UTEST(S3StsClient, MissingTagThrows)
 {
     const std::string xml =
         R"(<AssumeRoleResponse><Credentials></Credentials></AssumeRoleResponse>)";
-    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    const auto parsed = StsCredentials::FromXml(String::FromBytes(xml).Expect());
     ASSERT_FALSE(parsed);
-    EXPECT_EQ(parsed.error(), v1::StsError::kXmlMissingTag);
+    EXPECT_EQ(parsed.Error(), v1::StsError::kXmlMissingTag);
 }
 
 UTEST(S3StsClient, MissingClosingTagThrows)
 {
     const std::string xml = R"(<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>id)";
-    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    const auto parsed = StsCredentials::FromXml(String::FromBytes(xml).Expect());
     ASSERT_FALSE(parsed);
-    EXPECT_EQ(parsed.error(), v1::StsError::kXmlMissingClosingTag);
+    EXPECT_EQ(parsed.Error(), v1::StsError::kXmlMissingClosingTag);
 }
 
 UTEST(S3StsClient, InvalidExpirationReturnsError)
@@ -79,31 +84,31 @@ UTEST(S3StsClient, InvalidExpirationReturnsError)
     </Credentials>
   </AssumeRoleResult>
 </AssumeRoleResponse>)";
-    const auto parsed = StsCredentials::fromXml(String::fromBytes(xml).expect());
+    const auto parsed = StsCredentials::FromXml(String::FromBytes(xml).Expect());
     ASSERT_FALSE(parsed);
-    EXPECT_EQ(parsed.error(), v1::StsError::kInvalidExpiration);
+    EXPECT_EQ(parsed.Error(), v1::StsError::kInvalidExpiration);
 }
 
 UTEST(S3StsClient, BuildsRequestWithExecutor)
 {
-    std::string capturedUrl;
-    std::string capturedBody;
-    httpc::Headers capturedHeaders;
-    auto capturedTimeout = 0ms;
+    std::string captured_url;
+    std::string captured_body;
+    httpc::Headers captured_headers;
+    auto captured_timeout = 0ms;
 
     v1::detail::StsExecutor exec = [&](const String &url, const String &body,
                                        const httpc::Headers &headers,
                                        std::chrono::milliseconds timeout) {
-        capturedUrl = toBytes(url);
-        capturedBody = toBytes(body);
-        capturedHeaders = headers;
-        capturedTimeout = timeout;
-        return makeValidXml();
+        captured_url = ToBytes(url);
+        captured_body = ToBytes(body);
+        captured_headers = headers;
+        captured_timeout = timeout;
+        return MakeValidXml();
     };
 
     const std::string endpoint = "https://sts.example.com/assume?foo=bar";
-    const auto parsed = v1::detail::fetchStsWithExecutor(
-        exec, String::fromBytes(endpoint).expect(), v1::s3v4::AccessKeyId{"AKIA_STATIC"_t},
+    const auto parsed = v1::detail::FetchStsWithExecutor(
+        exec, String::FromBytes(endpoint).Expect(), v1::s3v4::AccessKeyId{"AKIA_STATIC"_t},
         v1::s3v4::SecretAccessKey{"SECRET"_t}, "us-east-1"_t,
         "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900s,
         1500ms
@@ -111,27 +116,27 @@ UTEST(S3StsClient, BuildsRequestWithExecutor)
     ASSERT_TRUE(parsed);
     const auto &creds = *parsed;
 
-    EXPECT_EQ(capturedUrl, endpoint);
-    const std::string authKey = "authorization";
-    const std::string amzDateKey = "x-amz-date";
-    const std::string contentTypeKey = "content-type";
-    const std::string hostKey = "host";
-    EXPECT_TRUE(capturedHeaders.contains(authKey));
-    EXPECT_TRUE(capturedHeaders.contains(amzDateKey));
-    EXPECT_EQ(capturedHeaders.at(contentTypeKey), "application/x-www-form-urlencoded");
-    EXPECT_EQ(capturedHeaders.at(hostKey), std::string("sts.example.com"));
-    EXPECT_EQ(capturedTimeout, 1500ms);
+    EXPECT_EQ(captured_url, endpoint);
+    const std::string auth_key = "authorization";
+    const std::string amz_date_key = "x-amz-date";
+    const std::string content_type_key = "content-type";
+    const std::string host_key = "host";
+    EXPECT_TRUE(captured_headers.contains(auth_key));
+    EXPECT_TRUE(captured_headers.contains(amz_date_key));
+    EXPECT_EQ(captured_headers.at(content_type_key), "application/x-www-form-urlencoded");
+    EXPECT_EQ(captured_headers.at(host_key), std::string("sts.example.com"));
+    EXPECT_EQ(captured_timeout, 1500ms);
 
-    EXPECT_TRUE(capturedBody.contains("Action=AssumeRole"));
-    EXPECT_TRUE(capturedBody.contains("Version=2011-06-15"));
+    EXPECT_TRUE(captured_body.contains("Action=AssumeRole"));
+    EXPECT_TRUE(captured_body.contains("Version=2011-06-15"));
     EXPECT_TRUE(
-        capturedBody.contains("RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2FTestRole")
+        captured_body.contains("RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2FTestRole")
     );
-    EXPECT_TRUE(capturedBody.contains("RoleSessionName=session-name"));
-    EXPECT_TRUE(capturedBody.contains("DurationSeconds=900"));
-    EXPECT_TRUE(capturedBody.contains("Policy=%7B%22allow%22%3Atrue%7D"));
+    EXPECT_TRUE(captured_body.contains("RoleSessionName=session-name"));
+    EXPECT_TRUE(captured_body.contains("DurationSeconds=900"));
+    EXPECT_TRUE(captured_body.contains("Policy=%7B%22allow%22%3Atrue%7D"));
 
-    EXPECT_EQ(creds.accessKeyId.GetUnderlying(), "AKIA_TEST_KEY"_t);
+    EXPECT_EQ(creds.access_key_id.GetUnderlying(), "AKIA_TEST_KEY"_t);
 }
 
 UTEST(S3StsClient, InvalidEndpointReturnsError)
@@ -143,12 +148,12 @@ UTEST(S3StsClient, InvalidEndpointReturnsError)
         return std::string{};
     };
 
-    const auto parsed = v1::detail::fetchStsWithExecutor(
+    const auto parsed = v1::detail::FetchStsWithExecutor(
         exec, "https://["_t, v1::s3v4::AccessKeyId{"AKIA_STATIC"_t},
         v1::s3v4::SecretAccessKey{"SECRET"_t}, "us-east-1"_t,
         "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900s,
         1500ms
     );
     ASSERT_FALSE(parsed);
-    EXPECT_EQ(parsed.error(), v1::StsError::kInvalidEndpoint);
+    EXPECT_EQ(parsed.Error(), v1::StsError::kInvalidEndpoint);
 }

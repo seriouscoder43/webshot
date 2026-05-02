@@ -3,7 +3,6 @@
 #include "expected.hpp"
 #include "invariant.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -15,22 +14,25 @@
 #include <userver/server/request/task_inherited_data.hpp>
 
 namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+namespace eng = us::engine;
 using text::literals::operator""_t;
 
 enum class DeadlineError {
     kTimeout,
 };
 
-[[nodiscard]] inline eng::Deadline pickEarlierDeadline(eng::Deadline a, eng::Deadline b)
+[[nodiscard]] inline eng::Deadline PickEarlierDeadline(eng::Deadline a, eng::Deadline b)
 {
-    const bool aReachable = a.IsReachable();
-    const bool bReachable = b.IsReachable();
+    const bool a_reachable = a.IsReachable();
+    const bool b_reachable = b.IsReachable();
 
-    if (aReachable && !bReachable)
+    if (a_reachable && !b_reachable)
         return a;
-    if (!aReachable && bReachable)
+    if (!a_reachable && b_reachable)
         return b;
-    if (!aReachable && !bReachable)
+    if (!a_reachable && !b_reachable)
         return a;
 
     if (a.TimeLeft() <= b.TimeLeft())
@@ -38,19 +40,19 @@ enum class DeadlineError {
     return b;
 }
 
-[[nodiscard]] inline eng::Deadline computeHandlerDeadline(
-    const server::http::HttpRequest &request, std::chrono::milliseconds handlerTimeout
+[[nodiscard]] inline eng::Deadline ComputeHandlerDeadline(
+    const server::http::HttpRequest &request, std::chrono::milliseconds handler_timeout
 )
 {
     using eng::Deadline;
 
-    const auto configDeadline = Deadline::FromTimePoint(request.GetStartTime() + handlerTimeout);
-    const auto inheritedDeadline = server::request::GetTaskInheritedDeadline();
+    const auto config_deadline = Deadline::FromTimePoint(request.GetStartTime() + handler_timeout);
+    const auto inherited_deadline = server::request::GetTaskInheritedDeadline();
 
-    return pickEarlierDeadline(configDeadline, inheritedDeadline);
+    return PickEarlierDeadline(config_deadline, inherited_deadline);
 }
 
-[[nodiscard]] inline std::chrono::milliseconds timeLeftOrZeroMs(eng::Deadline deadline) noexcept
+[[nodiscard]] inline std::chrono::milliseconds TimeLeftOrZeroMs(eng::Deadline deadline) noexcept
 {
     using namespace std::chrono_literals;
     using Ms = std::chrono::milliseconds;
@@ -62,43 +64,43 @@ enum class DeadlineError {
     if (left <= decltype(left)::zero())
         return 0ms;
 
-    const auto leftMs = std::chrono::duration_cast<Ms>(left);
-    if (leftMs <= 0ms)
+    const auto left_ms = std::chrono::duration_cast<Ms>(left);
+    if (left_ms <= 0ms)
         return 0ms;
-    return leftMs;
+    return left_ms;
 }
 
 [[nodiscard]] inline Expected<std::chrono::milliseconds, DeadlineError>
-timeLeftMs(eng::Deadline deadline) noexcept
+TimeLeftMs(eng::Deadline deadline) noexcept
 {
     if (deadline.IsReachable() && deadline.IsReached())
         return Unex(DeadlineError::kTimeout);
-    return timeLeftOrZeroMs(deadline);
+    return TimeLeftOrZeroMs(deadline);
 }
 
 [[nodiscard]] inline Expected<void, DeadlineError>
-sleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
+SleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 {
     using namespace std::chrono_literals;
 
     if (delay <= 0ms)
         return {};
 
-    const auto sleepFor = std::min(delay, TRY(timeLeftMs(deadline)));
-    eng::SleepFor(sleepFor);
-    if (sleepFor != delay)
+    const auto sleep_for = std::min(delay, TRY(TimeLeftMs(deadline)));
+    eng::SleepFor(sleep_for);
+    if (sleep_for != delay)
         return Unex(DeadlineError::kTimeout);
 
     return {};
 }
 
-[[nodiscard]] inline Expected<void, DeadlineError> sleepUntilDeadline(eng::Deadline deadline)
+[[nodiscard]] inline Expected<void, DeadlineError> SleepUntilDeadline(eng::Deadline deadline)
 {
     using namespace std::chrono_literals;
 
-    invariant(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline"_t);
+    Invariant(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline"_t);
 
-    const auto remaining = TRY(timeLeftMs(deadline));
+    const auto remaining = TRY(TimeLeftMs(deadline));
     ENSURE(remaining > 0ms, DeadlineError::kTimeout);
 
     eng::SleepFor(remaining);

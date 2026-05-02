@@ -5,25 +5,26 @@
  */
 #include "schema/common/common.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/utils/assert.hpp>
 
 namespace v1::errors {
 
-using text::toBytes;
+namespace us = userver;
+namespace json = us::formats::json;
+using text::ToBytes;
 
-json::Value makeError(String message)
+json::Value MakeError(String message)
 {
-    dto::ErrorEnvelope::Error err(toBytes(message));
+    dto::ErrorEnvelope::Error err(ToBytes(message));
     dto::ErrorEnvelope env(err);
     return json::ValueBuilder(env).ExtractValue();
 }
 
-json::Value makeParamError(String fieldName, String message)
+json::Value MakeParamError(String field_name, String message)
 {
-    return makeError(text::format("{}: {}", fieldName, message));
+    return MakeError(text::Format("{}: {}", field_name, message));
 }
 
 } // namespace v1::errors

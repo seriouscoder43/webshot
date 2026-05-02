@@ -1,7 +1,5 @@
 #include <string>
 
-#include "userver_namespaces.hpp"
-
 #include <userver/utils/boost_uuid4.hpp>
 
 #include <userver/utest/utest.hpp>
@@ -9,19 +7,25 @@
 #include "prefix_pagination.hpp"
 #include "text.hpp"
 
+namespace v1 {
+namespace us = userver;
+} // namespace v1
+
+using namespace v1;
+
 using v1::crud::Clock;
-using v1::crud::decodePrefixCursor;
-using v1::crud::encodePrefixCursor;
+using v1::crud::DecodePrefixCursor;
+using v1::crud::EncodePrefixCursor;
 using v1::crud::PageDirection;
-using v1::crud::timePointToMicros;
-using v1::crud::upperExclusiveBound;
+using v1::crud::TimePointToMicros;
+using v1::crud::UpperExclusiveBound;
 using namespace text::literals;
 
 UTEST(PrefixPagination, UpperExclusiveBoundNormal)
 {
     const std::string input = "abc";
-    const auto inputText = String::fromBytes(input).expect();
-    const auto upper = upperExclusiveBound(inputText);
+    const auto input_text = String::FromBytes(input).Expect();
+    const auto upper = UpperExclusiveBound(input_text);
     EXPECT_EQ(upper, "abd");
 }
 
@@ -30,19 +34,19 @@ UTEST(PrefixPagination, EncodeDecodeWithoutTimeOrId)
     const std::string prefix = "example.com/a";
     const std::string link = "example.com/a/b";
 
-    const auto prefixText = String::fromBytes(prefix).expect();
-    const auto linkText = String::fromBytes(link).expect();
+    const auto prefix_text = String::FromBytes(prefix).Expect();
+    const auto link_text = String::FromBytes(link).Expect();
 
-    const auto token = encodePrefixCursor(prefixText, linkText, PageDirection::kNext);
-    const auto decoded = decodePrefixCursor(token);
+    const auto token = EncodePrefixCursor(prefix_text, link_text, PageDirection::kNext);
+    const auto decoded = DecodePrefixCursor(token);
 
     ASSERT_TRUE(decoded);
     if (!decoded)
         return;
-    EXPECT_EQ(decoded->prefix, prefixText);
-    EXPECT_EQ(decoded->link, linkText);
+    EXPECT_EQ(decoded->prefix, prefix_text);
+    EXPECT_EQ(decoded->link, link_text);
     EXPECT_EQ(decoded->direction, PageDirection::kNext);
-    EXPECT_FALSE(decoded->createdAt);
+    EXPECT_FALSE(decoded->created_at);
     EXPECT_FALSE(decoded->id);
 }
 
@@ -52,28 +56,28 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
     const std::string link = "example.com/p/resource";
     const auto tp = Clock::time_point(std::chrono::microseconds(4242424242));
     const auto id = us::utils::generators::GenerateBoostUuid();
-    const auto prefixText = String::fromBytes(prefix).expect();
-    const auto linkText = String::fromBytes(link).expect();
+    const auto prefix_text = String::FromBytes(prefix).Expect();
+    const auto link_text = String::FromBytes(link).Expect();
 
-    const auto token = encodePrefixCursor(prefixText, linkText, tp, id, PageDirection::kPrevious);
-    const auto decoded = decodePrefixCursor(token);
+    const auto token = EncodePrefixCursor(prefix_text, link_text, tp, id, PageDirection::kPrevious);
+    const auto decoded = DecodePrefixCursor(token);
 
     ASSERT_TRUE(decoded);
     if (!decoded)
         return;
-    EXPECT_EQ(decoded->prefix, prefixText);
-    EXPECT_EQ(decoded->link, linkText);
+    EXPECT_EQ(decoded->prefix, prefix_text);
+    EXPECT_EQ(decoded->link, link_text);
     EXPECT_EQ(decoded->direction, PageDirection::kPrevious);
-    ASSERT_TRUE(decoded->createdAt);
+    ASSERT_TRUE(decoded->created_at);
     ASSERT_TRUE(decoded->id);
-    if (!decoded->createdAt || !decoded->id)
+    if (!decoded->created_at || !decoded->id)
         return;
-    EXPECT_EQ(timePointToMicros(*decoded->createdAt), timePointToMicros(tp));
+    EXPECT_EQ(TimePointToMicros(*decoded->created_at), TimePointToMicros(tp));
     EXPECT_EQ(*decoded->id, id);
 }
 
 UTEST(PrefixPagination, DecodeInvalidTokenReturnsNullopt)
 {
-    const auto decoded = decodePrefixCursor("invalid-token"_t);
+    const auto decoded = DecodePrefixCursor("invalid-token"_t);
     EXPECT_FALSE(decoded);
 }

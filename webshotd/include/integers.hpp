@@ -1,7 +1,6 @@
 #pragma once
 
 #include "expected.hpp"
-#include "userver_namespaces.hpp"
 
 #include <boost/safe_numerics/checked_default.hpp>
 #include <boost/safe_numerics/checked_result_operations.hpp>
@@ -26,28 +25,32 @@
 #include <type_traits>
 #include <utility>
 
+namespace v1 {
+namespace us = userver;
+} // namespace v1
+
 namespace integers {
 
 struct SafeIntegerAbort {
     [[noreturn]] void
     operator()(const boost::safe_numerics::safe_numerics_error &e, const char *msg) const noexcept
     {
-        const char *msgSafe = msg ? msg : "(no details)";
-        const char *errorSafe = boost::safe_numerics::literal_string(e);
+        const char *msg_safe = msg ? msg : "(no details)";
+        const char *error_safe = boost::safe_numerics::literal_string(e);
 
         std::array<char, 512> buf{};
         const int written = std::snprintf(
             buf.data(), buf.size(), "safe integer failure: %s: %s",
-            errorSafe ? errorSafe : "(unknown)", msgSafe
+            error_safe ? error_safe : "(unknown)", msg_safe
         );
 
         if (written <= 0) {
-            us::utils::AbortWithStacktrace("safe integer operation failed");
+            v1::us::utils::AbortWithStacktrace("safe integer operation failed");
         }
 
         const size_t len = static_cast<size_t>(written) < buf.size() ? static_cast<size_t>(written)
                                                                      : (buf.size() - 1);
-        us::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
+        v1::us::utils::AbortWithStacktrace(std::string_view{buf.data(), len});
     }
 };
 
@@ -97,38 +100,38 @@ enum class NumericCastError {
     kEnumUnderlyingOverflow,
 };
 
-[[noreturn]] inline void abortNumericCastFailure(NumericCastError error) noexcept
+[[noreturn]] inline void AbortNumericCastFailure(NumericCastError error) noexcept
 {
     using enum NumericCastError;
 
     switch (error) {
     case kNegativeToUnsigned:
-        us::utils::AbortWithStacktrace("safe integer failure: negative to unsigned");
+        v1::us::utils::AbortWithStacktrace("safe integer failure: negative to unsigned");
     case kNarrowingOverflow:
-        us::utils::AbortWithStacktrace("safe integer failure: narrowing overflow");
+        v1::us::utils::AbortWithStacktrace("safe integer failure: narrowing overflow");
     case kEnumUnderlyingOverflow:
-        us::utils::AbortWithStacktrace("safe integer failure: enum underlying overflow");
+        v1::us::utils::AbortWithStacktrace("safe integer failure: enum underlying overflow");
     default:
-        us::utils::AbortWithStacktrace("safe integer failure");
+        v1::us::utils::AbortWithStacktrace("safe integer failure");
     }
 }
 
 template <typename To, typename From>
     requires NumericCastType<To> && NumericCastType<From>
 [[nodiscard]] constexpr v1::Expected<std::remove_cvref_t<To>, NumericCastError>
-checkedNumericCast(From value) noexcept
+CheckedNumericCast(From value) noexcept
 {
     using ToValue = std::remove_cvref_t<To>;
     using FromValue = std::remove_cvref_t<From>;
 
     if constexpr (std::is_enum_v<ToValue>) {
         using ToUnderlying = std::underlying_type_t<ToValue>;
-        auto underlyingValue = checkedNumericCast<ToUnderlying>(value);
-        if (!underlyingValue)
+        auto underlying_value = CheckedNumericCast<ToUnderlying>(value);
+        if (!underlying_value)
             return v1::Unex(NumericCastError::kEnumUnderlyingOverflow);
-        return static_cast<ToValue>(*underlyingValue);
+        return static_cast<ToValue>(*underlying_value);
     } else if constexpr (std::is_enum_v<FromValue>) {
-        return checkedNumericCast<ToValue>(std::to_underlying(value));
+        return CheckedNumericCast<ToValue>(std::to_underlying(value));
     } else {
         if constexpr (std::is_unsigned_v<ToValue> && std::is_signed_v<FromValue>) {
             if (value < 0)
@@ -141,7 +144,7 @@ checkedNumericCast(From value) noexcept
 }
 
 template <typename To, typename T, typename PromotionPolicy, typename ExceptionPolicy>
-[[nodiscard]] constexpr v1::Expected<std::remove_cvref_t<To>, NumericCastError> checkedNumericCast(
+[[nodiscard]] constexpr v1::Expected<std::remove_cvref_t<To>, NumericCastError> CheckedNumericCast(
     const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value
 ) noexcept
     requires NumericCastType<To>
@@ -151,7 +154,7 @@ template <typename To, typename T, typename PromotionPolicy, typename ExceptionP
     if constexpr (std::same_as<ToValue, T>) {
         return static_cast<T>(value);
     } else {
-        return checkedNumericCast<To>(static_cast<T>(value));
+        return CheckedNumericCast<To>(static_cast<T>(value));
     }
 }
 
@@ -159,46 +162,46 @@ template <typename To, typename T, typename PromotionPolicy, typename ExceptionP
 
 template <typename To, typename From>
     requires NumericCastType<To> && NumericCastType<From>
-[[nodiscard]] constexpr std::remove_cvref_t<To> numericCast(From value) noexcept
+[[nodiscard]] constexpr std::remove_cvref_t<To> NumericCast(From value) noexcept
 {
     using ToValue = std::remove_cvref_t<To>;
-    const auto converted = detail::checkedNumericCast<ToValue>(value);
+    const auto converted = detail::CheckedNumericCast<ToValue>(value);
     if (!converted)
-        detail::abortNumericCastFailure(converted.error());
+        detail::AbortNumericCastFailure(converted.Error());
     return *converted;
 }
 
 template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
 [[nodiscard]] constexpr T
-numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+NumericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
 {
     return static_cast<T>(value);
 }
 
 template <typename To, typename T, typename PromotionPolicy, typename ExceptionPolicy>
 [[nodiscard]] constexpr std::remove_cvref_t<To>
-numericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+NumericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
     requires NumericCastType<To> && (!std::same_as<std::remove_cvref_t<To>, T>)
 {
     using ToValue = std::remove_cvref_t<To>;
-    const auto converted = detail::checkedNumericCast<ToValue>(value);
+    const auto converted = detail::CheckedNumericCast<ToValue>(value);
     if (!converted)
-        detail::abortNumericCastFailure(converted.error());
+        detail::AbortNumericCastFailure(converted.Error());
     return *converted;
 }
 
 template <typename T, typename PromotionPolicy, typename ExceptionPolicy>
 [[nodiscard]] constexpr T
-raw(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
+Raw(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy> &value) noexcept
 {
-    return numericCast(value);
+    return NumericCast(value);
 }
 
 struct SSizeFn {
     template <typename C> [[nodiscard]] constexpr i64 operator()(const C &c) const noexcept
     {
-        const auto sizeValue = usize(c.size());
-        return i64(sizeValue);
+        const auto size_value = usize(c.size());
+        return i64(size_value);
     }
 };
 
@@ -239,8 +242,8 @@ namespace integers::literals {
 
 using integers::i32;
 using integers::i64;
-using integers::numericCast;
-using integers::raw;
+using integers::NumericCast;
+using integers::Raw;
 using integers::SafeInteger;
 using integers::ssize;
 using integers::u16;
@@ -253,69 +256,69 @@ using namespace integers::literals;
 template <> struct std::formatter<u16, char> : std::formatter<uint16_t, char> {
     auto format(const u16 &value, std::format_context &ctx) const
     {
-        return std::formatter<uint16_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint16_t, char>::format(integers::Raw(value), ctx);
     }
 };
 
 template <> struct std::formatter<u32, char> : std::formatter<uint32_t, char> {
     auto format(const u32 &value, std::format_context &ctx) const
     {
-        return std::formatter<uint32_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint32_t, char>::format(integers::Raw(value), ctx);
     }
 };
 
 template <> struct std::formatter<i32, char> : std::formatter<int32_t, char> {
     auto format(const i32 &value, std::format_context &ctx) const
     {
-        return std::formatter<int32_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<int32_t, char>::format(integers::Raw(value), ctx);
     }
 };
 
 template <> struct std::formatter<u64, char> : std::formatter<uint64_t, char> {
     auto format(const u64 &value, std::format_context &ctx) const
     {
-        return std::formatter<uint64_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<uint64_t, char>::format(integers::Raw(value), ctx);
     }
 };
 
 template <> struct std::formatter<i64, char> : std::formatter<int64_t, char> {
     auto format(const i64 &value, std::format_context &ctx) const
     {
-        return std::formatter<int64_t, char>::format(integers::raw(value), ctx);
+        return std::formatter<int64_t, char>::format(integers::Raw(value), ctx);
     }
 };
 
 template <> struct std::hash<u16> {
     size_t operator()(const u16 &value) const noexcept
     {
-        return std::hash<uint16_t>{}(integers::raw(value));
+        return std::hash<uint16_t>{}(integers::Raw(value));
     }
 };
 
 template <> struct std::hash<u32> {
     size_t operator()(const u32 &value) const noexcept
     {
-        return std::hash<uint32_t>{}(integers::raw(value));
+        return std::hash<uint32_t>{}(integers::Raw(value));
     }
 };
 
 template <> struct std::hash<i32> {
     size_t operator()(const i32 &value) const noexcept
     {
-        return std::hash<int32_t>{}(integers::raw(value));
+        return std::hash<int32_t>{}(integers::Raw(value));
     }
 };
 
 template <> struct std::hash<u64> {
     size_t operator()(const u64 &value) const noexcept
     {
-        return std::hash<uint64_t>{}(integers::raw(value));
+        return std::hash<uint64_t>{}(integers::Raw(value));
     }
 };
 
 template <> struct std::hash<i64> {
     size_t operator()(const i64 &value) const noexcept
     {
-        return std::hash<int64_t>{}(integers::raw(value));
+        return std::hash<int64_t>{}(integers::Raw(value));
     }
 };

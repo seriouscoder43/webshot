@@ -1,7 +1,6 @@
 #pragma once
 
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <string>
@@ -14,6 +13,8 @@
 
 namespace v1 {
 
+namespace us = userver;
+namespace server = us::server;
 class [[nodiscard]] DocsHandler final : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "docs";
@@ -31,9 +32,9 @@ public:
     ) const final;
 
 private:
-    const std::chrono::milliseconds requestTimeout;
+    const std::chrono::milliseconds request_timeout;
     const std::string title;
-    const std::string specUrl;
+    const std::string spec_url;
 };
 
 } // namespace v1

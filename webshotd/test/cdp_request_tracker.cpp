@@ -11,60 +11,60 @@ UTEST(CdpRequestTracker, WaitingRequestStartsDeliverable)
 {
     CdpRequestTracker tracker;
 
-    tracker.insertWaiting(17_i64, "Network.getResponseBody"_t, "session-1"_t);
+    tracker.InsertWaiting(17_i64, "Network.getResponseBody"_t, "session-1"_t);
 
-    const auto *request = tracker.find(17_i64);
+    const auto *request = tracker.Find(17_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Network.getResponseBody"_t);
-    ASSERT_TRUE(request->sessionId);
-    EXPECT_EQ(*request->sessionId, "session-1"_t);
-    EXPECT_FALSE(request->ignoreResponse);
+    ASSERT_TRUE(request->session_id);
+    EXPECT_EQ(*request->session_id, "session-1"_t);
+    EXPECT_FALSE(request->ignore_response);
 }
 
 UTEST(CdpRequestTracker, IgnoredRequestStartsIgnored)
 {
     CdpRequestTracker tracker;
 
-    tracker.insertIgnored(23_i64, "Fetch.continueRequest"_t, {});
+    tracker.InsertIgnored(23_i64, "Fetch.continueRequest"_t, {});
 
-    const auto *request = tracker.find(23_i64);
+    const auto *request = tracker.Find(23_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Fetch.continueRequest"_t);
-    EXPECT_FALSE(request->sessionId);
-    EXPECT_TRUE(request->ignoreResponse);
+    EXPECT_FALSE(request->session_id);
+    EXPECT_TRUE(request->ignore_response);
 }
 
 UTEST(CdpRequestTracker, MarkIgnoreResponsePreservesTraceContext)
 {
     CdpRequestTracker tracker;
 
-    tracker.insertWaiting(31_i64, "Network.getResponseBody"_t, "session-2"_t);
-    tracker.markIgnoreResponse(31_i64);
+    tracker.InsertWaiting(31_i64, "Network.getResponseBody"_t, "session-2"_t);
+    tracker.MarkIgnoreResponse(31_i64);
 
-    const auto *request = tracker.find(31_i64);
+    const auto *request = tracker.Find(31_i64);
     ASSERT_NE(request, nullptr);
     EXPECT_EQ(request->method, "Network.getResponseBody"_t);
-    ASSERT_TRUE(request->sessionId);
-    EXPECT_EQ(*request->sessionId, "session-2"_t);
-    EXPECT_TRUE(request->ignoreResponse);
+    ASSERT_TRUE(request->session_id);
+    EXPECT_EQ(*request->session_id, "session-2"_t);
+    EXPECT_TRUE(request->ignore_response);
 }
 
 UTEST(CdpRequestTracker, EraseRemovesRequest)
 {
     CdpRequestTracker tracker;
 
-    tracker.insertWaiting(47_i64, "Page.navigate"_t, {});
-    tracker.erase(47_i64);
+    tracker.InsertWaiting(47_i64, "Page.navigate"_t, {});
+    tracker.Erase(47_i64);
 
-    EXPECT_EQ(tracker.find(47_i64), nullptr);
-    EXPECT_EQ(tracker.size(), 0);
+    EXPECT_EQ(tracker.Find(47_i64), nullptr);
+    EXPECT_EQ(tracker.Size(), 0);
 }
 
 UTEST(CdpRequestTracker, UnknownRequestReturnsNull)
 {
     const CdpRequestTracker tracker;
 
-    EXPECT_EQ(tracker.find(99_i64), nullptr);
+    EXPECT_EQ(tracker.Find(99_i64), nullptr);
 }
 
 } // namespace

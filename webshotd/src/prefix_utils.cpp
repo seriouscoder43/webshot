@@ -1,5 +1,4 @@
 #include "prefix_utils.hpp"
-#include "userver_namespaces.hpp"
 
 #include <algorithm>
 #include <string>
@@ -10,19 +9,20 @@
 
 namespace v1::prefix {
 
-using text::toBytes;
+namespace us = userver;
+using text::ToBytes;
 
 namespace {
 
-void appendEncodedSegment(std::string &out, std::string_view bytes)
+void AppendEncodedSegment(std::string &out, std::string_view bytes)
 {
-    constexpr size_t kMaxBytesPerLabel = 127UL;
+    constexpr size_t max_bytes_per_label = 127UL;
     if (bytes.empty()) {
         out.append(".x");
         return;
     }
-    for (size_t pos = 0; pos < bytes.size(); pos += kMaxBytesPerLabel) {
-        const auto chunk = bytes.substr(pos, std::min(kMaxBytesPerLabel, bytes.size() - pos));
+    for (size_t pos = 0; pos < bytes.size(); pos += max_bytes_per_label) {
+        const auto chunk = bytes.substr(pos, std::min(max_bytes_per_label, bytes.size() - pos));
         out.push_back('.');
         out.push_back('x');
         out.append(us::utils::encoding::ToHex(chunk));
@@ -31,71 +31,71 @@ void appendEncodedSegment(std::string &out, std::string_view bytes)
 
 } // namespace
 
-[[nodiscard]] String makePrefixKey(const Link &link)
+[[nodiscard]] String MakePrefixKey(const Link &link)
 {
-    const auto normalizedUrl = link.url.stripped(
+    const auto normalized_url = link.url.Stripped(
         Url::StripOptions::kStripPort | Url::StripOptions::kStripQuery
     );
 
-    auto host = normalizedUrl.hostname();
-    auto hostView = host.view();
-    std::string hostStr(hostView);
+    auto host = normalized_url.Hostname();
+    auto host_view = host.View();
+    std::string host_str{host_view};
     std::vector<std::string> labels;
     for (size_t start = 0; true;) {
-        auto dot = hostStr.find('.', start);
+        auto dot = host_str.find('.', start);
         if (dot == std::string::npos) {
-            labels.emplace_back(hostStr.substr(start));
+            labels.emplace_back(host_str.substr(start));
             break;
         }
-        labels.emplace_back(hostStr.substr(start, dot - start));
+        labels.emplace_back(host_str.substr(start, dot - start));
         start = dot + 1;
     }
     std::ranges::reverse(labels);
-    std::string hostRev;
+    std::string host_rev;
     for (size_t i = 0; i < labels.size(); i++) {
         if (i != 0)
-            hostRev.push_back('.');
-        hostRev += labels[i];
+            host_rev.push_back('.');
+        host_rev += labels[i];
     }
-    auto path = toBytes(normalizedUrl.pathname());
+    auto path = ToBytes(normalized_url.Pathname());
     if (path == "/")
         path.clear();
     else if (!path.empty() && path.back() == '/')
         path.pop_back();
-    auto key = hostRev;
+    auto key = host_rev;
     key.append(std::begin(path), std::end(path));
-    return String::fromBytes(key).expect();
+    return String::FromBytes(key).Expect();
 }
 
-[[nodiscard]] std::string makePrefixTree(const String &prefixKey)
+[[nodiscard]] std::string MakePrefixTree(const String &prefix_key)
 {
-    auto view = prefixKey.view();
+    auto view = prefix_key.View();
     std::string out("h");
-    const auto firstSlash = view.find('/');
-    const auto hostPart = firstSlash == std::string_view::npos
-                              ? std::string_view(view)
-                              : std::string_view(view).substr(0, firstSlash);
+    const auto first_slash = view.find('/');
+    const auto host_part = first_slash == std::string_view::npos
+                               ? std::string_view(view)
+                               : std::string_view(view).substr(0, first_slash);
 
-    const auto appendSplitSegments = [&out](std::string_view input, const char sep) {
+    const auto append_split_segments = [&out](std::string_view input, const char sep) {
         for (size_t start = 0;;) {
             const auto next = input.find(sep, start);
             const auto seg = next == std::string_view::npos ? input.substr(start)
                                                             : input.substr(start, next - start);
-            appendEncodedSegment(out, seg);
+            AppendEncodedSegment(out, seg);
             if (next == std::string_view::npos)
                 break;
             start = next + 1;
         }
     };
 
-    appendSplitSegments(hostPart, '.');
+    append_split_segments(host_part, '.');
 
-    if (firstSlash == std::string_view::npos)
+    if (first_slash == std::string_view::npos)
         return out;
 
     out.append(".p");
-    const auto path = std::string_view(view).substr(firstSlash + 1);
-    appendSplitSegments(path, '/');
+    const auto path = std::string_view(view).substr(first_slash + 1);
+    append_split_segments(path, '/');
     return out;
 }
 

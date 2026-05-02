@@ -16,7 +16,6 @@
 #include "metrics.hpp"
 #include "test_only_components.hpp"
 #include "ui_replay_handler.hpp"
-#include "userver_namespaces.hpp"
 
 #include <userver/clients/dns/component.hpp>
 #include <userver/clients/http/component_list.hpp>
@@ -33,9 +32,17 @@
 #include <userver/storages/secdist/provider_component.hpp>
 #include <userver/utils/daemon_run.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace eng = us::engine;
+namespace httpc = us::clients::http;
+} // namespace v1
+
+using namespace v1;
+
 int main(int argc, char *argv[])
 {
-    auto componentList =
+    auto component_list =
         us::components::MinimalServerComponentList()
             .Append<us::clients::dns::Component>()
             .AppendComponentList(httpc::ComponentList())
@@ -79,6 +86,6 @@ int main(int argc, char *argv[])
             .Append<us::server::handlers::HttpHandlerStatic>("web_ui_index_static")
             .Append<us::server::handlers::HttpHandlerStatic>("web_ui_root_static")
             .Append<us::server::handlers::ServerMonitor>();
-    v1::appendTestOnlyComponents(componentList);
-    return us::utils::DaemonMain(argc, argv, componentList);
+    v1::AppendTestOnlyComponents(component_list);
+    return us::utils::DaemonMain(argc, argv, component_list);
 }

@@ -37,9 +37,9 @@ struct [[nodiscard]] ZipArchiveError {
 class [[nodiscard]] ZipArchiveBuilder {
 public:
     [[nodiscard]] bool
-    addStoredFile(std::string_view path, ZipArchiveError &errorOut, std::string_view body);
+    AddStoredFile(std::string_view path, ZipArchiveError &error_out, std::string_view body);
 
-    [[nodiscard]] std::optional<std::string> finish(ZipArchiveError &errorOut) const;
+    [[nodiscard]] std::optional<std::string> Finish(ZipArchiveError &error_out) const;
 
 private:
     struct [[nodiscard]] StoredEntry {
@@ -47,26 +47,26 @@ private:
         std::string body;
     };
 
-    std::vector<StoredEntry> entries;
-    std::set<std::string, std::less<>> entryPaths;
+    std::vector<StoredEntry> entries_;
+    std::set<std::string, std::less<>> entry_paths_;
 };
 
 class [[nodiscard]] ZipArchive {
 public:
     [[nodiscard]] static std::optional<ZipArchive>
-    fromBytes(std::string_view bytes, ZipArchiveError &errorOut);
+    FromBytes(std::string_view bytes, ZipArchiveError &error_out);
 
-    [[nodiscard]] std::optional<std::string_view> findFile(std::string_view path) const noexcept;
+    [[nodiscard]] std::optional<std::string_view> FindFile(std::string_view path) const noexcept;
 
-    [[nodiscard]] const std::vector<std::string> &entryPathsInOrder() const noexcept;
+    [[nodiscard]] const std::vector<std::string> &EntryPathsInOrder() const noexcept;
 
 private:
     ZipArchive(
         std::map<std::string, std::string, std::less<>> files, std::vector<std::string> paths
     );
 
-    std::map<std::string, std::string, std::less<>> files;
-    std::vector<std::string> paths;
+    std::map<std::string, std::string, std::less<>> files_;
+    std::vector<std::string> paths_;
 };
 
 } // namespace arkhiv

@@ -5,7 +5,6 @@
 #include "ip.hpp"
 #include "text.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 
 #include <optional>
 #include <string>
@@ -16,27 +15,29 @@
 #include <userver/utils/assert.hpp>
 
 namespace v1::client::ip {
+namespace us = userver;
+namespace server = us::server;
 using text::literals::operator""_t;
 
-[[nodiscard]] inline std::optional<String> makeClientIp(std::string_view raw)
+[[nodiscard]] inline std::optional<String> MakeClientIp(std::string_view raw)
 {
     std::string text{raw};
     absl::StripAsciiWhitespace(&text);
-    auto ipText = TRY(String::fromBytes(text));
-    auto ip = TRY(parseIp(ipText));
-    return toCanonicalIpText(ip);
+    auto ip_text = TRY(String::FromBytes(text));
+    auto ip = TRY(ParseIp(ip_text));
+    return ToCanonicalIpText(ip);
 }
 
 [[nodiscard]] inline std::optional<String>
-resolve(const server::http::HttpRequest &request, const Config &config)
+Resolve(const server::http::HttpRequest &request, const Config &config)
 {
-    switch (config.clientIpSource()) {
+    switch (config.ClientIpSource()) {
     case ClientIpSource::kPeer:
-        return makeClientIp(request.GetRemoteAddress().PrimaryAddressString());
+        return MakeClientIp(request.GetRemoteAddress().PrimaryAddressString());
     case ClientIpSource::kTrustedHeader:
-        return makeClientIp(request.GetHeader(config.clientIpHeaderName()));
+        return MakeClientIp(request.GetHeader(config.ClientIpHeaderName()));
     default:
-        invariant("unknown client IP source"_t);
+        Invariant("unknown client IP source"_t);
     }
 }
 } // namespace v1::client::ip

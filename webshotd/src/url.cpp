@@ -6,16 +6,15 @@
 #include <vector>
 
 #include "invariant.hpp"
-#include "userver_namespaces.hpp"
 
 namespace v1 {
 
 using namespace text::literals;
-using text::toBytes;
+using text::ToBytes;
 
 namespace {
 
-constexpr bool hasStripOption(Url::StripOptions options, Url::StripOptions flag) noexcept
+constexpr bool HasStripOption(Url::StripOptions options, Url::StripOptions flag) noexcept
 {
     using U = std::underlying_type_t<Url::StripOptions>;
     return static_cast<U>(options & flag) != 0;
@@ -23,166 +22,169 @@ constexpr bool hasStripOption(Url::StripOptions options, Url::StripOptions flag)
 
 } // namespace
 
-Url::Url(ada::url_aggregator adaUrl) : adaUrl(std::move(adaUrl)) {}
+Url::Url(ada::url_aggregator ada_url) : ada_url_(std::move(ada_url)) {}
 
-std::optional<Url> Url::fromText(const String &text)
+std::optional<Url> Url::FromText(const String &text)
 {
-    auto parsed = ada::parse<ada::url_aggregator>(text.view());
+    auto parsed = ada::parse<ada::url_aggregator>(text.View());
     if (!parsed)
         return {};
     return Url(std::move(*parsed));
 }
 
-Url Url::fromParsed(ada::url_aggregator url) { return Url(std::move(url)); }
+Url Url::FromParsed(ada::url_aggregator url) { return Url(std::move(url)); }
 
-String Url::host() const { return String::fromBytes(adaUrl.get_host()).expect(); }
+String Url::Host() const { return String::FromBytes(ada_url_.get_host()).Expect(); }
 
-String Url::hostname() const { return String::fromBytes(adaUrl.get_hostname()).expect(); }
+String Url::Hostname() const { return String::FromBytes(ada_url_.get_hostname()).Expect(); }
 
-String Url::port() const { return String::fromBytes(adaUrl.get_port()).expect(); }
+String Url::Port() const { return String::FromBytes(ada_url_.get_port()).Expect(); }
 
-String Url::pathname() const { return String::fromBytes(adaUrl.get_pathname()).expect(); }
+String Url::Pathname() const { return String::FromBytes(ada_url_.get_pathname()).Expect(); }
 
-String Url::search() const { return String::fromBytes(adaUrl.get_search()).expect(); }
+String Url::Search() const { return String::FromBytes(ada_url_.get_search()).Expect(); }
 
-String Url::pathWithSearch() const
+String Url::PathWithSearch() const
 {
-    auto path = std::string(adaUrl.get_pathname());
+    auto path = std::string(ada_url_.get_pathname());
     if (path.empty())
         path = "/";
-    path += std::string(adaUrl.get_search());
-    return String::fromBytes(path).expect();
+    path += std::string(ada_url_.get_search());
+    return String::FromBytes(path).Expect();
 }
 
-String Url::href() const { return String::fromBytes(adaUrl.get_href()).expect(); }
+String Url::Href() const { return String::FromBytes(ada_url_.get_href()).Expect(); }
 
-String Url::origin() const
+String Url::Origin() const
 {
-    invariant(isHttpOrHttps(), "origin requires http or https url"_t);
-    return text::format("{}://{}", isHttps() ? "https" : "http", host());
+    Invariant(IsHttpOrHttps(), "origin requires http or https url"_t);
+    return text::Format("{}://{}", IsHttps() ? "https" : "http", Host());
 }
 
-String Url::surt() const
+String Url::Surt() const
 {
-    invariant(isHttpOrHttps(), "surt requires http or https url"_t);
+    Invariant(IsHttpOrHttps(), "surt requires http or https url"_t);
 
-    std::string hostText{hostname().view()};
-    std::string portText{port().view()};
-    while (!hostText.empty() && hostText.back() == '.')
-        hostText.pop_back();
+    std::string host_text{Hostname().View()};
+    std::string port_text{Port().View()};
+    while (!host_text.empty() && host_text.back() == '.')
+        host_text.pop_back();
 
     std::vector<std::string> labels;
-    for (size_t offset = 0; offset <= hostText.size();) {
-        const auto next = hostText.find('.', offset);
+    for (size_t offset = 0; offset <= host_text.size();) {
+        const auto next = host_text.find('.', offset);
         if (next == std::string::npos) {
-            labels.emplace_back(hostText.substr(offset));
+            labels.emplace_back(host_text.substr(offset));
             break;
         }
-        labels.emplace_back(hostText.substr(offset, next - offset));
+        labels.emplace_back(host_text.substr(offset, next - offset));
         offset = next + 1;
     }
     std::ranges::reverse(labels);
 
-    std::string surtHost;
+    std::string surt_host;
     for (size_t index = 0; index < labels.size(); index++) {
         if (index != 0)
-            surtHost.push_back(',');
-        surtHost += labels[index];
+            surt_host.push_back(',');
+        surt_host += labels[index];
     }
 
-    if (hasNonDefaultPort())
-        surtHost += ":" + portText;
+    if (HasNonDefaultPort())
+        surt_host += ":" + port_text;
 
-    return String::fromBytes(surtHost + ")" + toBytes(pathWithSearch())).expect();
+    return String::FromBytes(surt_host + ")" + ToBytes(PathWithSearch())).Expect();
 }
 
-bool Url::hasHostname() const { return adaUrl.has_hostname() && !adaUrl.get_hostname().empty(); }
-
-bool Url::hasPort() const { return adaUrl.has_port(); }
-
-bool Url::hasNonDefaultPort() const
+bool Url::HasHostname() const
 {
-    if (!hasPort())
+    return ada_url_.has_hostname() && !ada_url_.get_hostname().empty();
+}
+
+bool Url::HasPort() const { return ada_url_.has_port(); }
+
+bool Url::HasNonDefaultPort() const
+{
+    if (!HasPort())
         return false;
 
-    const auto defaultPort = ada::scheme::get_special_port(schemeType());
-    if (defaultPort == 0)
+    const auto default_port = ada::scheme::get_special_port(SchemeType());
+    if (default_port == 0)
         return true;
 
-    return port() != String::fromBytes(std::to_string(defaultPort)).expect();
+    return Port() != String::FromBytes(std::to_string(default_port)).Expect();
 }
 
-bool Url::hasSearch() const { return adaUrl.has_search(); }
+bool Url::HasSearch() const { return ada_url_.has_search(); }
 
-bool Url::hasValidDomain() const { return adaUrl.has_valid_domain(); }
+bool Url::HasValidDomain() const { return ada_url_.has_valid_domain(); }
 
-ada::scheme::type Url::schemeType() const { return adaUrl.type; }
+ada::scheme::type Url::SchemeType() const { return ada_url_.type; }
 
-bool Url::isHttp() const { return adaUrl.type == ada::scheme::type::HTTP; }
+bool Url::IsHttp() const { return ada_url_.type == ada::scheme::type::HTTP; }
 
-bool Url::isHttps() const { return adaUrl.type == ada::scheme::type::HTTPS; }
+bool Url::IsHttps() const { return ada_url_.type == ada::scheme::type::HTTPS; }
 
-bool Url::isHttpOrHttps() const { return isHttp() || isHttps(); }
+bool Url::IsHttpOrHttps() const { return IsHttp() || IsHttps(); }
 
-Url Url::stripped(StripOptions options) const
+Url Url::Stripped(StripOptions options) const
 {
-    auto parsed = copyParsed();
-    if (hasStripOption(options, StripOptions::kStripPort))
+    auto parsed = CopyParsed();
+    if (HasStripOption(options, StripOptions::kStripPort))
         parsed.clear_port();
-    if (hasStripOption(options, StripOptions::kStripQuery))
+    if (HasStripOption(options, StripOptions::kStripQuery))
         parsed.clear_search();
-    return Url::fromParsed(std::move(parsed));
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withProtocol(const String &protocol) const
+Url Url::WithProtocol(const String &protocol) const
 {
-    auto parsed = copyParsed();
-    invariant(parsed.set_protocol(toBytes(protocol)), "invalid protocol"_t);
-    return Url::fromParsed(std::move(parsed));
+    auto parsed = CopyParsed();
+    Invariant(parsed.set_protocol(ToBytes(protocol)), "invalid protocol"_t);
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withHostname(const String &hostname) const
+Url Url::WithHostname(const String &hostname) const
 {
-    auto parsed = copyParsed();
-    invariant(parsed.set_hostname(toBytes(hostname)), "invalid hostname"_t);
-    return Url::fromParsed(std::move(parsed));
+    auto parsed = CopyParsed();
+    Invariant(parsed.set_hostname(ToBytes(hostname)), "invalid hostname"_t);
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withPort(const String &portValue) const
+Url Url::WithPort(const String &port_value) const
 {
-    auto parsed = copyParsed();
-    invariant(parsed.set_port(toBytes(portValue)), "invalid port"_t);
-    return Url::fromParsed(std::move(parsed));
+    auto parsed = CopyParsed();
+    Invariant(parsed.set_port(ToBytes(port_value)), "invalid port"_t);
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withPathname(const String &pathnameValue) const
+Url Url::WithPathname(const String &pathname_value) const
 {
-    auto parsed = copyParsed();
-    invariant(parsed.set_pathname(pathnameValue.view()), "invalid pathname"_t);
-    return Url::fromParsed(std::move(parsed));
+    auto parsed = CopyParsed();
+    Invariant(parsed.set_pathname(pathname_value.View()), "invalid pathname"_t);
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withSearch(const String &searchValue) const
+Url Url::WithSearch(const String &search_value) const
 {
-    auto parsed = copyParsed();
-    parsed.set_search(searchValue.view());
-    return Url::fromParsed(std::move(parsed));
+    auto parsed = CopyParsed();
+    parsed.set_search(search_value.View());
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withoutSearch() const
+Url Url::WithoutSearch() const
 {
-    auto parsed = copyParsed();
+    auto parsed = CopyParsed();
     parsed.clear_search();
-    return Url::fromParsed(std::move(parsed));
+    return Url::FromParsed(std::move(parsed));
 }
 
-Url Url::withoutHash() const
+Url Url::WithoutHash() const
 {
-    auto parsed = copyParsed();
+    auto parsed = CopyParsed();
     parsed.clear_hash();
-    return Url::fromParsed(std::move(parsed));
+    return Url::FromParsed(std::move(parsed));
 }
 
-ada::url_aggregator Url::copyParsed() const { return adaUrl; }
+ada::url_aggregator Url::CopyParsed() const { return ada_url_; }
 
 } // namespace v1

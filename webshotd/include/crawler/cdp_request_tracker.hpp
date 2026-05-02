@@ -17,71 +17,71 @@ using text::literals::operator""_t;
 
 struct [[nodiscard]] CdpPendingRequest final {
     String method;
-    std::optional<String> sessionId;
-    bool ignoreResponse{false};
+    std::optional<String> session_id;
+    bool ignore_response{false};
 };
 
 class [[nodiscard]] CdpRequestTracker final {
 public:
-    void insertWaiting(i64 id, String method, std::optional<String> sessionId)
+    void InsertWaiting(i64 id, String method, std::optional<String> session_id)
     {
-        insert(
+        Insert(
             id, CdpPendingRequest{
                     .method = std::move(method),
-                    .sessionId = std::move(sessionId),
-                    .ignoreResponse = false,
+                    .session_id = std::move(session_id),
+                    .ignore_response = false,
                 }
         );
     }
 
-    void insertIgnored(i64 id, String method, std::optional<String> sessionId)
+    void InsertIgnored(i64 id, String method, std::optional<String> session_id)
     {
-        insert(
+        Insert(
             id, CdpPendingRequest{
                     .method = std::move(method),
-                    .sessionId = std::move(sessionId),
-                    .ignoreResponse = true,
+                    .session_id = std::move(session_id),
+                    .ignore_response = true,
                 }
         );
     }
 
-    [[nodiscard]] CdpPendingRequest *find(i64 id) noexcept
+    [[nodiscard]] CdpPendingRequest *Find(i64 id) noexcept
     {
-        const auto it = requests.find(id);
-        if (it == std::end(requests))
+        const auto it = requests_.find(id);
+        if (it == std::end(requests_))
             return nullptr;
         return &it->second;
     }
 
-    [[nodiscard]] const CdpPendingRequest *find(i64 id) const noexcept
+    [[nodiscard]] const CdpPendingRequest *Find(i64 id) const noexcept
     {
-        const auto it = requests.find(id);
-        if (it == std::end(requests))
+        const auto it = requests_.find(id);
+        if (it == std::end(requests_))
             return nullptr;
         return &it->second;
     }
 
-    void markIgnoreResponse(i64 id)
+    void MarkIgnoreResponse(i64 id)
     {
-        auto *request = find(id);
-        invariant(request != nullptr, "cannot ignore unknown cdp request"_t);
-        request->ignoreResponse = true;
+        auto *request = Find(id);
+        Invariant(request != nullptr, "cannot ignore unknown cdp request"_t);
+        request->ignore_response = true;
     }
 
-    void erase(i64 id) noexcept { requests.erase(id); }
+    void Erase(i64 id) noexcept { requests_.erase(id); }
 
-    void clear() noexcept { requests.clear(); }
+    void Clear() noexcept { requests_.clear(); }
 
-    [[nodiscard]] size_t size() const noexcept { return requests.size(); }
+    [[nodiscard]] size_t Size() const noexcept { return requests_.size(); }
 
 private:
-    void insert(i64 id, CdpPendingRequest request)
+    void Insert(i64 id, CdpPendingRequest request)
     {
-        const auto [_, inserted] = requests.emplace(id, std::move(request));
-        invariant(inserted, "duplicate cdp request id"_t);
+        const auto [_, inserted] = requests_.emplace(id, std::move(request));
+        Invariant(inserted, "duplicate cdp request id"_t);
     }
 
-    std::unordered_map<i64, CdpPendingRequest> requests;
+    std::unordered_map<i64, CdpPendingRequest> requests_;
 };
 
 } // namespace v1::crawler

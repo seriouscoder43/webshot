@@ -9,7 +9,6 @@
 #include "schema/cdp.hpp"
 #include "text.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <deque>
@@ -34,13 +33,16 @@
 
 namespace v1::crawler {
 
+namespace us = userver;
+namespace eng = us::engine;
+namespace json = us::formats::json;
 using text::literals::operator""_t;
 using v1::Expected;
 
 struct [[nodiscard]] CdpEvent {
     String method;
     std::optional<dto::CdpEventMessage::Params> params;
-    std::optional<String> sessionId;
+    std::optional<String> session_id;
 };
 
 enum class CdpError {
@@ -70,11 +72,11 @@ struct CdpSessionState;
 
 class [[nodiscard]] CdpClient final {
 public:
-    [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpFailure> connect(
-        std::string socketPath, String websocketPath, std::string tracePath,
-        eng::TaskProcessor &fsTaskProcessor, eng::Deadline overallDeadline,
-        std::chrono::milliseconds handshakeTimeout, std::chrono::milliseconds commandTimeout,
-        i64 maxRemotePayloadBytes
+    [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpFailure> Connect(
+        std::string socket_path, String websocket_path, std::string trace_path,
+        eng::TaskProcessor &fs_task_processor, eng::Deadline overall_deadline,
+        std::chrono::milliseconds handshake_timeout, std::chrono::milliseconds command_timeout,
+        i64 max_remote_payload_bytes
     );
 
     ~CdpClient() noexcept;
@@ -84,116 +86,116 @@ public:
     CdpClient &operator=(const CdpClient &) = delete;
     CdpClient &operator=(CdpClient &&) = delete;
 
-    template <typename T> [[nodiscard]] Expected<T, CdpFailure> send(const String &method)
+    template <typename T> [[nodiscard]] Expected<T, CdpFailure> Send(const String &method)
     {
-        return exu::json::as<T>(
-            TRY(sendRaw(method, json::Value{}, {})),
+        return ex::json::As<T>(
+            TRY(SendRaw(method, json::Value{}, {})),
             CdpFailure{.code = CdpError::kProtocol, .detail = {}}
         );
     }
 
     template <typename T, typename Params>
-    [[nodiscard]] Expected<T, CdpFailure> send(const String &method, const Params &params)
+    [[nodiscard]] Expected<T, CdpFailure> Send(const String &method, const Params &params)
     {
-        return send<T>(method, params, {});
+        return Send<T>(method, params, {});
     }
 
     template <typename T>
-    [[nodiscard]] Expected<T, CdpFailure> send(const String &method, const String &sessionId)
+    [[nodiscard]] Expected<T, CdpFailure> Send(const String &method, const String &session_id)
     {
-        return send<T>(method, std::optional{sessionId});
+        return Send<T>(method, std::optional{session_id});
     }
 
     template <typename T>
     [[nodiscard]] Expected<T, CdpFailure>
-    send(const String &method, const std::optional<String> &sessionId)
+    Send(const String &method, const std::optional<String> &session_id)
     {
-        return exu::json::as<T>(
-            TRY(sendRaw(method, json::Value{}, sessionId)),
+        return ex::json::As<T>(
+            TRY(SendRaw(method, json::Value{}, session_id)),
             CdpFailure{.code = CdpError::kProtocol, .detail = {}}
         );
     }
 
     template <typename T, typename Params>
     [[nodiscard]] Expected<T, CdpFailure>
-    send(const String &method, const Params &params, const std::optional<String> &sessionId)
+    Send(const String &method, const Params &params, const std::optional<String> &session_id)
     {
-        const auto paramsValue = TRY(
-            exu::json::valueOf(params, CdpFailure{.code = CdpError::kProtocol, .detail = {}})
+        const auto params_value = TRY(
+            ex::json::ValueOf(params, CdpFailure{.code = CdpError::kProtocol, .detail = {}})
         );
-        return exu::json::as<T>(
-            TRY(sendRaw(method, paramsValue, sessionId)),
+        return ex::json::As<T>(
+            TRY(SendRaw(method, params_value, session_id)),
             CdpFailure{.code = CdpError::kProtocol, .detail = {}}
         );
     }
 
     [[nodiscard]] Expected<std::unique_ptr<class CdpSession>, CdpFailure>
-    createSession(String sessionId, String targetId);
+    CreateSession(String session_id, String target_id);
 
-    Expected<void, CdpFailure> close();
+    Expected<void, CdpFailure> Close();
 
 private:
     struct PendingCommandWaiter;
     struct SharedState {
-        std::unordered_map<i64, std::shared_ptr<PendingCommandWaiter>> pendingWaiters;
-        std::unordered_map<String, std::shared_ptr<CdpSessionState>> sessionsById;
-        std::unordered_map<String, std::shared_ptr<CdpSessionState>> sessionsByTargetId;
-        CdpRequestTracker pendingRequests;
-        i64 nextRequestId{1_i64};
-        std::optional<CdpFailure> terminalFailure;
+        std::unordered_map<i64, std::shared_ptr<PendingCommandWaiter>> pending_waiters;
+        std::unordered_map<String, std::shared_ptr<CdpSessionState>> sessions_by_id;
+        std::unordered_map<String, std::shared_ptr<CdpSessionState>> sessions_by_target_id;
+        CdpRequestTracker pending_requests;
+        i64 next_request_id{1_i64};
+        std::optional<CdpFailure> terminal_failure;
         bool closing{false};
         bool closed{false};
     };
     struct SendState final {};
 
     CdpClient(
-        std::string socketPath, String websocketPath,
-        std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string tracePath,
-        us::fs::blocking::FileDescriptor traceFile, eng::TaskProcessor &fsTaskProcessor,
-        eng::Deadline overallDeadline, std::chrono::milliseconds commandTimeout
+        std::string socket_path, String websocket_path,
+        std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string trace_path,
+        us::fs::blocking::FileDescriptor trace_file, eng::TaskProcessor &fs_task_processor,
+        eng::Deadline overall_deadline, std::chrono::milliseconds command_timeout
     );
 
     friend class CdpSession;
 
-    void startReaderTask();
-    [[nodiscard]] Expected<json::Value, CdpFailure> sendRaw(
-        const String &method, const json::Value &params, const std::optional<String> &sessionId
+    void StartReaderTask();
+    [[nodiscard]] Expected<json::Value, CdpFailure> SendRaw(
+        const String &method, const json::Value &params, const std::optional<String> &session_id
     );
-    void readerLoop();
-    Expected<void, CdpFailure> handleMessage(const std::string &payload);
-    [[nodiscard]] Expected<CdpEvent, CdpFailure> waitForSessionEvent(
-        const std::shared_ptr<CdpSessionState> &sessionState, eng::Deadline deadline,
-        const String &timeoutMessage
+    void ReaderLoop();
+    Expected<void, CdpFailure> HandleMessage(const std::string &payload);
+    [[nodiscard]] Expected<CdpEvent, CdpFailure> WaitForSessionEvent(
+        const std::shared_ptr<CdpSessionState> &session_state, eng::Deadline deadline,
+        const String &timeout_message
     );
     [[nodiscard]] std::vector<CdpEvent>
-    drainSessionEvents(const std::shared_ptr<CdpSessionState> &sessionState);
-    void unregisterSession(
-        const String &sessionId, const String &targetId,
-        const std::shared_ptr<CdpSessionState> &sessionState
+    DrainSessionEvents(const std::shared_ptr<CdpSessionState> &session_state);
+    void UnregisterSession(
+        const String &session_id, const String &target_id,
+        const std::shared_ptr<CdpSessionState> &session_state
     ) noexcept;
-    void closeQuietly() noexcept;
-    void stopReaderTask() noexcept;
-    Expected<void, CdpFailure> writeTraceLine(const json::Value &value);
-    void writeTraceLineBestEffort(const json::Value &value);
-    void traceCommand(i64 id, const String &method, const std::optional<String> &sessionId);
+    void CloseQuietly() noexcept;
+    void StopReaderTask() noexcept;
+    Expected<void, CdpFailure> WriteTraceLine(const json::Value &value);
+    void WriteTraceLineBestEffort(const json::Value &value);
+    void TraceCommand(i64 id, const String &method, const std::optional<String> &session_id);
     void
-    traceResponse(i64 id, const CdpPendingRequest *request, const std::optional<String> &error);
-    void traceEvent(const String &method, const std::optional<String> &sessionId);
-    void traceClose(const String &direction, int closeCode);
-    void traceTransportError(const String &operation, const String &error);
-    void failTerminal(CdpFailure failure);
+    TraceResponse(i64 id, const CdpPendingRequest *request, const std::optional<String> &error);
+    void TraceEvent(const String &method, const std::optional<String> &session_id);
+    void TraceClose(const String &direction, int close_code);
+    void TraceTransportError(const String &operation, const String &error);
+    void FailTerminal(CdpFailure failure);
 
-    std::string socketPath;
-    String websocketPath;
-    std::shared_ptr<us::websocket::WebSocketConnection> connection;
-    us::concurrent::Variable<SharedState> sharedState;
-    us::concurrent::Variable<SendState> sendState;
-    std::string tracePath;
-    us::fs::blocking::FileDescriptor traceFile;
-    eng::TaskProcessor &fsTaskProcessor;
-    eng::Deadline overallDeadline;
-    std::chrono::milliseconds commandTimeout;
-    eng::Task readerTask;
+    std::string socket_path_;
+    String websocket_path_;
+    std::shared_ptr<us::websocket::WebSocketConnection> connection_;
+    us::concurrent::Variable<SharedState> shared_state_;
+    us::concurrent::Variable<SendState> send_state_;
+    std::string trace_path_;
+    us::fs::blocking::FileDescriptor trace_file_;
+    eng::TaskProcessor &fs_task_processor_;
+    eng::Deadline overall_deadline_;
+    std::chrono::milliseconds command_timeout_;
+    eng::Task reader_task_;
 };
 
 class [[nodiscard]] CdpSession final {
@@ -205,58 +207,58 @@ public:
     CdpSession &operator=(const CdpSession &) = delete;
     CdpSession &operator=(CdpSession &&) = delete;
 
-    template <typename T> [[nodiscard]] Expected<T, CdpFailure> send(const String &method)
+    template <typename T> [[nodiscard]] Expected<T, CdpFailure> Send(const String &method)
     {
-        invariant(client != nullptr, "cdp session is not attached"_t);
-        return client->send<T>(method, sessionIdValue);
+        Invariant(client_ != nullptr, "cdp session is not attached"_t);
+        return client_->Send<T>(method, session_id_);
     }
 
     template <typename T, typename Params>
-    [[nodiscard]] Expected<T, CdpFailure> send(const String &method, const Params &params)
+    [[nodiscard]] Expected<T, CdpFailure> Send(const String &method, const Params &params)
     {
-        invariant(client != nullptr, "cdp session is not attached"_t);
-        return client->send<T>(method, params, sessionIdValue);
+        Invariant(client_ != nullptr, "cdp session is not attached"_t);
+        return client_->Send<T>(method, params, session_id_);
     }
 
     template <typename Params>
-    [[nodiscard]] Expected<void, CdpFailure> sendVoid(const String &method, const Params &params)
+    [[nodiscard]] Expected<void, CdpFailure> SendVoid(const String &method, const Params &params)
     {
-        invariant(client != nullptr, "cdp session is not attached"_t);
-        TRY(client->send<dto::CdpEmptyObject>(method, params, sessionIdValue));
+        Invariant(client_ != nullptr, "cdp session is not attached"_t);
+        TRY(client_->Send<dto::CdpEmptyObject>(method, params, session_id_));
         return {};
     }
 
-    [[nodiscard]] Expected<void, CdpFailure> sendVoid(const String &method)
+    [[nodiscard]] Expected<void, CdpFailure> SendVoid(const String &method)
     {
-        invariant(client != nullptr, "cdp session is not attached"_t);
-        TRY(client->send<dto::CdpEmptyObject>(method, sessionIdValue));
+        Invariant(client_ != nullptr, "cdp session is not attached"_t);
+        TRY(client_->Send<dto::CdpEmptyObject>(method, session_id_));
         return {};
     }
 
     [[nodiscard]] Expected<CdpEvent, CdpFailure>
-    waitEvent(eng::Deadline deadline, const String &timeoutMessage);
-    [[nodiscard]] std::vector<CdpEvent> drainAvailableEvents();
-    [[nodiscard]] const String &sessionId() const noexcept { return sessionIdValue; }
-    [[nodiscard]] const String &targetId() const noexcept { return targetIdValue; }
+    WaitEvent(eng::Deadline deadline, const String &timeout_message);
+    [[nodiscard]] std::vector<CdpEvent> DrainAvailableEvents();
+    [[nodiscard]] const String &SessionId() const noexcept { return session_id_; }
+    [[nodiscard]] const String &TargetId() const noexcept { return target_id_; }
 
 private:
     CdpSession(
-        CdpClient &clientIn, String sessionIdIn, String targetIdIn,
-        std::shared_ptr<CdpSessionState> sessionStateIn
+        CdpClient &client_in, String session_id_in, String target_id_in,
+        std::shared_ptr<CdpSessionState> session_state_in
     )
-        : client(&clientIn), sessionIdValue(std::move(sessionIdIn)),
-          targetIdValue(std::move(targetIdIn)), sessionState(std::move(sessionStateIn))
+        : client_(&client_in), session_id_(std::move(session_id_in)),
+          target_id_(std::move(target_id_in)), session_state_(std::move(session_state_in))
     {
     }
 
     friend class CdpClient;
 
-    CdpClient *client{nullptr};
-    String sessionIdValue;
-    String targetIdValue;
-    std::shared_ptr<CdpSessionState> sessionState;
+    CdpClient *client_{nullptr};
+    String session_id_;
+    String target_id_;
+    std::shared_ptr<CdpSessionState> session_state_;
 };
 
-[[nodiscard]] String describeCdpFailure(const String &action, const CdpFailure &failure);
+[[nodiscard]] String DescribeCdpFailure(const String &action, const CdpFailure &failure);
 
 } // namespace v1::crawler

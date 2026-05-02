@@ -7,7 +7,7 @@
 
 namespace v1::prefix {
 
-[[nodiscard]] String makePrefixKey(const Link &link);
-[[nodiscard]] std::string makePrefixTree(const String &prefixKey);
+[[nodiscard]] String MakePrefixKey(const Link &link);
+[[nodiscard]] std::string MakePrefixTree(const String &prefix_key);
 
 } // namespace v1::prefix

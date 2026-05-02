@@ -56,7 +56,7 @@ struct BrowserPageLifecycleDefinition {
 } // namespace
 
 struct BrowserPageSessionLifecycle::Impl final {
-    template <typename Event> [[nodiscard]] bool process(const Event &event)
+    template <typename Event> [[nodiscard]] bool Process(const Event &event)
     {
         return sm.process_event(event);
     }
@@ -64,28 +64,28 @@ struct BrowserPageSessionLifecycle::Impl final {
     sml::sm<BrowserPageLifecycleDefinition> sm;
 };
 
-BrowserPageSessionLifecycle::BrowserPageSessionLifecycle() : impl(std::make_unique<Impl>()) {}
+BrowserPageSessionLifecycle::BrowserPageSessionLifecycle() : impl_(std::make_unique<Impl>()) {}
 
 BrowserPageSessionLifecycle::~BrowserPageSessionLifecycle() = default;
 
-bool BrowserPageSessionLifecycle::markBrowserContextCreated()
+bool BrowserPageSessionLifecycle::MarkBrowserContextCreated()
 {
-    return impl->process(BrowserContextCreated{});
+    return impl_->Process(BrowserContextCreated{});
 }
 
-bool BrowserPageSessionLifecycle::markTargetCreated() { return impl->process(TargetCreated{}); }
+bool BrowserPageSessionLifecycle::MarkTargetCreated() { return impl_->Process(TargetCreated{}); }
 
-bool BrowserPageSessionLifecycle::markAttached() { return impl->process(Attached{}); }
+bool BrowserPageSessionLifecycle::MarkAttached() { return impl_->Process(Attached{}); }
 
-bool BrowserPageSessionLifecycle::markBaseDomainsEnabled()
+bool BrowserPageSessionLifecycle::MarkBaseDomainsEnabled()
 {
-    return impl->process(BaseDomainsEnabled{});
+    return impl_->Process(BaseDomainsEnabled{});
 }
 
-bool BrowserPageSessionLifecycle::markDetached() { return impl->process(Detached{}); }
+bool BrowserPageSessionLifecycle::MarkDetached() { return impl_->Process(Detached{}); }
 
-bool BrowserPageSessionLifecycle::markDisposed() { return impl->process(Disposed{}); }
+bool BrowserPageSessionLifecycle::MarkDisposed() { return impl_->Process(Disposed{}); }
 
-bool BrowserPageSessionLifecycle::markClosed() { return impl->process(Closed{}); }
+bool BrowserPageSessionLifecycle::MarkClosed() { return impl_->Process(Closed{}); }
 
 } // namespace v1::crawler

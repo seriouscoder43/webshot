@@ -30,43 +30,43 @@ public:
         return static_cast<StripOptions>(static_cast<U>(lhs) & static_cast<U>(rhs));
     }
 
-    [[nodiscard]] static std::optional<Url> fromText(const String &text);
-    [[nodiscard]] static Url fromParsed(ada::url_aggregator url);
+    [[nodiscard]] static std::optional<Url> FromText(const String &text);
+    [[nodiscard]] static Url FromParsed(ada::url_aggregator url);
 
-    [[nodiscard]] String host() const;
-    [[nodiscard]] String hostname() const;
-    [[nodiscard]] String port() const;
-    [[nodiscard]] String pathname() const;
-    [[nodiscard]] String search() const;
-    [[nodiscard]] String pathWithSearch() const;
-    [[nodiscard]] String href() const;
-    [[nodiscard]] String origin() const;
-    [[nodiscard]] String surt() const;
+    [[nodiscard]] String Host() const;
+    [[nodiscard]] String Hostname() const;
+    [[nodiscard]] String Port() const;
+    [[nodiscard]] String Pathname() const;
+    [[nodiscard]] String Search() const;
+    [[nodiscard]] String PathWithSearch() const;
+    [[nodiscard]] String Href() const;
+    [[nodiscard]] String Origin() const;
+    [[nodiscard]] String Surt() const;
 
-    [[nodiscard]] bool hasHostname() const;
-    [[nodiscard]] bool hasPort() const;
-    [[nodiscard]] bool hasNonDefaultPort() const;
-    [[nodiscard]] bool hasSearch() const;
-    [[nodiscard]] bool hasValidDomain() const;
-    [[nodiscard]] ada::scheme::type schemeType() const;
-    [[nodiscard]] bool isHttp() const;
-    [[nodiscard]] bool isHttps() const;
-    [[nodiscard]] bool isHttpOrHttps() const;
-    [[nodiscard]] Url stripped(StripOptions options) const;
-    [[nodiscard]] Url withProtocol(const String &protocol) const;
-    [[nodiscard]] Url withHostname(const String &hostname) const;
-    [[nodiscard]] Url withPort(const String &port) const;
-    [[nodiscard]] Url withPathname(const String &pathname) const;
-    [[nodiscard]] Url withSearch(const String &search) const;
-    [[nodiscard]] Url withoutSearch() const;
-    [[nodiscard]] Url withoutHash() const;
+    [[nodiscard]] bool HasHostname() const;
+    [[nodiscard]] bool HasPort() const;
+    [[nodiscard]] bool HasNonDefaultPort() const;
+    [[nodiscard]] bool HasSearch() const;
+    [[nodiscard]] bool HasValidDomain() const;
+    [[nodiscard]] ada::scheme::type SchemeType() const;
+    [[nodiscard]] bool IsHttp() const;
+    [[nodiscard]] bool IsHttps() const;
+    [[nodiscard]] bool IsHttpOrHttps() const;
+    [[nodiscard]] Url Stripped(StripOptions options) const;
+    [[nodiscard]] Url WithProtocol(const String &protocol) const;
+    [[nodiscard]] Url WithHostname(const String &hostname) const;
+    [[nodiscard]] Url WithPort(const String &port) const;
+    [[nodiscard]] Url WithPathname(const String &pathname) const;
+    [[nodiscard]] Url WithSearch(const String &search) const;
+    [[nodiscard]] Url WithoutSearch() const;
+    [[nodiscard]] Url WithoutHash() const;
 
-    [[nodiscard]] ada::url_aggregator copyParsed() const;
+    [[nodiscard]] ada::url_aggregator CopyParsed() const;
 
 private:
-    explicit Url(ada::url_aggregator adaUrl);
+    explicit Url(ada::url_aggregator ada_url);
 
-    ada::url_aggregator adaUrl;
+    ada::url_aggregator ada_url_;
 };
 
 } // namespace v1

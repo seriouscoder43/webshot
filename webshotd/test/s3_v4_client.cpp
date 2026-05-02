@@ -2,8 +2,6 @@
 #include <string>
 #include <vector>
 
-#include "userver_namespaces.hpp"
-
 #include <userver/utest/http_client.hpp>
 #include <userver/utest/utest.hpp>
 #include <userver/utils/datetime.hpp>
@@ -12,27 +10,34 @@
 #include "s3/sigv4_signer.hpp"
 #include "text.hpp"
 
+namespace v1 {
+namespace us = userver;
+namespace datetime = us::utils::datetime;
+} // namespace v1
+
+using namespace v1;
+
 using namespace std::chrono_literals;
 using v1::s3v4::AccessKeyId;
-using v1::s3v4::buildCanonicalRequest;
+using v1::s3v4::BuildCanonicalRequest;
 using v1::s3v4::CanonicalRequestParts;
 using v1::s3v4::EncodeSlash;
-using v1::s3v4::percentEncode;
+using v1::s3v4::PercentEncode;
 using v1::s3v4::S3Credentials;
 using v1::s3v4::S3V4Client;
 using v1::s3v4::S3V4Config;
 using v1::s3v4::SecretAccessKey;
-using v1::s3v4::signHeaders;
+using v1::s3v4::SignHeaders;
 using v1::s3v4::SigV4Params;
 using namespace text::literals;
 
 UTEST(S3SigV4, PercentEncodeBasicCharacters)
 {
-    EXPECT_EQ(percentEncode("abcXYZ-_.~"_t, EncodeSlash::kNo), "abcXYZ-_.~"_t);
-    EXPECT_EQ(percentEncode(" "_t, EncodeSlash::kYes), "%20"_t);
-    EXPECT_EQ(percentEncode("!"_t, EncodeSlash::kYes), "%21"_t);
-    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kYes), "%2F"_t);
-    EXPECT_EQ(percentEncode("/"_t, EncodeSlash::kNo), "/"_t);
+    EXPECT_EQ(PercentEncode("abcXYZ-_.~"_t, EncodeSlash::kNo), "abcXYZ-_.~"_t);
+    EXPECT_EQ(PercentEncode(" "_t, EncodeSlash::kYes), "%20"_t);
+    EXPECT_EQ(PercentEncode("!"_t, EncodeSlash::kYes), "%21"_t);
+    EXPECT_EQ(PercentEncode("/"_t, EncodeSlash::kYes), "%2F"_t);
+    EXPECT_EQ(PercentEncode("/"_t, EncodeSlash::kNo), "/"_t);
 }
 
 UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
@@ -45,21 +50,21 @@ UTEST(S3SigV4, BuildCanonicalRequestEncodesAndSortsQuery)
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("host", "examplebucket.s3.amazonaws.com");
 
-    CanonicalRequestParts parts = buildCanonicalRequest(
+    CanonicalRequestParts parts = BuildCanonicalRequest(
         "GET", "/", query, headers, "UNSIGNED-PAYLOAD"
     );
 
-    std::istringstream iss(parts.canonicalRequest);
-    std::string methodLine;
-    std::string uriLine;
-    std::string queryLine;
-    ASSERT_TRUE(static_cast<bool>(std::getline(iss, methodLine)));
-    ASSERT_TRUE(static_cast<bool>(std::getline(iss, uriLine)));
-    ASSERT_TRUE(static_cast<bool>(std::getline(iss, queryLine)));
+    std::istringstream iss(parts.canonical_request);
+    std::string method_line;
+    std::string uri_line;
+    std::string query_line;
+    ASSERT_TRUE(static_cast<bool>(std::getline(iss, method_line)));
+    ASSERT_TRUE(static_cast<bool>(std::getline(iss, uri_line)));
+    ASSERT_TRUE(static_cast<bool>(std::getline(iss, query_line)));
 
-    EXPECT_EQ(methodLine, std::string{"GET"});
-    EXPECT_EQ(uriLine, std::string{"/"});
-    EXPECT_EQ(queryLine, std::string{"Another=2&Param=value%20value&Param=value%21"});
+    EXPECT_EQ(method_line, std::string{"GET"});
+    EXPECT_EQ(uri_line, std::string{"/"});
+    EXPECT_EQ(query_line, std::string{"Another=2&Param=value%20value&Param=value%21"});
 }
 
 UTEST(S3SigV4, SignHeadersMatchesAwsExample)
@@ -67,54 +72,54 @@ UTEST(S3SigV4, SignHeadersMatchesAwsExample)
     SigV4Params params;
     params.region = "us-east-1";
     params.service = "s3";
-    params.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
-    params.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
-    params.amzDate = "20130524T000000Z";
+    params.access_key_id = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
+    params.secret_access_key = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
+    params.amz_date = "20130524T000000Z";
     params.date = "20130524";
 
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("host", "examplebucket.s3.amazonaws.com");
     headers.emplace_back("range", "bytes=0-9");
 
-    const std::string payloadHash =
+    const std::string payload_hash =
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    std::vector<std::pair<String, String>> headersText;
-    headersText.emplace_back("host"_t, "examplebucket.s3.amazonaws.com"_t);
-    headersText.emplace_back("range"_t, "bytes=0-9"_t);
+    std::vector<std::pair<String, String>> headers_text;
+    headers_text.emplace_back("host"_t, "examplebucket.s3.amazonaws.com"_t);
+    headers_text.emplace_back("range"_t, "bytes=0-9"_t);
 
-    const auto signedHeaders = signHeaders(
-        params, "GET"_t, "/test.txt"_t, /*query*/ {}, headersText,
-        String::fromBytes(payloadHash).expect()
+    const auto signed_headers = SignHeaders(
+        params, "GET"_t, "/test.txt"_t, /*query*/ {}, headers_text,
+        String::FromBytes(payload_hash).Expect()
     );
 
-    auto itDate = signedHeaders.find("x-amz-date");
-    ASSERT_NE(itDate, signedHeaders.end());
-    const auto &[dateName, dateValue] = *itDate;
-    EXPECT_EQ(dateName, "x-amz-date");
-    EXPECT_EQ(dateValue, params.amzDate);
+    auto it_date = signed_headers.find("x-amz-date");
+    ASSERT_NE(it_date, signed_headers.end());
+    const auto &[date_name, date_value] = *it_date;
+    EXPECT_EQ(date_name, "x-amz-date");
+    EXPECT_EQ(date_value, params.amz_date);
 
-    auto itPayload = signedHeaders.find("x-amz-content-sha256");
-    ASSERT_NE(itPayload, signedHeaders.end());
-    const auto &[payloadName, payloadValue] = *itPayload;
-    EXPECT_EQ(payloadName, "x-amz-content-sha256");
-    EXPECT_EQ(payloadValue, payloadHash);
+    auto it_payload = signed_headers.find("x-amz-content-sha256");
+    ASSERT_NE(it_payload, signed_headers.end());
+    const auto &[payload_name, payload_value] = *it_payload;
+    EXPECT_EQ(payload_name, "x-amz-content-sha256");
+    EXPECT_EQ(payload_value, payload_hash);
 
-    auto itAuth = signedHeaders.find("authorization");
-    ASSERT_NE(itAuth, signedHeaders.end());
-    const auto &[authName, authValue] = *itAuth;
-    EXPECT_EQ(authName, "authorization");
+    auto it_auth = signed_headers.find("authorization");
+    ASSERT_NE(it_auth, signed_headers.end());
+    const auto &[auth_name, auth_value] = *it_auth;
+    EXPECT_EQ(auth_name, "authorization");
 
-    const std::string expectedAuth =
+    const std::string expected_auth =
         "AWS4-HMAC-SHA256 "
         "Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, "
         "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, "
         "Signature=67fe34c8530db585abddc51067328adfedb6e42487d2566dc7d927d6e2722900";
-    EXPECT_EQ(authValue, expectedAuth);
+    EXPECT_EQ(auth_value, expected_auth);
 }
 
 namespace {
 
-std::map<std::string, std::string> parseQuery(const std::string &url)
+std::map<std::string, std::string> ParseQuery(const std::string &url)
 {
     std::map<std::string, std::string> out;
     const auto pos = url.find('?');
@@ -139,21 +144,21 @@ std::map<std::string, std::string> parseQuery(const std::string &url)
     return out;
 }
 
-S3V4Config makeConfig()
+S3V4Config MakeConfig()
 {
     S3V4Config cfg;
     cfg.endpoint = "https://examplebucket.s3.amazonaws.com"_t;
     cfg.region = "us-east-1"_t;
     cfg.timeout = 1000ms;
-    cfg.virtualHosted = false;
+    cfg.virtual_hosted = false;
     return cfg;
 }
 
-S3Credentials makeCreds()
+S3Credentials MakeCreds()
 {
     S3Credentials creds;
-    creds.accessKeyId = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
-    creds.secretAccessKey = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
+    creds.access_key_id = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
+    creds.secret_access_key = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
     return creds;
 }
 
@@ -161,63 +166,63 @@ S3Credentials makeCreds()
 
 UTEST(S3SigV4Client, PresignPathStyleClampsShortTtl)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "examplebucket"_t);
 
     const auto expired = datetime::Now() - 1h;
     const std::string url = client->GenerateDownloadUrl(
         "test.txt", std::chrono::system_clock::to_time_t(expired), true
     );
 
-    const auto params = parseQuery(url);
+    const auto params = ParseQuery(url);
     auto it = params.find("X-Amz-Expires");
     ASSERT_NE(it, params.end());
-    const auto &[expiresName, expiresValue] = *it;
-    EXPECT_EQ(expiresName, "X-Amz-Expires");
-    EXPECT_EQ(expiresValue, std::string{"1"});
+    const auto &[expires_name, expires_value] = *it;
+    EXPECT_EQ(expires_name, "X-Amz-Expires");
+    EXPECT_EQ(expires_value, std::string{"1"});
 }
 
 UTEST(S3SigV4Client, PresignPathStyleClampsLongTtl)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "examplebucket"_t);
 
-    const auto farFuture = datetime::Now() + 14 * 24h;
+    const auto far_future = datetime::Now() + 14 * 24h;
     const std::string url = client->GenerateDownloadUrl(
-        "test.txt", std::chrono::system_clock::to_time_t(farFuture), true
+        "test.txt", std::chrono::system_clock::to_time_t(far_future), true
     );
 
-    const auto params = parseQuery(url);
+    const auto params = ParseQuery(url);
     auto it = params.find("X-Amz-Expires");
     ASSERT_NE(it, params.end());
-    const auto &[expiresName, expiresValue] = *it;
-    EXPECT_EQ(expiresName, "X-Amz-Expires");
-    EXPECT_EQ(expiresValue, std::string{"604800"});
+    const auto &[expires_name, expires_value] = *it;
+    EXPECT_EQ(expires_name, "X-Amz-Expires");
+    EXPECT_EQ(expires_value, std::string{"604800"});
 }
 
 UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "examplebucket"_t);
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "examplebucket"_t);
 
     const auto soon = datetime::Now() + 120s;
     const std::string url = client->GenerateDownloadUrl(
         "folder/file with space.txt", std::chrono::system_clock::to_time_t(soon), true
     );
 
-    const auto schemePos = url.find("://");
-    ASSERT_NE(schemePos, std::string::npos);
-    const auto pathStart = url.find('/', schemePos + 3);
-    ASSERT_NE(pathStart, std::string::npos);
-    const auto queryPos = url.find('?', pathStart);
+    const auto scheme_pos = url.find("://");
+    ASSERT_NE(scheme_pos, std::string::npos);
+    const auto path_start = url.find('/', scheme_pos + 3);
+    ASSERT_NE(path_start, std::string::npos);
+    const auto query_pos = url.find('?', path_start);
     const std::string path = url.substr(
-        pathStart, queryPos == std::string::npos ? std::string::npos : queryPos - pathStart
+        path_start, query_pos == std::string::npos ? std::string::npos : query_pos - path_start
     );
 
     EXPECT_EQ(path, std::string{"/examplebucket/folder/file%20with%20space.txt"});
@@ -225,64 +230,64 @@ UTEST(S3SigV4Client, PresignPathStyleEncodesObjectKey)
 
 UTEST(S3SigV4Client, ValidateVirtualHostBucketNameRequiresBucket)
 {
-    const auto result = v1::s3v4::detail::validateVirtualHostBucketName(String{});
+    const auto result = v1::s3v4::detail::ValidateVirtualHostBucketName(String{});
     ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), v1::s3v4::detail::VirtualHostPresignError::kMissingBucket);
+    EXPECT_EQ(result.Error(), v1::s3v4::detail::VirtualHostPresignError::kMissingBucket);
 }
 
 UTEST(S3SigV4Client, VirtualHostUsesBucketInHost)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
     cfg.endpoint = "s3.example.com"_t;
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    const auto expiresAt = datetime::Now() + 60s;
+    const auto expires_at = datetime::Now() + 60s;
     const std::string url = client->GenerateDownloadUrlVirtualHostAddressing(
-        "path/object", expiresAt, "https"
+        "path/object", expires_at, "https"
     );
 
-    const auto schemePos = url.find("://");
-    ASSERT_NE(schemePos, std::string::npos);
-    const auto hostStart = schemePos + 3;
-    const auto pathStart = url.find('/', hostStart);
-    ASSERT_NE(pathStart, std::string::npos);
-    const std::string host = url.substr(hostStart, pathStart - hostStart);
+    const auto scheme_pos = url.find("://");
+    ASSERT_NE(scheme_pos, std::string::npos);
+    const auto host_start = scheme_pos + 3;
+    const auto path_start = url.find('/', host_start);
+    ASSERT_NE(path_start, std::string::npos);
+    const std::string host = url.substr(host_start, path_start - host_start);
 
     EXPECT_EQ(host, std::string{"bucket-name.s3.example.com"});
 }
 
 UTEST(S3SigV4Client, UnsupportedOperationsThrow)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    us::s3api::ConnectionCfg newCfg{50ms};
-    EXPECT_NO_THROW(client->UpdateConfig(std::move(newCfg)));
+    us::s3api::ConnectionCfg new_cfg{50ms};
+    EXPECT_NO_THROW(client->UpdateConfig(std::move(new_cfg)));
     EXPECT_EQ(client->GetBucketName(), std::string_view{"bucket-name"});
 }
 
 UTEST(S3SigV4Client, UploadPresignIncludesContentType)
 {
-    auto httpClient = us::utest::CreateHttpClient();
-    auto cfg = makeConfig();
+    auto http_client = us::utest::CreateHttpClient();
+    auto cfg = MakeConfig();
     cfg.endpoint = "s3.internal"_t;
-    auto creds = makeCreds();
-    auto client = std::make_shared<S3V4Client>(*httpClient, cfg, creds, "bucket-name"_t);
+    auto creds = MakeCreds();
+    auto client = std::make_shared<S3V4Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    const auto expiresAt = datetime::Now() + 120s;
+    const auto expires_at = datetime::Now() + 120s;
     const std::string url = client->GenerateUploadUrlVirtualHostAddressing(
-        "ignored-body", "text/plain", "path/file.txt", expiresAt, "http"
+        "ignored-body", "text/plain", "path/file.txt", expires_at, "http"
     );
 
-    const auto params = parseQuery(url);
-    auto shIt = params.find("X-Amz-SignedHeaders");
-    ASSERT_NE(shIt, params.end());
-    const auto &[signedHeadersName, signedHeadersValue] = *shIt;
-    EXPECT_EQ(signedHeadersName, "X-Amz-SignedHeaders");
-    EXPECT_TRUE(signedHeadersValue.contains("content-type"));
-    EXPECT_TRUE(signedHeadersValue.contains("host"));
+    const auto params = ParseQuery(url);
+    auto sh_it = params.find("X-Amz-SignedHeaders");
+    ASSERT_NE(sh_it, params.end());
+    const auto &[signed_headers_name, signed_headers_value] = *sh_it;
+    EXPECT_EQ(signed_headers_name, "X-Amz-SignedHeaders");
+    EXPECT_TRUE(signed_headers_value.contains("content-type"));
+    EXPECT_TRUE(signed_headers_value.contains("host"));
 }

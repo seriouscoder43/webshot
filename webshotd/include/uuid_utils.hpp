@@ -11,7 +11,7 @@ namespace v1::uuidu {
 
 using Uuid = boost::uuids::uuid;
 
-[[nodiscard]] inline std::optional<Uuid> parse(std::string_view text) noexcept
+[[nodiscard]] inline std::optional<Uuid> Parse(std::string_view text) noexcept
 {
     boost::uuids::string_generator gen;
     try {

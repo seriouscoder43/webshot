@@ -7,38 +7,38 @@
 #include "s3/s3_url_utils.hpp"
 #include "text.hpp"
 
-using v1::s3v4::decodeQueryString;
-using v1::s3v4::parseUrlWithDefaultHttpScheme;
+using v1::s3v4::DecodeQueryString;
+using v1::s3v4::ParseUrlWithDefaultHttpScheme;
 using namespace text::literals;
 
 UTEST(S3UrlUtils, ParsesUrlWithExistingScheme)
 {
-    const auto url = parseUrlWithDefaultHttpScheme("https://example.com/path?a=1"_t);
+    const auto url = ParseUrlWithDefaultHttpScheme("https://example.com/path?a=1"_t);
     ASSERT_TRUE(url);
-    EXPECT_EQ(url->href(), "https://example.com/path?a=1"_t);
+    EXPECT_EQ(url->Href(), "https://example.com/path?a=1"_t);
 }
 
 UTEST(S3UrlUtils, DefaultsMissingSchemeToHttp)
 {
-    const auto url = parseUrlWithDefaultHttpScheme("example.com/path?a=1"_t);
+    const auto url = ParseUrlWithDefaultHttpScheme("example.com/path?a=1"_t);
     ASSERT_TRUE(url);
-    EXPECT_EQ(url->href(), "http://example.com/path?a=1"_t);
+    EXPECT_EQ(url->Href(), "http://example.com/path?a=1"_t);
 }
 
 UTEST(S3UrlUtils, RejectsInvalidUrlEvenAfterDefaultScheme)
 {
-    EXPECT_FALSE(parseUrlWithDefaultHttpScheme("https://["_t));
+    EXPECT_FALSE(ParseUrlWithDefaultHttpScheme("https://["_t));
 }
 
 UTEST(S3UrlUtils, EmptyAndQuestionOnly)
 {
     {
-        const auto v = decodeQueryString(""_t);
+        const auto v = DecodeQueryString(""_t);
         ASSERT_TRUE(v);
         EXPECT_TRUE(v->empty());
     }
     {
-        const auto v = decodeQueryString("?"_t);
+        const auto v = DecodeQueryString("?"_t);
         ASSERT_TRUE(v);
         EXPECT_TRUE(v->empty());
     }
@@ -46,24 +46,24 @@ UTEST(S3UrlUtils, EmptyAndQuestionOnly)
 
 UTEST(S3UrlUtils, SinglePairAndTrailingAmp)
 {
-    auto v = decodeQueryString("a=1"_t);
+    auto v = DecodeQueryString("a=1"_t);
     ASSERT_TRUE(v);
     ASSERT_EQ(v->size(), 1);
     const auto &[key, value] = (*v)[0];
     EXPECT_EQ(key, "a"_t);
     EXPECT_EQ(value, "1"_t);
 
-    v = decodeQueryString("a=1&"_t);
+    v = DecodeQueryString("a=1&"_t);
     ASSERT_TRUE(v);
     ASSERT_EQ(v->size(), 1);
-    const auto &[trailingKey, trailingValue] = (*v)[0];
-    EXPECT_EQ(trailingKey, "a"_t);
-    EXPECT_EQ(trailingValue, "1"_t);
+    const auto &[trailing_key, trailing_value] = (*v)[0];
+    EXPECT_EQ(trailing_key, "a"_t);
+    EXPECT_EQ(trailing_value, "1"_t);
 }
 
 UTEST(S3UrlUtils, MultipleAndRepeatedKeys)
 {
-    auto v = decodeQueryString("a=1&b=2&a=3"_t);
+    auto v = DecodeQueryString("a=1&b=2&a=3"_t);
     ASSERT_TRUE(v);
     ASSERT_EQ(v->size(), 3);
     const auto &[key0, value0] = (*v)[0];
@@ -79,7 +79,7 @@ UTEST(S3UrlUtils, MultipleAndRepeatedKeys)
 
 UTEST(S3UrlUtils, LeadingQuestionMark)
 {
-    auto v = decodeQueryString("?a=1&b=2"_t);
+    auto v = DecodeQueryString("?a=1&b=2"_t);
     ASSERT_TRUE(v);
     ASSERT_EQ(v->size(), 2);
     const auto &[key0, value0] = (*v)[0];
@@ -92,7 +92,7 @@ UTEST(S3UrlUtils, LeadingQuestionMark)
 
 UTEST(S3UrlUtils, PercentDecodingKeyAndValue)
 {
-    auto v = decodeQueryString("x%20y=hello%20world"_t);
+    auto v = DecodeQueryString("x%20y=hello%20world"_t);
     ASSERT_TRUE(v);
     ASSERT_EQ(v->size(), 1);
     const auto &[key, value] = (*v)[0];
@@ -102,7 +102,7 @@ UTEST(S3UrlUtils, PercentDecodingKeyAndValue)
 
 UTEST(S3UrlUtils, HandlesLeadingSegmentWithoutEquals)
 {
-    auto v = decodeQueryString("noeq&foo=bar"_t);
+    auto v = DecodeQueryString("noeq&foo=bar"_t);
     ASSERT_TRUE(v);
     ASSERT_GE(v->size(), 1);
     const auto &[key, value] = (*v)[0];
@@ -112,7 +112,7 @@ UTEST(S3UrlUtils, HandlesLeadingSegmentWithoutEquals)
 
 UTEST(S3UrlUtils, AllTextNoEqualsYieldsEmpty)
 {
-    auto v = decodeQueryString("noeq"_t);
+    auto v = DecodeQueryString("noeq"_t);
     ASSERT_TRUE(v);
     EXPECT_TRUE(v->empty());
 }

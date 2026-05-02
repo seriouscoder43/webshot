@@ -11,7 +11,6 @@
 #include "schema/common/common.hpp"
 #include "text.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 #include "uuid_utils.hpp"
 
 #include <chrono>
@@ -28,7 +27,10 @@
 
 namespace v1 {
 
-using text::toBytes;
+namespace us = userver;
+namespace server = us::server;
+namespace eng = us::engine;
+using text::ToBytes;
 
 struct [[nodiscard]] ParamError final {
     String name;
@@ -36,24 +38,24 @@ struct [[nodiscard]] ParamError final {
 };
 
 template <typename T>
-[[nodiscard]] Expected<T, String> parseJsonBodyRequest(const server::http::HttpRequest &request)
+[[nodiscard]] Expected<T, String> ParseJsonBodyRequest(const server::http::HttpRequest &request)
 {
     using namespace text::literals;
 
-    const auto body = TRY_MAP_ERR(String::fromBytes(request.RequestBody()), [](const auto &) {
+    const auto body = TRY_MAP_ERR(String::FromBytes(request.RequestBody()), [](const auto &) {
         return "invalid request body"_t;
     });
-    return exu::json::parse<T>(body, "invalid request body"_t);
+    return ex::json::Parse<T>(body, "invalid request body"_t);
 }
 
 [[nodiscard]] inline Expected<Link, String>
-parseJsonLinkBody(const server::http::HttpRequest &request, const Config &config)
+ParseJsonLinkBody(const server::http::HttpRequest &request, const Config &config)
 {
     using namespace text::literals;
 
-    const auto body = TRY(parseJsonBodyRequest<::dto::LinkRequest>(request));
-    const auto text = TRY_ERR_AS(String::fromBytes(body.link), "invalid parameter"_t);
-    return TRY_ERR_AS(Link::fromText(text, config.urlBytesMax()), "invalid parameter"_t);
+    const auto body = TRY(ParseJsonBodyRequest<::dto::LinkRequest>(request));
+    const auto text = TRY_ERR_AS(String::FromBytes(body.link), "invalid parameter"_t);
+    return TRY_ERR_AS(Link::FromText(text, config.UrlBytesMax()), "invalid parameter"_t);
 }
 
 enum class ClientRequestError {
@@ -63,124 +65,124 @@ enum class ClientRequestError {
 
 class [[nodiscard]] HandlerRequestSupport final {
 public:
-    HandlerRequestSupport(Crud &crud, const Config &config) : crud(crud), config(config) {}
+    HandlerRequestSupport(Crud &crud, const Config &config) : crud_(crud), config_(config) {}
 
-    void applyRequestDeadline(
-        const server::http::HttpRequest &request, std::chrono::milliseconds requestTimeout
+    void ApplyRequestDeadline(
+        const server::http::HttpRequest &request, std::chrono::milliseconds request_timeout
     ) const
     {
-        auto finalDeadline = computeHandlerDeadline(request, requestTimeout);
-        eng::current_task::SetDeadline(finalDeadline);
+        auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+        eng::current_task::SetDeadline(final_deadline);
     }
 
     [[nodiscard]] Expected<String, ParamError>
-    parseRequiredQueryText(const server::http::HttpRequest &request, String paramName) const
+    ParseRequiredQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(toBytes(paramName));
-        ENSURE(!arg.empty(), missingParamError(paramName));
-        return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
-                               return invalidParamError(paramName);
+        const std::string arg = request.GetArg(ToBytes(param_name));
+        ENSURE(!arg.empty(), MissingParamError(param_name));
+        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+                               return InvalidParamError(param_name);
                            }));
     }
 
     [[nodiscard]] Expected<String, ParamError>
-    parseQueryText(const server::http::HttpRequest &request, String paramName) const
+    ParseQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(toBytes(paramName));
-        return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
-                               return invalidParamError(paramName);
+        const std::string arg = request.GetArg(ToBytes(param_name));
+        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+                               return InvalidParamError(param_name);
                            }));
     }
 
     [[nodiscard]] Expected<Link, ParamError>
-    parseRequiredQueryLink(const server::http::HttpRequest &request, String paramName) const
+    ParseRequiredQueryLink(const server::http::HttpRequest &request, String param_name) const
     {
-        const auto text = TRY(parseRequiredQueryText(request, paramName));
-        return parseLinkText(text, paramName);
+        const auto text = TRY(ParseRequiredQueryText(request, param_name));
+        return ParseLinkText(text, param_name);
     }
 
     template <typename T>
-    [[nodiscard]] Expected<T, String> parseJsonBody(const server::http::HttpRequest &request) const
+    [[nodiscard]] Expected<T, String> ParseJsonBody(const server::http::HttpRequest &request) const
     {
-        return parseJsonBodyRequest<T>(request);
+        return ParseJsonBodyRequest<T>(request);
     }
 
     [[nodiscard]] Expected<Link, ParamError>
-    parseLinkText(const String &text, String paramName) const
+    ParseLinkText(const String &text, String param_name) const
     {
-        return TRY_MAP_ERR(Link::fromText(text, config.urlBytesMax()), ([&](const auto &) {
-                               return invalidParamError(paramName);
+        return TRY_MAP_ERR(Link::FromText(text, config_.UrlBytesMax()), ([&](auto) {
+                               return InvalidParamError(param_name);
                            }));
     }
 
     [[nodiscard]] Expected<Link, ParamError>
-    parseLinkBytes(std::string_view bytes, String paramName) const
+    ParseLinkBytes(std::string_view bytes, String param_name) const
     {
-        const auto text = TRY_MAP_ERR(String::fromBytes(bytes), ([&](const auto &) {
-                                          return invalidParamError(paramName);
+        const auto text = TRY_MAP_ERR(String::FromBytes(bytes), ([&](auto) {
+                                          return InvalidParamError(param_name);
                                       }));
-        return parseLinkText(text, paramName);
+        return ParseLinkText(text, param_name);
     }
 
     [[nodiscard]] Expected<uuidu::Uuid, ParamError>
-    parseUuidPathArg(const server::http::HttpRequest &request, String paramName) const
+    ParseUuidPathArg(const server::http::HttpRequest &request, String param_name) const
     {
-        const auto text = TRY(parseRequiredPathText(request, paramName));
-        return TRY_OK_OR(uuidu::parse(text.view()), invalidParamError(paramName));
+        const auto text = TRY(ParseRequiredPathText(request, param_name));
+        return TRY_OK_OR(uuidu::Parse(text.View()), InvalidParamError(param_name));
     }
 
     [[nodiscard]] Expected<std::optional<ClientIpCooldown>, ClientRequestError>
-    checkClientIpCooldown(const server::http::HttpRequest &request) const
+    CheckClientIpCooldown(const server::http::HttpRequest &request) const
     {
-        auto clientIp = client::ip::resolve(request, config);
-        if (!clientIp)
+        auto client_ip = client::ip::Resolve(request, config_);
+        if (!client_ip)
             return Unex(ClientRequestError::kInvalidClientIp);
 
-        auto cooldown = crud.acquireClientIpCooldown(std::move(*clientIp));
+        auto cooldown = crud_.AcquireClientIpCooldown(std::move(*client_ip));
         if (!cooldown)
             return Unex(ClientRequestError::kCrudFailure);
         return *cooldown;
     }
 
-    [[nodiscard]] std::optional<String> requestHost(const server::http::HttpRequest &request) const
+    [[nodiscard]] std::optional<String> RequestHost(const server::http::HttpRequest &request) const
     {
-        auto host = String::fromBytes(request.GetHeader(us::http::headers::kHost));
+        auto host = String::FromBytes(request.GetHeader(us::http::headers::kHost));
         if (!host)
             return {};
         return *host;
     }
 
 private:
-    [[nodiscard]] static ParamError missingParamError(String paramName)
+    [[nodiscard]] static ParamError MissingParamError(String param_name)
     {
         using namespace text::literals;
 
-        return {paramName, "missing parameter"_t};
+        return {param_name, "missing parameter"_t};
     }
 
-    [[nodiscard]] static ParamError invalidParamError(String paramName)
+    [[nodiscard]] static ParamError InvalidParamError(String param_name)
     {
         using namespace text::literals;
 
-        return {paramName, "invalid parameter"_t};
+        return {param_name, "invalid parameter"_t};
     }
 
     [[nodiscard]] Expected<String, ParamError>
-    parseRequiredPathText(const server::http::HttpRequest &request, String paramName) const
+    ParseRequiredPathText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetPathArg(toBytes(paramName));
-        ENSURE(!arg.empty(), missingParamError(paramName));
-        return TRY_MAP_ERR(String::fromBytes(arg), ([&](const auto &) {
-                               return invalidParamError(paramName);
+        const std::string arg = request.GetPathArg(ToBytes(param_name));
+        ENSURE(!arg.empty(), MissingParamError(param_name));
+        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+                               return InvalidParamError(param_name);
                            }));
     }
 
-    Crud &crud;
-    const Config &config;
+    Crud &crud_;
+    const Config &config_;
 };
 
 [[nodiscard]] inline std::string
-respondClientRequestError(server::http::HttpResponse &response, ClientRequestError error)
+RespondClientRequestError(server::http::HttpResponse &response, ClientRequestError error)
 {
     using enum server::http::HttpStatus;
     using namespace text::literals;
@@ -188,11 +190,11 @@ respondClientRequestError(server::http::HttpResponse &response, ClientRequestErr
 
     switch (error) {
     case kInvalidClientIp:
-        return httpu::respondError(response, kBadRequest, "invalid client ip"_t);
+        return httpu::RespondError(response, kBadRequest, "invalid client ip"_t);
     case kCrudFailure:
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     default:
-        invariant(""_t);
+        Invariant(""_t);
     }
 }
 

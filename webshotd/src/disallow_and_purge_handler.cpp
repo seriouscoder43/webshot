@@ -27,6 +27,11 @@
 #include <userver/utils/assert.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+} // namespace v1
+
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
@@ -34,9 +39,9 @@ using namespace std::chrono_literals;
 DisallowAndPurgeHandler::DisallowAndPurgeHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      config(context.FindComponent<Config>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -61,26 +66,26 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, config};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
 
-    const auto link = parseJsonLinkBody(request, config);
+    const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
-        return httpu::respondError(response, kBadRequest, link.error());
+        return httpu::RespondError(response, kBadRequest, link.Error());
 
-    LOG_INFO() << std::format("invoked for: {}", link->host());
-    auto prefixKey = prefix::makePrefixKey(*link);
+    LOG_INFO() << std::format("invoked for: {}", link->Host());
+    auto prefix_key = prefix::MakePrefixKey(*link);
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
-        return respondClientRequestError(response, cooldown.error());
+        return RespondClientRequestError(response, cooldown.Error());
     if (*cooldown)
-        return httpu::respondClientIpCooldown(response, (*cooldown)->retryAfter);
+        return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-    auto ok = crud.disallowAndPurgePrefix(prefixKey);
+    auto ok = crud_.DisallowAndPurgePrefix(prefix_key);
     if (!ok) {
-        LOG_ERROR() << std::format("disallow_and_purge failed for {}", link->host());
-        return httpu::respondError(response, kInternalServerError, "internal server error"_t);
+        LOG_ERROR() << std::format("disallow_and_purge failed for {}", link->Host());
+        return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
     response.SetStatus(kAccepted);
     return {};

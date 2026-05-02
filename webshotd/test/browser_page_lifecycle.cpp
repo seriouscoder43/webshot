@@ -9,50 +9,50 @@ UTEST(BrowserPageSessionLifecycle, HappyPathTransitions)
 {
     BrowserPageSessionLifecycle lifecycle{};
 
-    EXPECT_TRUE(lifecycle.markBrowserContextCreated());
-    EXPECT_TRUE(lifecycle.markTargetCreated());
-    EXPECT_TRUE(lifecycle.markAttached());
-    EXPECT_TRUE(lifecycle.markBaseDomainsEnabled());
-    EXPECT_TRUE(lifecycle.markDetached());
-    EXPECT_TRUE(lifecycle.markDisposed());
-    EXPECT_TRUE(lifecycle.markClosed());
+    EXPECT_TRUE(lifecycle.MarkBrowserContextCreated());
+    EXPECT_TRUE(lifecycle.MarkTargetCreated());
+    EXPECT_TRUE(lifecycle.MarkAttached());
+    EXPECT_TRUE(lifecycle.MarkBaseDomainsEnabled());
+    EXPECT_TRUE(lifecycle.MarkDetached());
+    EXPECT_TRUE(lifecycle.MarkDisposed());
+    EXPECT_TRUE(lifecycle.MarkClosed());
 }
 
 UTEST(BrowserPageSessionLifecycle, RejectsInvalidOrder)
 {
     BrowserPageSessionLifecycle lifecycle{};
 
-    EXPECT_FALSE(lifecycle.markTargetCreated());
-    EXPECT_TRUE(lifecycle.markBrowserContextCreated());
-    EXPECT_FALSE(lifecycle.markAttached());
-    EXPECT_TRUE(lifecycle.markTargetCreated());
-    EXPECT_FALSE(lifecycle.markBaseDomainsEnabled());
-    EXPECT_TRUE(lifecycle.markAttached());
-    EXPECT_FALSE(lifecycle.markClosed());
-    EXPECT_TRUE(lifecycle.markBaseDomainsEnabled());
+    EXPECT_FALSE(lifecycle.MarkTargetCreated());
+    EXPECT_TRUE(lifecycle.MarkBrowserContextCreated());
+    EXPECT_FALSE(lifecycle.MarkAttached());
+    EXPECT_TRUE(lifecycle.MarkTargetCreated());
+    EXPECT_FALSE(lifecycle.MarkBaseDomainsEnabled());
+    EXPECT_TRUE(lifecycle.MarkAttached());
+    EXPECT_FALSE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkBaseDomainsEnabled());
 }
 
 UTEST(BrowserPageSessionLifecycle, CleanupTransitionsAreIdempotent)
 {
     BrowserPageSessionLifecycle lifecycle{};
 
-    EXPECT_TRUE(lifecycle.markClosed());
-    EXPECT_TRUE(lifecycle.markClosed());
-    EXPECT_TRUE(lifecycle.markDetached());
-    EXPECT_TRUE(lifecycle.markDisposed());
-    EXPECT_TRUE(lifecycle.markClosed());
+    EXPECT_TRUE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkDetached());
+    EXPECT_TRUE(lifecycle.MarkDisposed());
+    EXPECT_TRUE(lifecycle.MarkClosed());
 
-    BrowserPageSessionLifecycle attachedLifecycle{};
-    EXPECT_TRUE(attachedLifecycle.markBrowserContextCreated());
-    EXPECT_TRUE(attachedLifecycle.markTargetCreated());
-    EXPECT_TRUE(attachedLifecycle.markAttached());
-    EXPECT_TRUE(attachedLifecycle.markDetached());
-    EXPECT_TRUE(attachedLifecycle.markDetached());
-    EXPECT_TRUE(attachedLifecycle.markDisposed());
-    EXPECT_TRUE(attachedLifecycle.markDisposed());
-    EXPECT_TRUE(attachedLifecycle.markDetached());
-    EXPECT_TRUE(attachedLifecycle.markClosed());
-    EXPECT_TRUE(attachedLifecycle.markClosed());
+    BrowserPageSessionLifecycle attached_lifecycle{};
+    EXPECT_TRUE(attached_lifecycle.MarkBrowserContextCreated());
+    EXPECT_TRUE(attached_lifecycle.MarkTargetCreated());
+    EXPECT_TRUE(attached_lifecycle.MarkAttached());
+    EXPECT_TRUE(attached_lifecycle.MarkDetached());
+    EXPECT_TRUE(attached_lifecycle.MarkDetached());
+    EXPECT_TRUE(attached_lifecycle.MarkDisposed());
+    EXPECT_TRUE(attached_lifecycle.MarkDisposed());
+    EXPECT_TRUE(attached_lifecycle.MarkDetached());
+    EXPECT_TRUE(attached_lifecycle.MarkClosed());
+    EXPECT_TRUE(attached_lifecycle.MarkClosed());
 }
 
 } // namespace

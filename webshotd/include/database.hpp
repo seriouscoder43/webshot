@@ -1,7 +1,6 @@
 #pragma once
 
 #include "expected.hpp"
-#include "userver_namespaces.hpp"
 
 #include <functional>
 #include <string>
@@ -14,20 +13,20 @@
 
 namespace v1 {
 
+namespace us = userver;
+namespace pg = us::storages::postgres;
 struct [[nodiscard]] PgError final {
     std::string what;
 };
 
 namespace pgx {
 
-namespace pg = us::storages::postgres;
-
 namespace detail {
 
 template <typename F> using InvokeResult = std::invoke_result_t<F>;
 template <typename F> using ExpectedValue = std::remove_cvref_t<InvokeResult<F>>;
 
-template <typename F> [[nodiscard]] auto catchPg(F &&f) -> Expected<ExpectedValue<F>, PgError>
+template <typename F> [[nodiscard]] auto CatchPg(F &&f) -> Expected<ExpectedValue<F>, PgError>
 {
     try {
         if constexpr (std::is_void_v<InvokeResult<F>>) {
@@ -44,12 +43,12 @@ template <typename F> [[nodiscard]] auto catchPg(F &&f) -> Expected<ExpectedValu
 } // namespace detail
 
 template <pg::ClusterHostType Host, typename F, typename... Ts>
-[[nodiscard]] auto execute(const pg::ClusterPtr &cluster, F &&f, Ts &&...args)
+[[nodiscard]] auto Execute(const pg::ClusterPtr &cluster, F &&f, Ts &&...args)
 {
     using Res = decltype(cluster->Execute(Host, std::forward<Ts>(args)...));
     using R = std::remove_cvref_t<std::invoke_result_t<F, Res &>>;
 
-    return detail::catchPg([&]() -> R {
+    return detail::CatchPg([&]() -> R {
         auto res = cluster->Execute(Host, std::forward<Ts>(args)...);
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), res);
@@ -59,12 +58,12 @@ template <pg::ClusterHostType Host, typename F, typename... Ts>
     });
 }
 
-template <typename F> [[nodiscard]] auto readwriteTransaction(const pg::ClusterPtr &cluster, F &&f)
+template <typename F> [[nodiscard]] auto ReadwriteTransaction(const pg::ClusterPtr &cluster, F &&f)
 {
     using Trx = decltype(cluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW));
     using R = std::remove_cvref_t<std::invoke_result_t<F, Trx &>>;
 
-    return detail::catchPg([&]() -> R {
+    return detail::CatchPg([&]() -> R {
         auto trx = cluster->Begin(pg::ClusterHostType::kMaster, pg::Transaction::RW);
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), trx);

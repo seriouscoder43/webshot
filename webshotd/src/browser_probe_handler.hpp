@@ -1,7 +1,6 @@
 #pragma once
 
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <memory>
 #include <string>
@@ -14,6 +13,8 @@
 
 namespace v1 {
 
+namespace us = userver;
+namespace server = us::server;
 class Config;
 
 class [[nodiscard]] BrowserProbeHandler final : public server::handlers::HttpHandlerBase {
@@ -35,7 +36,7 @@ public:
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace v1

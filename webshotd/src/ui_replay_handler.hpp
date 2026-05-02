@@ -1,7 +1,6 @@
 #pragma once
 
 #include "integers.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <string>
@@ -14,6 +13,8 @@
 
 namespace v1 {
 
+namespace us = userver;
+namespace server = us::server;
 class Config;
 class Crud;
 
@@ -34,9 +35,9 @@ public:
     ) const final;
 
 private:
-    Crud &crud;
-    const Config &config;
-    const std::chrono::milliseconds requestTimeout;
+    Crud &crud_;
+    const Config &config_;
+    const std::chrono::milliseconds request_timeout;
 };
 
 } // namespace v1

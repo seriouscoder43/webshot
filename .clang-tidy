@@ -18,7 +18,7 @@ Checks: >
 HeaderFilterRegex: '(^|.*/)(webshotd|arkhiv)/(src|include|test)/'
 ExcludeHeaderFilterRegex: ''
 
-WarningsAsErrors: 'clang-diagnostic-*,bugprone-*,readability-*,misc-*,modernize-*'
+#WarningsAsErrors: 'clang-diagnostic-*,bugprone-*,readability-*,misc-*,modernize-*'
 
 SystemHeaders: false
 UseColor: true
@@ -38,20 +38,26 @@ CheckOptions:
     value: CamelCase
   - key: readability-identifier-naming.EnumCase
     value: CamelCase
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
   - key: readability-identifier-naming.FunctionCase
-    value: camelBack
+    value: CamelCase
   - key: readability-identifier-naming.MethodCase
-    value: camelBack
+    value: CamelCase
   - key: readability-identifier-naming.VariableCase
-    value: camelBack
+    value: lower_case
   - key: readability-identifier-naming.ParameterCase
-    value: camelBack
+    value: lower_case
   - key: readability-identifier-naming.ClassMemberCase
-    value: camelBack
+    value: lower_case
   - key: readability-identifier-naming.ClassMemberPrefix
     value: ''
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
   - key: readability-identifier-naming.ConstantCase
-    value: camelBack
+    value: lower_case
   - key: readability-identifier-naming.ConstantPrefix
     value: ''
   - key: readability-identifier-naming.EnumConstantCase

@@ -10,7 +10,6 @@
 #include "prefix_utils.hpp"
 #include "text_postgres_formatter.hpp"
 #include "try.hpp"
-#include "userver_namespaces.hpp"
 
 #include <format>
 #include <string>
@@ -22,13 +21,13 @@
 #include <userver/storages/postgres/component.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
+namespace v1 {
+namespace us = userver;
 namespace pg = us::storages::postgres;
+using namespace text::literals;
 namespace sql = webshot::sql;
 
-namespace v1 {
-using namespace text::literals;
-
-String accessDecisionMessage(AccessDecisionReason reason)
+String AccessDecisionMessage(AccessDecisionReason reason)
 {
     using enum AccessDecisionReason;
 
@@ -42,7 +41,7 @@ String accessDecisionMessage(AccessDecisionReason reason)
     case kNonHttps:
         return "non-HTTPS fetch blocked"_t;
     default:
-        invariant(""_t);
+        Invariant(""_t);
     }
 }
 
@@ -65,21 +64,21 @@ struct Denylist::Impl {
     }
 
     template <pg::ClusterHostType Host, typename F, typename... Ts>
-    [[nodiscard]] auto execDb(F &&f, Ts &&...args) const
+    [[nodiscard]] auto ExecDb(F &&f, Ts &&...args) const
     {
-        return pgx::execute<Host>(cluster, std::forward<F>(f), std::forward<Ts>(args)...);
+        return pgx::Execute<Host>(cluster, std::forward<F>(f), std::forward<Ts>(args)...);
     }
 
-    template <typename F, typename... Ts> [[nodiscard]] auto readonly(F &&f, Ts &&...args) const
+    template <typename F, typename... Ts> [[nodiscard]] auto Readonly(F &&f, Ts &&...args) const
     {
-        return execDb<pg::ClusterHostType::kSlaveOrMaster>(
+        return ExecDb<pg::ClusterHostType::kSlaveOrMaster>(
             std::forward<F>(f), std::forward<Ts>(args)...
         );
     }
 
-    template <typename F, typename... Ts> [[nodiscard]] auto readwrite(F &&f, Ts &&...args) const
+    template <typename F, typename... Ts> [[nodiscard]] auto Readwrite(F &&f, Ts &&...args) const
     {
-        return execDb<pg::ClusterHostType::kMaster>(std::forward<F>(f), std::forward<Ts>(args)...);
+        return ExecDb<pg::ClusterHostType::kMaster>(std::forward<F>(f), std::forward<Ts>(args)...);
     }
 
     pg::ClusterPtr cluster;
@@ -88,76 +87,76 @@ struct Denylist::Impl {
 Denylist::Denylist(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : us::components::ComponentBase(config, context), impl(std::make_unique<Impl>(config, context))
+    : us::components::ComponentBase(config, context), impl_(std::make_unique<Impl>(config, context))
 {
 }
 
 Denylist::~Denylist() = default;
 
-Expected<bool, DenylistError> Denylist::isAllowedPrefix(const String &prefixKey)
+Expected<bool, DenylistError> Denylist::IsAllowedPrefix(const String &prefix_key)
 {
-    return !TRY(isDeniedPrefix(prefixKey));
+    return !TRY(IsDeniedPrefix(prefix_key));
 }
 
-Expected<bool, DenylistError> Denylist::isDeniedPrefix(const String &prefixKey)
+Expected<bool, DenylistError> Denylist::IsDeniedPrefix(const String &prefix_key)
 {
-    const auto tree = prefix::makePrefixTree(prefixKey);
-    auto denied = impl->readonly(
+    const auto tree = prefix::MakePrefixTree(prefix_key);
+    auto denied = impl_->Readonly(
         [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckDenylistTree, tree
     );
     if (!denied)
-        LOG_ERROR() << std::format("denylist check failed: {}", denied.error().what);
+        LOG_ERROR() << std::format("denylist check failed: {}", denied.Error().what);
     return TRY_ERR_AS(std::move(denied), DenylistError::kDbFailure);
 }
 
-Expected<bool, DenylistError> Denylist::isAllowlistedPrefix(const String &prefixKey)
+Expected<bool, DenylistError> Denylist::IsAllowlistedPrefix(const String &prefix_key)
 {
-    const auto tree = prefix::makePrefixTree(prefixKey);
-    auto allowlisted = impl->readonly(
+    const auto tree = prefix::MakePrefixTree(prefix_key);
+    auto allowlisted = impl_->Readonly(
         [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckAllowlistTree, tree
     );
     if (!allowlisted)
-        LOG_ERROR() << std::format("allowlist check failed: {}", allowlisted.error().what);
+        LOG_ERROR() << std::format("allowlist check failed: {}", allowlisted.Error().what);
     return TRY_ERR_AS(std::move(allowlisted), DenylistError::kDbFailure);
 }
 
 Expected<AccessDecision, DenylistError>
-Denylist::evaluatePrefix(const String &prefixKey, AccessPolicyMode mode)
+Denylist::EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode)
 {
     using enum AccessDecisionReason;
     using enum AccessPolicyMode;
 
     if (mode == kRegular) {
-        const auto allowlisted = TRY(isAllowlistedPrefix(prefixKey));
+        const auto allowlisted = TRY(IsAllowlistedPrefix(prefix_key));
         if (allowlisted)
             return AccessDecision{.allowed = true, .reason = kAllowed};
 
-        const auto denied = TRY(isDeniedPrefix(prefixKey));
+        const auto denied = TRY(IsDeniedPrefix(prefix_key));
         if (denied)
             return AccessDecision{.allowed = false, .reason = kDenylisted};
         return AccessDecision{.allowed = true, .reason = kAllowed};
     }
 
-    const auto denied = TRY(isDeniedPrefix(prefixKey));
+    const auto denied = TRY(IsDeniedPrefix(prefix_key));
     if (denied)
         return AccessDecision{.allowed = false, .reason = kDenylisted};
 
-    const auto allowlisted = TRY(isAllowlistedPrefix(prefixKey));
+    const auto allowlisted = TRY(IsAllowlistedPrefix(prefix_key));
     if (!allowlisted)
         return AccessDecision{.allowed = false, .reason = kNotAllowlisted};
     return AccessDecision{.allowed = true, .reason = kAllowed};
 }
 
-Expected<void, DenylistError> Denylist::insertPrefix(const String &prefixKey, const String &reason)
+Expected<void, DenylistError> Denylist::InsertPrefix(const String &prefix_key, const String &reason)
 {
-    const auto tree = prefix::makePrefixTree(prefixKey);
-    const auto inserted = impl->readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertDenylistHost, prefixKey, tree,
+    const auto tree = prefix::MakePrefixTree(prefix_key);
+    const auto inserted = impl_->Readwrite(
+        [&](auto &res) { static_cast<void>(res); }, sql::kInsertDenylistHost, prefix_key, tree,
         reason
     );
     if (!inserted) {
         LOG_CRITICAL() << std::format(
-            "denylist insert failed for {}: {}", prefixKey, inserted.error().what
+            "denylist insert failed for {}: {}", prefix_key, inserted.Error().what
         );
         us::utils::AbortWithStacktrace("denylist insert failed");
     }
@@ -165,30 +164,30 @@ Expected<void, DenylistError> Denylist::insertPrefix(const String &prefixKey, co
 }
 
 Expected<void, DenylistError>
-Denylist::insertAllowlistPrefix(const String &prefixKey, const String &reason)
+Denylist::InsertAllowlistPrefix(const String &prefix_key, const String &reason)
 {
-    const auto tree = prefix::makePrefixTree(prefixKey);
-    const auto inserted = impl->readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertAllowlistHost, prefixKey, tree,
+    const auto tree = prefix::MakePrefixTree(prefix_key);
+    const auto inserted = impl_->Readwrite(
+        [&](auto &res) { static_cast<void>(res); }, sql::kInsertAllowlistHost, prefix_key, tree,
         reason
     );
     if (!inserted) {
         LOG_ERROR() << std::format(
-            "allowlist insert failed for {}: {}", prefixKey, inserted.error().what
+            "allowlist insert failed for {}: {}", prefix_key, inserted.Error().what
         );
         return Unex(DenylistError::kDbFailure);
     }
     return {};
 }
 
-Expected<void, DenylistError> Denylist::removeAllowlistPrefix(const String &prefixKey)
+Expected<void, DenylistError> Denylist::RemoveAllowlistPrefix(const String &prefix_key)
 {
-    const auto removed = impl->readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteAllowlistHost, prefixKey
+    const auto removed = impl_->Readwrite(
+        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteAllowlistHost, prefix_key
     );
     if (!removed) {
         LOG_ERROR() << std::format(
-            "allowlist delete failed for {}: {}", prefixKey, removed.error().what
+            "allowlist delete failed for {}: {}", prefix_key, removed.Error().what
         );
         return Unex(DenylistError::kDbFailure);
     }

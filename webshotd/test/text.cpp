@@ -13,33 +13,33 @@ using namespace text::literals;
 
 namespace {
 
-bool isUtf8(std::string_view bytes) { return una::is_valid_utf8(bytes); }
+bool IsUtf8(std::string_view bytes) { return una::is_valid_utf8(bytes); }
 
-bool isStreamSafe(std::string_view bytes) { return una::norm::is_nfc_utf8(bytes); }
+bool IsStreamSafe(std::string_view bytes) { return una::norm::is_nfc_utf8(bytes); }
 
-constexpr size_t streamSafeExtraBytesUpperBoundForNonStarters(size_t nonStarters)
+constexpr size_t StreamSafeExtraBytesUpperBoundForNonStarters(size_t non_starters)
 {
-    constexpr size_t kMaxNonStartersPerSegment = 30UL;
-    constexpr size_t kCgBytes = 2UL; // U+034F in UTF-8
-    return (nonStarters / kMaxNonStartersPerSegment) * kCgBytes;
+    constexpr size_t max_non_starters_per_segment = 30UL;
+    constexpr size_t cg_bytes = 2UL; // U+034F in UTF-8
+    return (non_starters / max_non_starters_per_segment) * cg_bytes;
 }
 
 // Constexpr checks for text::String and the _t literal.
-constexpr bool checkStringFromBytes()
+constexpr bool CheckStringFromBytes()
 {
-    auto opt = String::fromBytes("e\u0301"); // 'e' + combining acute
+    auto opt = String::FromBytes("e\u0301"); // 'e' + combining acute
     if (!opt)
         return false;
-    auto v = opt->view();
+    auto v = opt->View();
     return v.size() == 2 && v[0] == '\xC3' && v[1] == '\xA9';
 }
 
-constexpr bool checkStringLiteralAndOps()
+constexpr bool CheckStringLiteralAndOps()
 {
     using namespace text::literals;
 
     auto s = "e\u0301"_t;
-    auto v = s.view();
+    auto v = s.View();
     if (!(v.size() == 2 && v[0] == '\xC3' && v[1] == '\xA9'))
         return false;
 
@@ -56,39 +56,39 @@ constexpr bool checkStringLiteralAndOps()
     if (sum != "foobar"_t)
         return false;
 
-    auto revOpt = String::fromBytes("ab");
-    if (!revOpt)
+    auto rev_opt = String::FromBytes("ab");
+    if (!rev_opt)
         return false;
-    auto rev = revOpt->reversed();
+    auto rev = rev_opt->Reversed();
     if (rev != "ba"_t)
         return false;
 
-    if (!una::is_valid_utf8(rev.view()))
+    if (!una::is_valid_utf8(rev.View()))
         return false;
-    if (!una::norm::is_nfc_utf8(rev.view()))
+    if (!una::norm::is_nfc_utf8(rev.View()))
         return false;
 
     return true;
 }
 
-static_assert(checkStringFromBytes(), "String::fromBytes constexpr normalization failed");
-static_assert(checkStringLiteralAndOps(), "String constexpr operations failed");
+static_assert(CheckStringFromBytes(), "String::fromBytes constexpr normalization failed");
+static_assert(CheckStringLiteralAndOps(), "String constexpr operations failed");
 
 } // namespace
 
 UTEST(TextString, FromBytesAscii)
 {
     const auto value = "hello"_t;
-    EXPECT_FALSE(value.empty());
+    EXPECT_FALSE(value.Empty());
     EXPECT_EQ(value, "hello"_t);
-    EXPECT_TRUE(isUtf8(value.view()));
-    EXPECT_TRUE(isStreamSafe(value.view()));
+    EXPECT_TRUE(IsUtf8(value.View()));
+    EXPECT_TRUE(IsStreamSafe(value.View()));
 }
 
 UTEST(TextString, FromBytesRejectsInvalidUtf8)
 {
     std::string invalid("\xC3\x28", 2);
-    auto value = String::fromBytes(invalid);
+    auto value = String::FromBytes(invalid);
     EXPECT_FALSE(value);
 }
 
@@ -97,45 +97,45 @@ UTEST(TextString, FromBytesNormalizesEquivalents)
     std::string precomposed("\xC3\xA9", 2);
     std::string decomposed("e\xCC\x81", 3);
 
-    const auto s1 = String::fromBytes(precomposed).expect();
-    const auto s2 = String::fromBytes(decomposed).expect();
+    const auto s1 = String::FromBytes(precomposed).Expect();
+    const auto s2 = String::FromBytes(decomposed).Expect();
     EXPECT_EQ(s1, s2);
-    EXPECT_TRUE(isUtf8(s1.view()));
-    EXPECT_TRUE(isStreamSafe(s1.view()));
+    EXPECT_TRUE(IsUtf8(s1.View()));
+    EXPECT_TRUE(IsStreamSafe(s1.View()));
 }
 
 UTEST(TextString, SizeAndEmptyConsistency)
 {
     String empty;
-    EXPECT_TRUE(empty.empty());
-    EXPECT_EQ(empty.sizeBytes(), numericCast<size_t>(0));
+    EXPECT_TRUE(empty.Empty());
+    EXPECT_EQ(empty.SizeBytes(), NumericCast<size_t>(0));
 
     const auto value = "xyz"_t;
-    EXPECT_FALSE(value.empty());
-    EXPECT_EQ(value.sizeBytes(), numericCast<size_t>(3));
+    EXPECT_FALSE(value.Empty());
+    EXPECT_EQ(value.SizeBytes(), NumericCast<size_t>(3));
 }
 
 UTEST(TextString, StartsWithEndsWithOverloads)
 {
     String empty;
-    EXPECT_FALSE(empty.startsWith('/'));
-    EXPECT_FALSE(empty.endsWith('/'));
-    EXPECT_TRUE(empty.startsWith(""));
-    EXPECT_TRUE(empty.endsWith(""));
+    EXPECT_FALSE(empty.StartsWith('/'));
+    EXPECT_FALSE(empty.EndsWith('/'));
+    EXPECT_TRUE(empty.StartsWith(""));
+    EXPECT_TRUE(empty.EndsWith(""));
 
     const auto value = "hello"_t;
-    EXPECT_TRUE(value.startsWith("he"));
-    EXPECT_FALSE(value.startsWith("ha"));
-    EXPECT_TRUE(value.startsWith('h'));
-    EXPECT_FALSE(value.startsWith('e'));
+    EXPECT_TRUE(value.StartsWith("he"));
+    EXPECT_FALSE(value.StartsWith("ha"));
+    EXPECT_TRUE(value.StartsWith('h'));
+    EXPECT_FALSE(value.StartsWith('e'));
 
-    EXPECT_TRUE(value.endsWith("lo"));
-    EXPECT_FALSE(value.endsWith("la"));
-    EXPECT_TRUE(value.endsWith('o'));
-    EXPECT_FALSE(value.endsWith('l'));
+    EXPECT_TRUE(value.EndsWith("lo"));
+    EXPECT_FALSE(value.EndsWith("la"));
+    EXPECT_TRUE(value.EndsWith('o'));
+    EXPECT_FALSE(value.EndsWith('l'));
 
-    EXPECT_TRUE(value.endsWith("lo"_t));
-    EXPECT_FALSE(value.endsWith("he"_t));
+    EXPECT_TRUE(value.EndsWith("lo"_t));
+    EXPECT_FALSE(value.EndsWith("he"_t));
 }
 
 UTEST(TextString, PlusConcatenatesAscii)
@@ -145,20 +145,20 @@ UTEST(TextString, PlusConcatenatesAscii)
 
     auto sum = lhs + rhs;
     EXPECT_EQ(sum, "foobar"_t);
-    EXPECT_TRUE(isUtf8(sum.view()));
-    EXPECT_TRUE(isStreamSafe(sum.view()));
+    EXPECT_TRUE(IsUtf8(sum.View()));
+    EXPECT_TRUE(IsStreamSafe(sum.View()));
 }
 
 UTEST(TextString, PlusNormalizesCrossBoundary)
 {
     auto lhs = "e"_t;
     std::string combining("\xCC\x81", 2);
-    auto rhs = String::fromBytes(combining).expect();
+    auto rhs = String::FromBytes(combining).Expect();
 
     auto combined = lhs + rhs;
 
     std::string precomposed("\xC3\xA9", 2);
-    const auto expected = String::fromBytes(precomposed).expect();
+    const auto expected = String::FromBytes(precomposed).Expect();
 
     EXPECT_EQ(combined, expected);
 }
@@ -167,12 +167,12 @@ UTEST(TextString, PlusEqualsEmptyRhsNoChange)
 {
     auto value = "abc"_t;
 
-    const std::string original{value.view()};
+    const std::string original{value.View()};
 
     String empty;
     value += empty;
 
-    EXPECT_EQ(value, String::fromBytes(original).expect());
+    EXPECT_EQ(value, String::FromBytes(original).Expect());
 }
 
 UTEST(TextString, EqualityAndOrdering)
@@ -193,11 +193,11 @@ UTEST(TextString, ReversedIsUtf8AndNormalized)
     input.push_back('\xCC');
     input.push_back('\x81');
     input.append("abc");
-    auto value = String::fromBytes(input).expect();
+    auto value = String::FromBytes(input).Expect();
 
-    auto rev = value.reversed();
-    EXPECT_TRUE(isUtf8(rev.view()));
-    EXPECT_TRUE(isStreamSafe(rev.view()));
+    auto rev = value.Reversed();
+    EXPECT_TRUE(IsUtf8(rev.View()));
+    EXPECT_TRUE(IsStreamSafe(rev.View()));
 }
 
 UTEST(TextString, HandlesLongCombiningSequenceStreamSafe)
@@ -209,35 +209,35 @@ UTEST(TextString, HandlesLongCombiningSequenceStreamSafe)
         input.push_back('\x81');
     }
 
-    auto value = String::fromBytes(input).expect();
+    auto value = String::FromBytes(input).Expect();
 
-    EXPECT_TRUE(isUtf8(value.view()));
-    constexpr size_t kNonStarters = 1000UL;
-    constexpr size_t kExtraBytes = streamSafeExtraBytesUpperBoundForNonStarters(kNonStarters);
-    EXPECT_LE(value.sizeBytes(), input.size() + kExtraBytes);
+    EXPECT_TRUE(IsUtf8(value.View()));
+    constexpr size_t non_starters = 1000UL;
+    constexpr size_t extra_bytes = StreamSafeExtraBytesUpperBoundForNonStarters(non_starters);
+    EXPECT_LE(value.SizeBytes(), input.size() + extra_bytes);
 }
 
 UTEST(TextString, Idempotence)
 {
     std::string raw = "e\xCC\x81"; // e + combining acute
-    const auto value = String::fromBytes(raw).expect();
+    const auto value = String::FromBytes(raw).Expect();
 
-    const auto value2 = String::fromBytes(std::string{value.view()}).expect();
+    const auto value2 = String::FromBytes(std::string{value.View()}).Expect();
     EXPECT_EQ(value, value2);
 }
 
 UTEST(TextString, RejectsVariousInvalidUtf8)
 {
-    auto v1 = String::fromBytes(std::string{"\x80"});
+    auto v1 = String::FromBytes(std::string{"\x80"});
     EXPECT_FALSE(v1);
 
-    auto v2 = String::fromBytes(std::string{"\xC2"});
+    auto v2 = String::FromBytes(std::string{"\xC2"});
     EXPECT_FALSE(v2);
 
-    auto v3 = String::fromBytes(std::string{"\xE2\x82"});
+    auto v3 = String::FromBytes(std::string{"\xE2\x82"});
     EXPECT_FALSE(v3);
 
-    auto v4 = String::fromBytes(std::string{"\xF0\x9F\x92"});
+    auto v4 = String::FromBytes(std::string{"\xF0\x9F\x92"});
     EXPECT_FALSE(v4);
 }
 
@@ -245,15 +245,15 @@ UTEST(TextString, HandlesNonBmpCharacters)
 {
     std::string emoji("\xF0\x9F\x98\x80\xF0\x9F\x92\xA9", 8); // U+1F600 U+1F4A9
 
-    const auto value = String::fromBytes(emoji).expect();
-    EXPECT_TRUE(isUtf8(value.view()));
-    EXPECT_TRUE(isStreamSafe(value.view()));
-    EXPECT_EQ(value, String::fromBytes(emoji).expect());
+    const auto value = String::FromBytes(emoji).Expect();
+    EXPECT_TRUE(IsUtf8(value.View()));
+    EXPECT_TRUE(IsStreamSafe(value.View()));
+    EXPECT_EQ(value, String::FromBytes(emoji).Expect());
 
     const auto prefix = "prefix-"_t;
     const auto suffix = "-suffix"_t;
 
     auto combined = prefix + value + suffix;
-    EXPECT_TRUE(isUtf8(combined.view()));
-    EXPECT_TRUE(isStreamSafe(combined.view()));
+    EXPECT_TRUE(IsUtf8(combined.View()));
+    EXPECT_TRUE(IsStreamSafe(combined.View()));
 }

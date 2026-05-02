@@ -13,12 +13,13 @@
 
 namespace v1 {
 
+namespace us = userver;
 using namespace text::literals;
 
 namespace {
 
 template <typename Value>
-void writeErrorMetric(
+void WriteErrorMetric(
     us::utils::statistics::Writer &writer, Metrics::Error which, Value value
 ) noexcept
 {
@@ -68,7 +69,7 @@ void writeErrorMetric(
         return;
     case kCount:
     default:
-        invariant(""_t);
+        Invariant(""_t);
     }
 }
 
@@ -77,26 +78,26 @@ void writeErrorMetric(
 Metrics::Metrics(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : us::components::ComponentBase(config, context), capture(), errors()
+    : us::components::ComponentBase(config, context), capture_(), errors_()
 {
     us::utils::statistics::RegisterWriterScope(
         context, "", [this](us::utils::statistics::Writer &writer) {
-            writer["capture"]["jobs_created_total"] = capture.jobsCreated.Load();
+            writer["capture"]["jobs_created_total"] = capture_.jobs_created.Load();
 
             writer["capture"]["captures_total"].ValueWithLabels(
-                capture.succeeded.Load(), {{"result", "succeeded"}}
+                capture_.succeeded.Load(), {{"result", "succeeded"}}
             );
             writer["capture"]["captures_total"].ValueWithLabels(
-                capture.failed.Load(), {{"result", "failed"}}
+                capture_.failed.Load(), {{"result", "failed"}}
             );
             writer["capture"]["duration_ms_sum"].ValueWithLabels(
-                capture.succeededDurationMsSum.Load(), {{"result", "succeeded"}}
+                capture_.succeeded_duration_ms_sum.Load(), {{"result", "succeeded"}}
             );
             writer["capture"]["duration_ms_sum"].ValueWithLabels(
-                capture.failedDurationMsSum.Load(), {{"result", "failed"}}
+                capture_.failed_duration_ms_sum.Load(), {{"result", "failed"}}
             );
-            for (size_t i = 0; i < errors.size(); i++) {
-                writeErrorMetric(writer, numericCast<Metrics::Error>(i), errors[i].Load());
+            for (size_t i = 0; i < errors_.size(); i++) {
+                WriteErrorMetric(writer, NumericCast<Metrics::Error>(i), errors_[i].Load());
             }
         }
     );
@@ -104,19 +105,19 @@ Metrics::Metrics(
 
 Metrics::~Metrics() = default;
 
-void Metrics::accountError(Error which) noexcept { errors[numericCast<size_t>(which)]++; }
+void Metrics::AccountError(Error which) noexcept { errors_[NumericCast<size_t>(which)]++; }
 
-void Metrics::accountCaptureJobCreated() noexcept { capture.jobsCreated++; }
+void Metrics::AccountCaptureJobCreated() noexcept { capture_.jobs_created++; }
 
-void Metrics::accountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept
+void Metrics::AccountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept
 {
-    const auto rate = us::utils::statistics::Rate{numericCast<uint64_t>(duration.count())};
+    const auto rate = us::utils::statistics::Rate{NumericCast<uint64_t>(duration.count())};
     if (succeeded) {
-        capture.succeeded++;
-        capture.succeededDurationMsSum += rate;
+        capture_.succeeded++;
+        capture_.succeeded_duration_ms_sum += rate;
     } else {
-        capture.failed++;
-        capture.failedDurationMsSum += rate;
+        capture_.failed++;
+        capture_.failed_duration_ms_sum += rate;
     }
 }
 

@@ -29,6 +29,11 @@
 #include <userver/server/http/http_status.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace v1 {
+namespace us = userver;
+namespace server = us::server;
+} // namespace v1
+
 using namespace v1;
 using namespace text::literals;
 using namespace std::chrono_literals;
@@ -36,9 +41,9 @@ using namespace std::chrono_literals;
 ByPrefixHandler::ByPrefixHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : HttpHandlerBase(config, context), crud(context.FindComponent<Crud>()),
-      cfg(context.FindComponent<Config>()),
-      requestTimeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+    : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
+      cfg_(context.FindComponent<Config>()),
+      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -62,35 +67,35 @@ std::string ByPrefixHandler::HandleRequestThrow(
 {
     using enum server::http::HttpStatus;
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport requestSupport{crud, cfg};
-    requestSupport.applyRequestDeadline(request, requestTimeout);
+    HandlerRequestSupport request_support{crud_, cfg_};
+    request_support.ApplyRequestDeadline(request, request_timeout);
 
-    const auto prefix = requestSupport.parseRequiredQueryLink(request, "prefix"_t);
+    const auto prefix = request_support.ParseRequiredQueryLink(request, "prefix"_t);
     if (!prefix)
-        return httpu::respondParamError(
-            response, kBadRequest, prefix.error().name, prefix.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, prefix.Error().name, prefix.Error().message
         );
 
-    const auto token = requestSupport.parseQueryText(request, "page_token"_t);
+    const auto token = request_support.ParseQueryText(request, "page_token"_t);
     if (!token)
-        return httpu::respondParamError(
-            response, kBadRequest, token.error().name, token.error().message
+        return httpu::RespondParamError(
+            response, kBadRequest, token.Error().name, token.Error().message
         );
 
-    const auto cooldown = requestSupport.checkClientIpCooldown(request);
+    const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
-        return respondClientRequestError(response, cooldown.error());
+        return RespondClientRequestError(response, cooldown.Error());
     if (*cooldown)
-        return httpu::respondClientIpCooldown(response, (*cooldown)->retryAfter);
+        return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-    auto page = crud.findCapturesByPrefixPage(prefix->normalized(), *token);
+    auto page = crud_.FindCapturesByPrefixPage(prefix->Normalized(), *token);
     if (!page) {
         using enum errors::CapturePageError;
-        if (page.error() == kDbFailure)
-            return httpu::respondError(response, kInternalServerError, "internal server error"_t);
-        return httpu::respondParamError(
+        if (page.Error() == kDbFailure)
+            return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
+        return httpu::RespondParamError(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t
         );
     }
-    return httpu::respondJson(response, kOk, *page);
+    return httpu::RespondJson(response, kOk, *page);
 }

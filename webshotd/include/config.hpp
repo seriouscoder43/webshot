@@ -2,7 +2,6 @@
 
 #include "integers.hpp"
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <chrono>
 #include <string>
@@ -12,6 +11,7 @@
 #include <userver/yaml_config/schema.hpp>
 
 namespace v1 {
+namespace us = userver;
 enum class ClientIpSource {
     kPeer,
     kTrustedHeader,
@@ -39,48 +39,51 @@ public:
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
     /** @return Maximum allowed URL length in bytes. */
-    [[nodiscard]] usize urlBytesMax() const noexcept { return urlBytesMaxValue; }
+    [[nodiscard]] usize UrlBytesMax() const noexcept { return url_bytes_max_; }
 
     /** @return Whether captures must match the allowlist. */
-    [[nodiscard]] bool allowlistOnly() const noexcept { return allowlistOnlyValue; }
+    [[nodiscard]] bool AllowlistOnly() const noexcept { return allowlist_only_; }
 
     /** @return Whether crawler egress is restricted to HTTPS/WSS. */
-    [[nodiscard]] bool httpsOnly() const noexcept { return httpsOnlyValue; }
+    [[nodiscard]] bool HttpsOnly() const noexcept { return https_only_; }
 
     /** @return Runner-owned state directory for webshotd instance. */
-    [[nodiscard]] std::string_view stateDir() const noexcept { return stateDirValue; }
+    [[nodiscard]] std::string_view StateDir() const noexcept { return state_dir_; }
 
     /** @return Source used for client IP cooldown identity. */
-    [[nodiscard]] ClientIpSource clientIpSource() const noexcept { return clientIpSourceValue; }
+    [[nodiscard]] ClientIpSource ClientIpSource() const noexcept { return client_ip_source_; }
 
     /** @return Trusted header name for client IP cooldown identity. */
-    [[nodiscard]] std::string_view clientIpHeaderName() const noexcept
+    [[nodiscard]] std::string_view ClientIpHeaderName() const noexcept
     {
-        return clientIpHeaderNameValue;
+        return client_ip_header_name_;
     }
 
     /** @name S3 parameters */
     ///@{
-    [[nodiscard]] S3Mode s3Mode() const noexcept { return s3ModeValue; }
-    [[nodiscard]] const String &s3Bucket() const noexcept { return s3BucketName; }
-    [[nodiscard]] const String &s3Endpoint() const noexcept { return s3EndpointUrl; }
-    [[nodiscard]] const String &s3Region() const noexcept { return s3RegionName; }
-    [[nodiscard]] const String &publicBaseUrl() const noexcept { return publicBaseUrlValue; }
-    [[nodiscard]] std::chrono::milliseconds s3Timeout() const noexcept { return s3TimeoutDuration; }
+    [[nodiscard]] S3Mode S3Mode() const noexcept { return s3_mode_; }
+    [[nodiscard]] const String &S3Bucket() const noexcept { return s3_bucket_name_; }
+    [[nodiscard]] const String &S3Endpoint() const noexcept { return s3_endpoint_url_; }
+    [[nodiscard]] const String &S3Region() const noexcept { return s3_region_name_; }
+    [[nodiscard]] const String &PublicBaseUrl() const noexcept { return public_base_url_; }
+    [[nodiscard]] std::chrono::milliseconds S3Timeout() const noexcept
+    {
+        return s3_timeout_duration_;
+    }
     ///@}
 
 private:
-    usize urlBytesMaxValue;
-    bool allowlistOnlyValue;
-    bool httpsOnlyValue;
-    std::string stateDirValue;
-    ClientIpSource clientIpSourceValue;
-    std::string clientIpHeaderNameValue;
-    S3Mode s3ModeValue;
-    String s3BucketName;
-    String s3EndpointUrl;
-    String s3RegionName;
-    String publicBaseUrlValue;
-    std::chrono::milliseconds s3TimeoutDuration;
+    usize url_bytes_max_;
+    bool allowlist_only_;
+    bool https_only_;
+    std::string state_dir_;
+    enum ClientIpSource client_ip_source_;
+    std::string client_ip_header_name_;
+    enum S3Mode s3_mode_;
+    String s3_bucket_name_;
+    String s3_endpoint_url_;
+    String s3_region_name_;
+    String public_base_url_;
+    std::chrono::milliseconds s3_timeout_duration_;
 };
 } // namespace v1

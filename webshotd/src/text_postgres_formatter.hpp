@@ -23,8 +23,8 @@ template <> struct BufferFormatter<String> {
 
     explicit BufferFormatter(const String &value);
 
-    void operator()(const UserTypes &userTypes, std::vector<char> &buf) const;
-    void operator()(const UserTypes &userTypes, std::string &buf) const;
+    void operator()(const UserTypes &user_types, std::vector<char> &buf) const;
+    void operator()(const UserTypes &user_types, std::string &buf) const;
 };
 
 template <> struct BufferParser<String> {

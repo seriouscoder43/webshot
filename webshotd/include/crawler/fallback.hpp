@@ -1,7 +1,6 @@
 #pragma once
 
 #include "text.hpp"
-#include "userver_namespaces.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -10,6 +9,7 @@
 
 namespace v1::crawler {
 
+namespace us = userver;
 enum class CrawlerExitCode : int {
     kSuccess = 0,
     kOutOfSpace = 3,
@@ -27,15 +27,15 @@ enum class CrawlerExitCode : int {
 
 struct [[nodiscard]] SeedPageProbe {
     std::optional<int64_t> status;
-    std::optional<int64_t> loadState;
+    std::optional<int64_t> load_state;
 };
 
 struct [[nodiscard]] AttemptSummary {
     bool exited;
-    int exitCode;
-    bool waczExists;
-    std::optional<SeedPageProbe> seedProbe;
-    std::optional<String> failureDetail;
+    int exit_code;
+    bool wacz_exists;
+    std::optional<SeedPageProbe> seed_probe;
+    std::optional<String> failure_detail;
 };
 
 enum class RunOutcome {
@@ -48,12 +48,12 @@ enum class RunOutcome {
 
 struct [[nodiscard]] RunResult {
     RunOutcome outcome;
-    AttemptSummary httpsAttempt;
-    std::optional<AttemptSummary> httpAttempt;
+    AttemptSummary https_attempt;
+    std::optional<AttemptSummary> http_attempt;
 };
 
 [[nodiscard]] inline bool
-isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
+IsNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
 {
     if (!probe)
         return false;
@@ -63,9 +63,9 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
     if (status == 502)
         return true;
 
-    if (!probe->loadState)
+    if (!probe->load_state)
         return false;
-    if (*probe->loadState != 0)
+    if (*probe->load_state != 0)
         return false;
 
     if (status >= 400)
@@ -73,7 +73,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
     return status == 0;
 }
 
-[[nodiscard]] inline bool isNonRetryableCrawlerExitCode(int code) noexcept
+[[nodiscard]] inline bool IsNonRetryableCrawlerExitCode(int code) noexcept
 {
     using enum CrawlerExitCode;
     using us::utils::UnderlyingValue;
@@ -96,7 +96,7 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
     }
 }
 
-[[nodiscard]] inline String crawlerFailureReason(int code)
+[[nodiscard]] inline String CrawlerFailureReason(int code)
 {
     using enum CrawlerExitCode;
     using text::literals::operator""_t;
@@ -124,58 +124,58 @@ isNoResponseSeedFailure(const std::optional<SeedPageProbe> &probe) noexcept
     }
 }
 
-[[nodiscard]] inline bool isAttemptSuccess(const AttemptSummary &attempt) noexcept
+[[nodiscard]] inline bool IsAttemptSuccess(const AttemptSummary &attempt) noexcept
 {
     using enum CrawlerExitCode;
     using us::utils::UnderlyingValue;
 
-    return attempt.exited && attempt.exitCode == UnderlyingValue(kSuccess) && attempt.waczExists;
+    return attempt.exited && attempt.exit_code == UnderlyingValue(kSuccess) && attempt.wacz_exists;
 }
 
-[[nodiscard]] inline bool shouldAttemptHttpFallback(const AttemptSummary &httpsAttempt) noexcept
+[[nodiscard]] inline bool ShouldAttemptHttpFallback(const AttemptSummary &https_attempt) noexcept
 {
     using enum CrawlerExitCode;
     using us::utils::UnderlyingValue;
 
-    if (!httpsAttempt.exited)
+    if (!https_attempt.exited)
         return false;
-    if (httpsAttempt.exitCode == UnderlyingValue(kSuccess))
+    if (https_attempt.exit_code == UnderlyingValue(kSuccess))
         return false;
-    if (isNonRetryableCrawlerExitCode(httpsAttempt.exitCode))
+    if (IsNonRetryableCrawlerExitCode(https_attempt.exit_code))
         return false;
-    return isNoResponseSeedFailure(httpsAttempt.seedProbe);
+    return IsNoResponseSeedFailure(https_attempt.seed_probe);
 }
 
 template <typename AttemptFn>
-[[nodiscard]] RunResult runHttpsFirstWithHttpFallback(
-    const String &httpsSeedUrl, const String &httpSeedUrl, AttemptFn &&attempt
+[[nodiscard]] RunResult RunHttpsFirstWithHttpFallback(
+    const String &https_seed_url, const String &http_seed_url, AttemptFn &&attempt
 )
 {
     using enum CrawlerExitCode;
     using us::utils::UnderlyingValue;
 
-    auto httpsAttempt = attempt(httpsSeedUrl);
-    if (isAttemptSuccess(httpsAttempt))
-        return {RunOutcome::kSucceeded, httpsAttempt, {}};
-    if (!httpsAttempt.exited)
-        return {RunOutcome::kFailedChildNoExit, httpsAttempt, {}};
-    if (httpsAttempt.exitCode == UnderlyingValue(kSizeLimit))
-        return {RunOutcome::kFailedSizeLimit, httpsAttempt, {}};
-    if (httpsAttempt.exitCode == UnderlyingValue(kSuccess) && !httpsAttempt.waczExists)
-        return {RunOutcome::kFailedNoWacz, httpsAttempt, {}};
-    if (!shouldAttemptHttpFallback(httpsAttempt))
-        return {RunOutcome::kFailed, httpsAttempt, {}};
+    auto https_attempt = attempt(https_seed_url);
+    if (IsAttemptSuccess(https_attempt))
+        return {RunOutcome::kSucceeded, https_attempt, {}};
+    if (!https_attempt.exited)
+        return {RunOutcome::kFailedChildNoExit, https_attempt, {}};
+    if (https_attempt.exit_code == UnderlyingValue(kSizeLimit))
+        return {RunOutcome::kFailedSizeLimit, https_attempt, {}};
+    if (https_attempt.exit_code == UnderlyingValue(kSuccess) && !https_attempt.wacz_exists)
+        return {RunOutcome::kFailedNoWacz, https_attempt, {}};
+    if (!ShouldAttemptHttpFallback(https_attempt))
+        return {RunOutcome::kFailed, https_attempt, {}};
 
-    auto httpAttempt = attempt(httpSeedUrl);
-    if (isAttemptSuccess(httpAttempt))
-        return {RunOutcome::kSucceeded, httpsAttempt, httpAttempt};
-    if (!httpAttempt.exited)
-        return {RunOutcome::kFailedChildNoExit, httpsAttempt, httpAttempt};
-    if (httpAttempt.exitCode == UnderlyingValue(kSizeLimit))
-        return {RunOutcome::kFailedSizeLimit, httpsAttempt, httpAttempt};
-    if (httpAttempt.exitCode == UnderlyingValue(kSuccess) && !httpAttempt.waczExists)
-        return {RunOutcome::kFailedNoWacz, httpsAttempt, httpAttempt};
-    return {RunOutcome::kFailed, httpsAttempt, httpAttempt};
+    auto http_attempt = attempt(http_seed_url);
+    if (IsAttemptSuccess(http_attempt))
+        return {RunOutcome::kSucceeded, https_attempt, http_attempt};
+    if (!http_attempt.exited)
+        return {RunOutcome::kFailedChildNoExit, https_attempt, http_attempt};
+    if (http_attempt.exit_code == UnderlyingValue(kSizeLimit))
+        return {RunOutcome::kFailedSizeLimit, https_attempt, http_attempt};
+    if (http_attempt.exit_code == UnderlyingValue(kSuccess) && !http_attempt.wacz_exists)
+        return {RunOutcome::kFailedNoWacz, https_attempt, http_attempt};
+    return {RunOutcome::kFailed, https_attempt, http_attempt};
 }
 
 } // namespace v1::crawler

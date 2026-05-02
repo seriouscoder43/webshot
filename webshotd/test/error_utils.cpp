@@ -6,13 +6,13 @@
 #include "error_utils.hpp"
 #include "text.hpp"
 
-using v1::errors::makeError;
-using v1::errors::makeParamError;
+using v1::errors::MakeError;
+using v1::errors::MakeParamError;
 using namespace text::literals;
 
 UTEST(ErrorUtils, WrapsMessage)
 {
-    const auto value = makeError("something went wrong"_t);
+    const auto value = MakeError("something went wrong"_t);
     ASSERT_TRUE(value.HasMember("error"));
     const auto &err = value["error"];
     ASSERT_TRUE(err.HasMember("message"));
@@ -21,7 +21,7 @@ UTEST(ErrorUtils, WrapsMessage)
 
 UTEST(ErrorUtils, FormatsParamError)
 {
-    const auto value = makeParamError("host"_t, "missing parameter"_t);
+    const auto value = MakeParamError("host"_t, "missing parameter"_t);
     ASSERT_TRUE(value.HasMember("error"));
     const auto &err = value["error"];
     ASSERT_TRUE(err.HasMember("message"));

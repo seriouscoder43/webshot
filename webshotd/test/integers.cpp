@@ -17,45 +17,45 @@ enum class SmallEnum : std::uint8_t {
 
 UTEST(Integers, NumericCastSupportsIntegralConversions)
 {
-    EXPECT_EQ(numericCast<int64_t>(123), int64_t{123});
-    EXPECT_EQ(numericCast<size_t>(int64_t{3}), size_t{3});
-    EXPECT_EQ(numericCast<int>(size_t{7}), 7);
+    EXPECT_EQ(NumericCast<int64_t>(123), int64_t{123});
+    EXPECT_EQ(NumericCast<size_t>(int64_t{3}), size_t{3});
+    EXPECT_EQ(NumericCast<int>(size_t{7}), 7);
 }
 
 UTEST(Integers, NumericCastSupportsEnumConversions)
 {
-    EXPECT_EQ(numericCast<unsigned int>(SmallEnum::kTwo), 2U);
-    EXPECT_EQ(numericCast<SmallEnum>(std::uint16_t{2}), SmallEnum::kTwo);
+    EXPECT_EQ(NumericCast<unsigned int>(SmallEnum::kTwo), 2U);
+    EXPECT_EQ(NumericCast<SmallEnum>(std::uint16_t{2}), SmallEnum::kTwo);
 }
 
 UTEST(Integers, NumericCastSupportsSafeIntegerSources)
 {
     const i64 value{123};
-    const u16 enumValue{2};
+    const u16 enum_value{2};
 
-    EXPECT_EQ(numericCast<int64_t>(value), int64_t{123});
-    EXPECT_EQ(numericCast<SmallEnum>(enumValue), SmallEnum::kTwo);
+    EXPECT_EQ(NumericCast<int64_t>(value), int64_t{123});
+    EXPECT_EQ(NumericCast<SmallEnum>(enum_value), SmallEnum::kTwo);
 }
 
 UTEST(Integers, CheckedNumericCastReportsNegativeToUnsigned)
 {
-    const auto result = integers::detail::checkedNumericCast<size_t>(-1);
+    const auto result = integers::detail::CheckedNumericCast<size_t>(-1);
     ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), integers::detail::NumericCastError::kNegativeToUnsigned);
+    EXPECT_EQ(result.Error(), integers::detail::NumericCastError::kNegativeToUnsigned);
 }
 
 UTEST(Integers, CheckedNumericCastReportsNarrowingOverflow)
 {
-    const auto result = integers::detail::checkedNumericCast<int>(
+    const auto result = integers::detail::CheckedNumericCast<int>(
         std::numeric_limits<int64_t>::max()
     );
     ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), integers::detail::NumericCastError::kNarrowingOverflow);
+    EXPECT_EQ(result.Error(), integers::detail::NumericCastError::kNarrowingOverflow);
 }
 
 UTEST(Integers, CheckedNumericCastReportsEnumUnderlyingOverflow)
 {
-    const auto result = integers::detail::checkedNumericCast<SmallEnum>(std::uint16_t{256});
+    const auto result = integers::detail::CheckedNumericCast<SmallEnum>(std::uint16_t{256});
     ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), integers::detail::NumericCastError::kEnumUnderlyingOverflow);
+    EXPECT_EQ(result.Error(), integers::detail::NumericCastError::kEnumUnderlyingOverflow);
 }
