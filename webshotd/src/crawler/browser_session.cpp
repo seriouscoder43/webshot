@@ -1078,7 +1078,7 @@ Expected<void, String> BrowserPageSession::CreateBlankTarget()
 
     dto::TargetCreateTargetParams target_params{
         .url = "about:blank",
-        .browserContextId = text::ToBytes(*browser_context_id_),
+        .browserContextId = browser_context_id_->ToBytes(),
     };
     const auto target = TRY(
         SendCdp<dto::TargetCreateTargetResult>(cdp_client_, "Target.createTarget"_t, target_params)
@@ -1096,7 +1096,7 @@ Expected<void, String> BrowserPageSession::AttachToTarget()
     Invariant(target_id_, "target must exist before attaching"_t);
 
     dto::TargetAttachToTargetParams attach_params{
-        .targetId = text::ToBytes(*target_id_),
+        .targetId = target_id_->ToBytes(),
         .flatten = true,
     };
     const auto attached = TRY(
@@ -1172,7 +1172,7 @@ Expected<void, String> BrowserPageSession::Detach()
         return {};
 
     dto::TargetDetachFromTargetParams detach_params;
-    detach_params.sessionId = text::ToBytes(*session_id_);
+    detach_params.sessionId = session_id_->ToBytes();
     TRY(SendCdpVoid(cdp_client_, "Target.detachFromTarget"_t, detach_params));
     cdp_session_.reset();
     session_id_.reset();
@@ -1189,7 +1189,7 @@ Expected<void, String> BrowserPageSession::DisposeBrowserContext()
         return {};
 
     dto::TargetDisposeBrowserContextParams dispose_params;
-    dispose_params.browserContextId = text::ToBytes(*browser_context_id_);
+    dispose_params.browserContextId = browser_context_id_->ToBytes();
     TRY(SendCdpVoid(cdp_client_, "Target.disposeBrowserContext"_t, dispose_params));
     browser_context_id_.reset();
     target_id_.reset();

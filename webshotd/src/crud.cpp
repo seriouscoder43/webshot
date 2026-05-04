@@ -95,7 +95,6 @@ namespace sql = webshot::sql;
 using namespace ws;
 using namespace text::literals;
 using namespace std::chrono_literals;
-using text::ToBytes;
 using Uuid = boost::uuids::uuid;
 using chrono::system_clock;
 
@@ -153,7 +152,7 @@ MakePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz
 {
     return dto::CaptureJob{
         .uuid = uuid,
-        .link = ToBytes(link),
+        .link = link.ToBytes(),
         .status = dto::CaptureJob::Status::kPending,
         .created_at = created_at,
     };
@@ -169,7 +168,7 @@ MakePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz
                                                     : kFailed;
     dto::CaptureJob job{
         .uuid = row.uuid,
-        .link = ToBytes(row.link),
+        .link = row.link.ToBytes(),
         .status = status,
         .created_at = datetime::TimePointTz(row.created_at.GetUnderlying()),
     };
@@ -674,7 +673,7 @@ Crud::Impl::RunCrawlJob(Uuid id, Link link)
     if (!stored)
         return Unex(errors::CrawlFailure{.code = kPersistMetadataFailed, .detail = {}});
     LOG_INFO() << std::format("Persisted metadata for job {} ({})", id, ctx.link.Normalized());
-    return dto::UuidWithTimeLink{stored->id, stored->created_at, ToBytes(ctx.link.Normalized())};
+    return dto::UuidWithTimeLink{stored->id, stored->created_at, ctx.link.Normalized().ToBytes()};
 }
 
 Expected<datetime::TimePointTz, PgError> Crud::Impl::InsertJob(Uuid id, String link)
@@ -1536,19 +1535,18 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
     if (!items.empty()) {
         if (has_previous) {
             const auto &first = items.front();
-            previous = ToBytes(
-                crud::EncodeCursor(
-                    first.created_at.GetTimePoint(), first.uuid, crud::PageDirection::kPrevious
-                )
-            );
+            previous = crud::EncodeCursor(
+                           first.created_at.GetTimePoint(), first.uuid,
+                           crud::PageDirection::kPrevious
+            )
+                           .ToBytes();
         }
         if (has_next) {
             const auto &last = items.back();
-            next = ToBytes(
-                crud::EncodeCursor(
-                    last.created_at.GetTimePoint(), last.uuid, crud::PageDirection::kNext
-                )
-            );
+            next = crud::EncodeCursor(
+                       last.created_at.GetTimePoint(), last.uuid, crud::PageDirection::kNext
+            )
+                       .ToBytes();
         }
     }
     return dto::PagedFindCapturesByUrlResponse{
@@ -1742,7 +1740,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         if (is_previous_cursor_link)
             std::ranges::reverse(db_rows);
         for (auto &&r : db_rows) {
-            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), ToBytes(link));
+            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), link.ToBytes());
         }
     }
 
@@ -1751,30 +1749,28 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         if ((cur && cur->direction == crud::PageDirection::kNext) || has_more_previous_links ||
             has_previous_within_link) {
             const auto &first = items.front();
-            previous = ToBytes(
-                crud::EncodePrefixCursor(
-                    normalized_prefix, *String::FromBytes(first.link),
-                    first.created_at.GetTimePoint(), first.uuid, crud::PageDirection::kPrevious
-                )
-            );
+            previous = crud::EncodePrefixCursor(
+                           normalized_prefix, *String::FromBytes(first.link),
+                           first.created_at.GetTimePoint(), first.uuid,
+                           crud::PageDirection::kPrevious
+            )
+                           .ToBytes();
         }
         if ((cur && cur->direction == crud::PageDirection::kPrevious) || has_next_within_link ||
             has_more_next_links) {
             const auto &last = items.back();
             const auto last_link = *String::FromBytes(last.link);
             if (has_next_within_link) {
-                next = ToBytes(
-                    crud::EncodePrefixCursor(
-                        normalized_prefix, last_link, last.created_at.GetTimePoint(), last.uuid,
-                        crud::PageDirection::kNext
-                    )
-                );
+                next = crud::EncodePrefixCursor(
+                           normalized_prefix, last_link, last.created_at.GetTimePoint(), last.uuid,
+                           crud::PageDirection::kNext
+                )
+                           .ToBytes();
             } else {
-                next = ToBytes(
-                    crud::EncodePrefixCursor(
-                        normalized_prefix, last_link, crud::PageDirection::kNext
-                    )
-                );
+                next = crud::EncodePrefixCursor(
+                           normalized_prefix, last_link, crud::PageDirection::kNext
+                )
+                           .ToBytes();
             }
         }
     }

@@ -16,7 +16,6 @@
 namespace ws::crud {
 
 using namespace text::literals;
-using text::ToBytes;
 
 namespace {
 [[nodiscard]] dto::PaginationPrefixCursor::D ToDto(PageDirection direction)
@@ -59,7 +58,7 @@ namespace {
 [[nodiscard]] String
 EncodePrefixCursor(const String &prefix, const String &link, PageDirection direction)
 {
-    dto::PaginationPrefixCursor cur(ToBytes(prefix), ToBytes(link), ToDto(direction));
+    dto::PaginationPrefixCursor cur(prefix.ToBytes(), link.ToBytes(), ToDto(direction));
     return EncodeToken(cur);
 }
 
@@ -69,7 +68,7 @@ EncodePrefixCursor(const String &prefix, const String &link, PageDirection direc
 )
 {
     const auto micros = TimePointToMicros(created_at);
-    dto::PaginationPrefixCursor cur(ToBytes(prefix), ToBytes(link), ToDto(direction), micros, id);
+    dto::PaginationPrefixCursor cur(prefix.ToBytes(), link.ToBytes(), ToDto(direction), micros, id);
     return EncodeToken(cur);
 }
 

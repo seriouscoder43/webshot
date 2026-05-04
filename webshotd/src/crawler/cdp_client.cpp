@@ -49,7 +49,6 @@ namespace eng = us::engine;
 namespace json = us::formats::json;
 namespace datetime = us::utils::datetime;
 using namespace text::literals;
-using text::ToBytes;
 using ws::Expected;
 
 namespace {
@@ -510,12 +509,12 @@ Expected<json::Value, CdpFailure> CdpClient::SendRaw(
     }
     dto::CdpCommandRequest request{
         .id = Raw(id),
-        .method = ToBytes(method),
+        .method = method.ToBytes(),
     };
     if (!params.IsMissing())
         request.params = dto::CdpCommandRequest::Params{params};
     if (session_id)
-        request.sessionId = ToBytes(*session_id);
+        request.sessionId = session_id->ToBytes();
     TraceCommand(id, method, session_id);
     const auto request_bytes = TRY(
         ws::json::StringifyBytes(request, CdpFailure{.code = kProtocol, .detail = {}})
@@ -949,9 +948,9 @@ void CdpClient::TraceCommand(i64 id, const String &method, const std::optional<S
     entry["direction"] = "out";
     entry["kind"] = "command";
     entry["id"] = Raw(id);
-    entry["method"] = ToBytes(method);
+    entry["method"] = method.ToBytes();
     if (session_id)
-        entry["sessionId"] = ToBytes(*session_id);
+        entry["sessionId"] = session_id->ToBytes();
     WriteTraceLineBestEffort(entry.ExtractValue());
 }
 
@@ -965,12 +964,12 @@ void CdpClient::TraceResponse(
     entry["kind"] = error ? "error" : "response";
     entry["id"] = Raw(id);
     if (request) {
-        entry["method"] = ToBytes(request->method);
+        entry["method"] = request->method.ToBytes();
         if (request->session_id)
-            entry["sessionId"] = ToBytes(*request->session_id);
+            entry["sessionId"] = request->session_id->ToBytes();
     }
     if (error)
-        entry["error"] = ToBytes(*error);
+        entry["error"] = error->ToBytes();
     WriteTraceLineBestEffort(entry.ExtractValue());
 }
 
@@ -980,9 +979,9 @@ void CdpClient::TraceEvent(const String &method, const std::optional<String> &se
     entry["ts"] = CurrentTraceTimestamp();
     entry["direction"] = "in";
     entry["kind"] = "event";
-    entry["method"] = ToBytes(method);
+    entry["method"] = method.ToBytes();
     if (session_id)
-        entry["sessionId"] = ToBytes(*session_id);
+        entry["sessionId"] = session_id->ToBytes();
     WriteTraceLineBestEffort(entry.ExtractValue());
 }
 
@@ -990,7 +989,7 @@ void CdpClient::TraceClose(const String &direction, int close_code)
 {
     json::ValueBuilder entry;
     entry["ts"] = CurrentTraceTimestamp();
-    entry["direction"] = ToBytes(direction);
+    entry["direction"] = direction.ToBytes();
     entry["kind"] = "close";
     entry["closeCode"] = close_code;
     WriteTraceLineBestEffort(entry.ExtractValue());
@@ -1001,8 +1000,8 @@ void CdpClient::TraceTransportError(const String &operation, const String &error
     json::ValueBuilder entry;
     entry["ts"] = CurrentTraceTimestamp();
     entry["kind"] = "transport_error";
-    entry["operation"] = ToBytes(operation);
-    entry["error"] = ToBytes(error);
+    entry["operation"] = operation.ToBytes();
+    entry["error"] = error.ToBytes();
     WriteTraceLineBestEffort(entry.ExtractValue());
 }
 

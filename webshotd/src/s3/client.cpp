@@ -29,7 +29,6 @@
 
 namespace us = userver;
 using namespace text::literals;
-using text::ToBytes;
 
 namespace ws::s3 {
 namespace us = userver;
@@ -129,7 +128,7 @@ Client::GetObjectHead(std::string_view path, const HeaderDataRequest &request) c
     httpc::Headers headers;
     const auto payload_hash = Sha256Hex("");
     SignRequest("HEAD"_t, built.raw_path, built.host, headers, payload_hash);
-    const auto url = ToBytes(built.href);
+    const auto url = built.href.ToBytes();
     auto resp = http_client_.CreateNotSignedRequest()
                     .head(url)
                     .headers(headers)
@@ -318,8 +317,8 @@ std::chrono::seconds Client::ComputePresignTtl(
 
 SigParams Client::MakeSigParams(const std::chrono::system_clock::time_point &now) const
 {
-    return {ToBytes(config_.region), "s3", creds_.access_key_id, creds_.secret_access_key,
-            creds_.session_token,    now};
+    return {config_.region.ToBytes(), "s3", creds_.access_key_id, creds_.secret_access_key,
+            creds_.session_token,     now};
 }
 
 void Client::SignRequest(
@@ -329,7 +328,7 @@ void Client::SignRequest(
 {
     const auto now = datetime::Now();
     const auto params = MakeSigParams(now);
-    auto prepared = PrepareSignedHeaders(ToBytes(host), headers);
+    auto prepared = PrepareSignedHeaders(host.ToBytes(), headers);
     const auto headers_text = *text::StringPairs(prepared);
 
     auto signed_map = SignHeaders(params, method, canonical_uri, {}, headers_text, payload_hash);
@@ -339,9 +338,9 @@ void Client::SignRequest(
 
 String Client::BuildRawPath(String path, IncludeBucket include_bucket) const
 {
-    const auto base_path = ToBytes(endpoint_.base_path);
-    const auto bucket = ToBytes(bucket_name_);
-    const auto path_bytes = ToBytes(path);
+    const auto base_path = endpoint_.base_path.ToBytes();
+    const auto bucket = bucket_name_.ToBytes();
+    const auto path_bytes = path.ToBytes();
 
     std::string raw;
     raw.reserve(NumericCast<size_t>(ssize(base_path) + ssize(bucket) + ssize(path_bytes) + 2_i64));
@@ -406,7 +405,7 @@ String Client::PresignVirtualHost(
     const SigParams params = MakeSigParams(now);
 
     httpc::Headers extra = extra_headers.value_or(httpc::Headers{});
-    auto prepared = PrepareSignedHeaders(ToBytes(built.host), extra);
+    auto prepared = PrepareSignedHeaders(built.host.ToBytes(), extra);
     const auto headers_text = *text::StringPairs(prepared);
 
     return BuildPresignedUrl(method, built, now, expires_at, params, headers_text);
@@ -420,7 +419,7 @@ String Client::PresignPathStyle(
     auto now = datetime::Now();
     auto built = MakePathStyleUrl(std::move(path), std::move(protocol));
     SigParams params = MakeSigParams(now);
-    auto prepared = PrepareSignedHeaders(ToBytes(built.host), httpc::Headers{});
+    auto prepared = PrepareSignedHeaders(built.host.ToBytes(), httpc::Headers{});
     const auto headers_text = *text::StringPairs(prepared);
 
     return BuildPresignedUrl(method, built, now, expires_at, params, headers_text);
@@ -445,7 +444,7 @@ String Client::BuildPresignedUrl(
     const std::string signed_headers = BuildSignedHeaders(headers_utf8);
     query.emplace_back("X-Amz-SignedHeaders", signed_headers);
     if (params.session_token)
-        query.emplace_back("X-Amz-Security-Token", ToBytes(params.session_token->GetUnderlying()));
+        query.emplace_back("X-Amz-Security-Token", params.session_token->GetUnderlying().ToBytes());
 
     const auto cr = BuildCanonicalRequest(
         method.View(), built.raw_path.View(), query, headers_utf8, "UNSIGNED-PAYLOAD"
@@ -456,7 +455,7 @@ String Client::BuildPresignedUrl(
     const std::string signature = ComputeSignature(params, string_to_sign);
     query.emplace_back("X-Amz-Signature", signature);
 
-    auto url = ToBytes(built.href);
+    auto url = built.href.ToBytes();
     url.push_back('?');
     url.append(CanonicalizeQuery(query));
     return *String::FromBytes(url);

@@ -28,7 +28,6 @@ namespace json = us::formats::json;
 namespace datetime = us::utils::datetime;
 namespace http = us::http;
 using namespace text::literals;
-using text::ToBytes;
 
 namespace {
 
@@ -88,7 +87,9 @@ template <typename T> [[nodiscard]] std::string ToJsonBytes(const T &value)
 [[nodiscard]] String ToCdxTimestamp(const String &iso)
 {
     return *String::FromBytes(
-        datetime::UtcTimestring(datetime::FromRfc3339StringSaturating(ToBytes(iso)), "%Y%m%d%H%M%S")
+        datetime::UtcTimestring(
+            datetime::FromRfc3339StringSaturating(iso.ToBytes()), "%Y%m%d%H%M%S"
+        )
     );
 }
 
@@ -293,11 +294,11 @@ SerializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] std::string BuildPageInfoJsonBytes(const CapturedExchange &exchange)
 {
     json::ValueBuilder page_info(json::Type::kObject);
-    page_info["pageid"] = ToBytes(exchange.page_id);
+    page_info["pageid"] = exchange.page_id.ToBytes();
     page_info["url"] = std::string(
         (exchange.seed_url.Empty() ? exchange.final_url : exchange.seed_url).View()
     );
-    page_info["ts"] = ToBytes(PageTimestamp(exchange));
+    page_info["ts"] = PageTimestamp(exchange).ToBytes();
 
     json::ValueBuilder urls(json::Type::kObject);
     const auto append_url = [&urls](
@@ -311,8 +312,8 @@ SerializeRecordPair(const SerializableResponse &response)
         if (!mime.empty())
             value["mime"] = mime;
         if (resource_type && !resource_type->Empty())
-            value["type"] = ToBytes(*resource_type);
-        urls[ToBytes(url)] = value.ExtractValue();
+            value["type"] = resource_type->ToBytes();
+        urls[url.ToBytes()] = value.ExtractValue();
     };
 
     for (const auto &redirect : exchange.main_document_redirects)
@@ -379,14 +380,14 @@ SerializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] std::string MakeWaczIndexJsonBytes(const WarcCdxRecord &record)
 {
     json::ValueBuilder record_entry(json::Type::kObject);
-    record_entry["url"] = ToBytes(record.record_url);
-    record_entry["digest"] = ToBytes(record.digest);
+    record_entry["url"] = record.record_url.ToBytes();
+    record_entry["digest"] = record.digest.ToBytes();
     record_entry["mime"] = ContentTypeForHeaders(record.headers);
     record_entry["filename"] = std::string(kWarcFilename);
     record_entry["offset"] = Raw(record.offset);
     record_entry["length"] = Raw(record.length);
     record_entry["status"] = Raw(record.status_code);
-    record_entry["recordDigest"] = ToBytes(record.record_digest);
+    record_entry["recordDigest"] = record.record_digest.ToBytes();
     return json::ToString(record_entry.ExtractValue());
 }
 
@@ -403,8 +404,8 @@ SerializeRecordPair(const SerializableResponse &response)
     for (const auto &record : records) {
         lines.push_back(
             CdxLine{
-                .key = ToBytes(ToSurtKey(record.record_url)),
-                .timestamp = ToBytes(record.timestamp),
+                .key = ToSurtKey(record.record_url).ToBytes(),
+                .timestamp = record.timestamp.ToBytes(),
                 .json = MakeWaczIndexJsonBytes(record),
             }
         );
@@ -468,7 +469,7 @@ BuildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resou
         .profile = "data-package",
         .resources = std::move(resources),
         .wacz_version = "1.1.1",
-        .title = ToBytes(run.seed_url),
+        .title = run.seed_url.ToBytes(),
         .software = "webshotd",
         .created = created,
         .modified = created,
@@ -480,15 +481,15 @@ BuildWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resou
 std::string BuildPagesJsonl(const CapturedExchange &exchange)
 {
     dto::BrowsertrixPageEntry entry{
-        .id = ToBytes(exchange.page_id),
-        .url = ToBytes(exchange.final_url),
-        .title = exchange.title ? ToBytes(*exchange.title) : ExtractHtmlTitle(exchange.body),
+        .id = exchange.page_id.ToBytes(),
+        .url = exchange.final_url.ToBytes(),
+        .title = exchange.title ? exchange.title->ToBytes() : ExtractHtmlTitle(exchange.body),
         .loadState = exchange.status_code >= 200_i64 && exchange.status_code < 400_i64 ? 2 : 0,
         .mime = ContentTypeForHeaders(exchange.headers),
         .seed = true,
     };
     entry.ts = datetime::TimePointTz(
-        datetime::FromRfc3339StringSaturating(ToBytes(PageTimestamp(exchange)))
+        datetime::FromRfc3339StringSaturating(PageTimestamp(exchange).ToBytes())
     );
     entry.status = Raw(exchange.status_code);
     entry.depth = 0;

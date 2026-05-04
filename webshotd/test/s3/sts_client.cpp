@@ -17,7 +17,6 @@ using namespace ws;
 using namespace std::chrono_literals;
 using ws::StsCredentials;
 using namespace text::literals;
-using text::ToBytes;
 
 namespace {
 
@@ -99,8 +98,8 @@ UTEST(StsClient, BuildsRequestWithExecutor)
     ws::detail::StsExecutor exec = [&](const String &url, const String &body,
                                        const httpc::Headers &headers,
                                        std::chrono::milliseconds timeout) {
-        captured_url = ToBytes(url);
-        captured_body = ToBytes(body);
+        captured_url = url.ToBytes();
+        captured_body = body.ToBytes();
         captured_headers = headers;
         captured_timeout = timeout;
         return MakeValidXml();

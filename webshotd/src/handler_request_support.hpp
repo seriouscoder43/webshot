@@ -30,7 +30,6 @@ namespace ws {
 namespace us = userver;
 namespace server = us::server;
 namespace eng = us::engine;
-using text::ToBytes;
 
 struct [[nodiscard]] ParamError final {
     String name;
@@ -78,7 +77,7 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     ParseRequiredQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(ToBytes(param_name));
+        const std::string arg = request.GetArg(param_name.ToBytes());
         ENSURE(!arg.empty(), MissingParamError(param_name));
         return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
                                return InvalidParamError(param_name);
@@ -88,7 +87,7 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     ParseQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(ToBytes(param_name));
+        const std::string arg = request.GetArg(param_name.ToBytes());
         return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
                                return InvalidParamError(param_name);
                            }));
@@ -170,7 +169,7 @@ private:
     [[nodiscard]] Expected<String, ParamError>
     ParseRequiredPathText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetPathArg(ToBytes(param_name));
+        const std::string arg = request.GetPathArg(param_name.ToBytes());
         ENSURE(!arg.empty(), MissingParamError(param_name));
         return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
                                return InvalidParamError(param_name);

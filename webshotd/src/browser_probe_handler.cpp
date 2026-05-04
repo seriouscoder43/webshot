@@ -41,7 +41,6 @@
 
 using namespace text::literals;
 using namespace std::chrono_literals;
-using text::ToBytes;
 
 namespace chrono = std::chrono;
 namespace ujson = userver::formats::json;
@@ -98,7 +97,7 @@ ParseTestsuiteLoopbackPorts(const us::components::ComponentConfig &config)
 EvaluateExpression(crawler::CdpSession &cdp_session, const String &expression)
 {
     dto::RuntimeEvaluateParams params{
-        .expression = ToBytes(expression),
+        .expression = expression.ToBytes(),
         .returnByValue = true,
         .awaitPromise = true,
     };
@@ -447,11 +446,11 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         TRY(DrainProbeEvents(cdp_session, console, page_errors));
         std::ranges::transform(
             console, std::back_inserter(probe_result.console),
-            [](const auto &s) { return ToBytes(s); }
+            [](const auto &s) { return s.ToBytes(); }
         );
         std::ranges::transform(
             page_errors, std::back_inserter(probe_result.page_errors),
-            [](const auto &s) { return ToBytes(s); }
+            [](const auto &s) { return s.ToBytes(); }
         );
         return probe_result;
     }()

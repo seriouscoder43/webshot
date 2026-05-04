@@ -66,7 +66,6 @@ namespace chrono = std::chrono;
 namespace ujson = userver::formats::json;
 using namespace std::chrono_literals;
 using namespace text::literals;
-using text::ToBytes;
 
 namespace ws {
 namespace us = userver;
@@ -140,21 +139,21 @@ CanonicalizeCapturedLocationHeader(const String &response_url, std::string_view 
         return std::string(location_value);
     if (location->Empty() || location->StartsWith('/') || location->StartsWith('?') ||
         location->StartsWith("//")) {
-        return ToBytes(*location);
+        return location->ToBytes();
     }
 
     const auto canonical_location = CanonicalizeCapturedUrl(*location);
     const auto maybe_canonical_url = Url::FromText(canonical_location);
     const auto maybe_response_url = Url::FromText(response_url);
     if (!maybe_canonical_url || !maybe_response_url)
-        return ToBytes(canonical_location);
+        return canonical_location.ToBytes();
 
     if (maybe_canonical_url->IsHttp() == maybe_response_url->IsHttp() &&
         maybe_canonical_url->Host() == maybe_response_url->Host()) {
-        return ToBytes(maybe_canonical_url->PathWithSearch());
+        return maybe_canonical_url->PathWithSearch().ToBytes();
     }
 
-    return ToBytes(canonical_location);
+    return canonical_location.ToBytes();
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -601,7 +600,7 @@ public:
             return RetainBody(fallback_body, budget);
 
         dto::NetworkGetResponseBodyParams params;
-        params.requestId = ToBytes(*body_request_id);
+        params.requestId = body_request_id->ToBytes();
         const auto body = cdp_session.Send<dto::NetworkGetResponseBodyResult>(
             "Network.getResponseBody"_t, params
         );
@@ -648,7 +647,7 @@ public:
             }
 
             dto::NetworkGetResponseBodyParams params;
-            params.requestId = ToBytes(request_id);
+            params.requestId = request_id.ToBytes();
             const auto body_value = cdp_session.Send<dto::NetworkGetResponseBodyResult>(
                 "Network.getResponseBody"_t, params
             );
@@ -1430,7 +1429,7 @@ private:
 
         browser_.MarkPhase("navigate");
         dto::PageNavigateParams navigate_params;
-        navigate_params.url = ToBytes(run_.seed_url);
+        navigate_params.url = run_.seed_url.ToBytes();
         GetPageTracker().BeginSeedNavigation(run_.seed_url);
         const auto navigate_result = TRY_MAP_ERR(
             GetSession().Send<dto::PageNavigateResult>("Page.navigate"_t, navigate_params),
@@ -1693,7 +1692,7 @@ private:
             .requestId = paused->requestId,
             .responseCode = 403,
             .responseHeaders = BuildBlockedFetchHeaders(body.SizeBytes()),
-            .body = us::crypto::base64::Base64Encode(ToBytes(body)),
+            .body = us::crypto::base64::Base64Encode(body.ToBytes()),
             .responsePhrase = "Forbidden",
         };
         const auto fulfilled = GetSession().SendVoid("Fetch.fulfillRequest"_t, params);
@@ -1820,7 +1819,7 @@ private:
                 out.attempt.failure_detail = captured.Error().detail;
             }
             out.stdout_log.clear();
-            out.stderr_log = ToBytes(captured.Error().detail) + "\n";
+            out.stderr_log = captured.Error().detail.ToBytes() + "\n";
             out.wacz.reset();
             out.pages_jsonl.reset();
             out.content_sha256.reset();
@@ -1879,7 +1878,7 @@ private:
             out.pages_jsonl.reset();
             out.content_sha256.reset();
             out.replay_url.reset();
-            out.stderr_log += ToBytes(detail) + "\n";
+            out.stderr_log += detail.ToBytes() + "\n";
             return out;
         }
 
@@ -1910,7 +1909,7 @@ private:
             out.pages_jsonl.reset();
             out.content_sha256.reset();
             out.replay_url.reset();
-            out.stderr_log += ToBytes(detail) + "\n";
+            out.stderr_log += detail.ToBytes() + "\n";
             return out;
         }
 

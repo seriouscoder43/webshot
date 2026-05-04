@@ -13,11 +13,10 @@ namespace ws::errors {
 
 namespace us = userver;
 namespace json = us::formats::json;
-using text::ToBytes;
 
 json::Value MakeError(String message)
 {
-    dto::ErrorEnvelope::Error err(ToBytes(message));
+    dto::ErrorEnvelope::Error err(message.ToBytes());
     dto::ErrorEnvelope env(err);
     return json::ValueBuilder(env).ExtractValue();
 }

@@ -10,7 +10,6 @@
 namespace ws {
 
 using namespace text::literals;
-using text::ToBytes;
 
 namespace {
 
@@ -92,7 +91,7 @@ String Url::Surt() const
     if (HasNonDefaultPort())
         surt_host += ":" + port_text;
 
-    return *String::FromBytes(surt_host + ")" + ToBytes(PathWithSearch()));
+    return *String::FromBytes(surt_host + ")" + PathWithSearch().ToBytes());
 }
 
 bool Url::HasHostname() const
@@ -141,21 +140,21 @@ Url Url::Stripped(StripOptions options) const
 Url Url::WithProtocol(const String &protocol) const
 {
     auto parsed = CopyParsed();
-    Invariant(parsed.set_protocol(ToBytes(protocol)), "invalid protocol"_t);
+    Invariant(parsed.set_protocol(protocol.ToBytes()), "invalid protocol"_t);
     return Url::FromParsed(std::move(parsed));
 }
 
 Url Url::WithHostname(const String &hostname) const
 {
     auto parsed = CopyParsed();
-    Invariant(parsed.set_hostname(ToBytes(hostname)), "invalid hostname"_t);
+    Invariant(parsed.set_hostname(hostname.ToBytes()), "invalid hostname"_t);
     return Url::FromParsed(std::move(parsed));
 }
 
 Url Url::WithPort(const String &port_value) const
 {
     auto parsed = CopyParsed();
-    Invariant(parsed.set_port(ToBytes(port_value)), "invalid port"_t);
+    Invariant(parsed.set_port(port_value.ToBytes()), "invalid port"_t);
     return Url::FromParsed(std::move(parsed));
 }
 

@@ -21,7 +21,6 @@ namespace ws::s3 {
 
 namespace us = userver;
 namespace httpc = us::clients::http;
-using text::ToBytes;
 
 namespace {
 
@@ -214,11 +213,11 @@ std::unordered_map<std::string, std::string> SignHeaders(
     auto headers = headers_utf8;
     std::unordered_map<std::string, std::string> out{};
 
-    auto payload_hex = ToBytes(payload_Sha256Hex);
+    auto payload_hex = payload_Sha256Hex.ToBytes();
     out["x-amz-date"] = p.amz_date;
     out["x-amz-content-sha256"] = payload_hex;
     if (p.session_token)
-        out["x-amz-security-token"] = ToBytes(p.session_token->GetUnderlying());
+        out["x-amz-security-token"] = p.session_token->GetUnderlying().ToBytes();
     for (const auto &[name, value] : out)
         headers.emplace_back(name, value);
     std::ranges::sort(headers, {}, &std::pair<std::string, std::string>::first);

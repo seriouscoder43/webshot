@@ -37,7 +37,6 @@ namespace server = us::server;
 using namespace ws;
 using namespace text::literals;
 using namespace std::chrono_literals;
-using text::ToBytes;
 
 ById::ById(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -106,8 +105,8 @@ std::string ById::HandleRequestThrow(
     dto::CaptureDetails details{
         (**capture).uuid,
         (**capture).created_at,
-        ToBytes((**capture).link),
-        ToBytes(download_url->Href()),
+        (**capture).link.ToBytes(),
+        download_url->Href().ToBytes(),
     };
     return httpu::RespondJson(response, kOk, details);
 }

@@ -63,6 +63,8 @@ public:
         return {data_.data(), data_.size()};
     }
 
+    [[nodiscard]] std::string ToBytes() const { return std::string{View()}; }
+
     [[nodiscard]] constexpr bool Empty() const noexcept { return data_.empty(); }
 
     [[nodiscard]] constexpr size_t SizeBytes() const noexcept { return data_.size(); }
@@ -137,8 +139,6 @@ public:
 private:
     std::string data_;
 };
-
-[[nodiscard]] inline std::string ToBytes(const String &text) { return std::string{text.View()}; }
 
 namespace detail {
 
@@ -216,7 +216,7 @@ template <std::ranges::input_range Range>
         out.reserve(std::ranges::size(texts));
 
     for (const auto &text : texts)
-        out.push_back(ToBytes(text));
+        out.push_back(text.ToBytes());
     return out;
 }
 
@@ -228,7 +228,7 @@ template <std::ranges::input_range Range>
         out.reserve(std::ranges::size(pairs));
 
     for (const auto &[first, second] : pairs)
-        out.emplace_back(ToBytes(first), ToBytes(second));
+        out.emplace_back(first.ToBytes(), second.ToBytes());
     return out;
 }
 

@@ -10,7 +10,6 @@
 namespace ws::prefix {
 
 namespace us = userver;
-using text::ToBytes;
 
 namespace {
 
@@ -57,7 +56,7 @@ void AppendEncodedSegment(std::string &out, std::string_view bytes)
             host_rev.push_back('.');
         host_rev += labels[i];
     }
-    auto path = ToBytes(normalized_url.Pathname());
+    auto path = normalized_url.Pathname().ToBytes();
     if (path == "/")
         path.clear();
     else if (!path.empty() && path.back() == '/')
