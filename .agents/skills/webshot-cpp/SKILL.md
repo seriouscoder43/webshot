@@ -1,48 +1,39 @@
 ---
 name: webshot-cpp
-description: C++ coding rules for the webshot service (style, naming, safety constraints, and testing hygiene). Use when changing C++ code under `webshotd/` (including service sources, headers, and C++ tests).
+description: C++ coding rules for the webshot service. Use when changing C++ code.
 ---
 
-# Webshot C++
-
-Use these rules whenever making C++ changes in this repository.
+# C++
 
 ## Language and headers
-- C++26 is required to build the service; write code in C++26.
-- All shared headers under `webshotd/include/` MUST use `#pragma once`.
+- The standard is C++26.
+- All headers must use `#pragma once`.
 
 ## Style and naming
-- Classes MUST use PascalCase (for example, `ByPrefixHandler`).
-- Functions and variables MUST use lowerCamelCase.
-- Constants MUST use the `kName` form.
 - Default parameters in function declarations or definitions are forbidden.
-- Namespace rules MUST be strictly followed: use `::name` for global symbols.
-- Use `{}` instead of `std::nullopt` in return statements and obvious initialization sites whenever it compiles.
-- Use `size_t`, `int64_t` (not `std::size_t` or `std::int64_t`).
-- Never use `Type name = Type(...)`; use `Type name{...}` instead to avoid writing the type twice.
-- Filenames MUST be snake_case (for example, `ip_utils.cpp`).
-- Declarations and definitions MUST exactly match (names and signatures).
-- Do not introduce duplicate code; factor common logic into reusable helpers.
-- Code MUST be designed to handle adversarial input too.
-- Prefer `std::begin`/`std::end` over calling `.begin()`/`.end()` on containers when passing iterators.
-- Postfix arithmetic (`++`, `--`) MUST be used by default.
+- Use `::name` for global symbols.
+- Prefer using `{}` instead of `std::nullopt`, or `std::nullopt` instead of type whenever it compiles.
+- Use `size_t`, `int64_t`, not `std::size_t` or `std::int64_t`.
+- Never use `Type name = Type(...)` or `auto name = Type{...}`; use `Type name{...}` instead to avoid writing the type twice.
+- Always factor common logic into reusable helpers.
+- Code must be designed to handle adversarial input too.
+- Use `std::begin`/`std::end` on containers.
+- Postfix arithmetic (`++`, `--`) must be used by default.
 - Never set default values in code for component config options; require them in static config or config_vars.
-- Class members must not use a trailing underscore naming style; use regular lowerCamelCase for member variables.
-- Never call `std::chrono::system_clock::now()`; use `userver::utils::datetime::Now()` instead.
 - Mutable lambdas are forbidden; capture-by-mutable is not allowed in this codebase.
 - Catch-all exception handlers are forbidden; do not use `catch (...)`.
-- Exceptions are forbidden in new C++ code (no `throw`); use `invariant` (and other fail-fast primitives already used in the codebase) instead.
-- Never use `return ReturnType(...)`; when constructing a value to return, prefer `return {...};` wherever it compiles.
-- Never use `std::*stream*`; use `fmt` or userver I/O functionality.
-- Never use `static_cast<IntType>`; use `numericCast` instead.
+- Exceptions are forbidden in new C++ code (no `throw`); use `Invariant` (and other fail-fast primitives already used in the codebase) instead.
+- Prefer `return {...};` instead of `return Type{...}` wherever it compiles.
+- Never use `static_cast<IntType>`; use `NumericCast` instead.
 - Printable text MUST use `text::String` in APIs and data structures. Use `std::string` only for raw owned byte buffers, serialization/transport boundaries, or third-party interfaces that require it. Use `std::string_view` only for non-text byte views or raw protocol parsing, not for printable text APIs.
 
 ## APIs
 - Direct syscalls and C stdlib calls require rare case-by-case justification.
+- Non-userver I/O is forbidden.
+- Never call `std::chrono::system_clock::now()`; use `userver::utils::datetime::Now()` instead.
 
 ## [[nodiscard]] usage
 - Favor annotating; compilers will surface accidental value drops.
-- The `[[nodiscard]]` rules in this section are mandatory and MUST be followed strictly.
 
-## Testing expectations
+## Tests
 - C++ service tests use `userver::utest` and are wired from `webshotd/test/CMakeLists.txt`.
