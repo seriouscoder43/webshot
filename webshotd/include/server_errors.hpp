@@ -8,7 +8,6 @@ namespace ws::errors {
 
 enum class CrudError {
     kDbFailure,
-    kCorruptData,
 };
 
 enum class PageTokenError {

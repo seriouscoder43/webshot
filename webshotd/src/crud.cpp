@@ -1437,20 +1437,14 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::FindCapture(Uuid
         return {};
     }
     auto row = GrabValueOf(capture_opt);
-    auto link_text = String::FromBytes(row.link);
-    if (!link_text)
-        return Unex(kCorruptData);
-    auto replay_url_text = String::FromBytes(row.replay_url);
-    if (!replay_url_text)
-        return Unex(kCorruptData);
-    auto replay_url = Url::FromText(*replay_url_text);
-    if (!replay_url)
-        return Unex(kCorruptData);
+    auto link_text = *String::FromBytes(row.link);
+    auto replay_url_text = *String::FromBytes(row.replay_url);
+    auto replay_url = *Url::FromText(replay_url_text);
     return {CaptureRecord{
         .uuid = uuid,
         .created_at = datetime::TimePointTz(row.created_at.GetUnderlying()),
-        .link = *link_text,
-        .replay_url = *replay_url,
+        .link = link_text,
+        .replay_url = replay_url,
     }};
 }
 
