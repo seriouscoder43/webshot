@@ -14,8 +14,9 @@ class [[nodiscard]] Url final {
 public:
     enum class StripOptions {
         kNone = 0,
-        kStripPort = 1 << 0,
-        kStripQuery = 1 << 1,
+        kPort = 1 << 0,
+        kQuery = 1 << 1,
+        kHash = 1 << 2,
     };
 
     friend constexpr StripOptions operator|(StripOptions lhs, StripOptions rhs) noexcept
@@ -58,8 +59,6 @@ public:
     [[nodiscard]] Url WithPort(const String &port) const;
     [[nodiscard]] Url WithPathname(const String &pathname) const;
     [[nodiscard]] Url WithSearch(const String &search) const;
-    [[nodiscard]] Url WithoutSearch() const;
-    [[nodiscard]] Url WithoutHash() const;
 
     [[nodiscard]] ada::url_aggregator CopyParsed() const;
 

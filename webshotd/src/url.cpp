@@ -129,10 +129,12 @@ bool Url::IsHttpOrHttps() const { return IsHttp() || IsHttps(); }
 Url Url::Stripped(StripOptions options) const
 {
     auto parsed = CopyParsed();
-    if (HasStripOption(options, StripOptions::kStripPort))
+    if (HasStripOption(options, StripOptions::kPort))
         parsed.clear_port();
-    if (HasStripOption(options, StripOptions::kStripQuery))
+    if (HasStripOption(options, StripOptions::kQuery))
         parsed.clear_search();
+    if (HasStripOption(options, StripOptions::kHash))
+        parsed.set_hash("");
     return Url::FromParsed(std::move(parsed));
 }
 
@@ -168,20 +170,6 @@ Url Url::WithSearch(const String &search_value) const
 {
     auto parsed = CopyParsed();
     parsed.set_search(search_value.View());
-    return Url::FromParsed(std::move(parsed));
-}
-
-Url Url::WithoutSearch() const
-{
-    auto parsed = CopyParsed();
-    parsed.clear_search();
-    return Url::FromParsed(std::move(parsed));
-}
-
-Url Url::WithoutHash() const
-{
-    auto parsed = CopyParsed();
-    parsed.clear_hash();
     return Url::FromParsed(std::move(parsed));
 }
 

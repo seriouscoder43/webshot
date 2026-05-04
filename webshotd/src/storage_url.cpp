@@ -75,9 +75,9 @@ Expected<Url, StorageUrlError> BuildCaptureDownloadUrl(
 
     const auto hostname = TRY(ParseRequestHostname(request_host));
 
-    auto download_url = base_url.WithHostname(hostname);
-    download_url = download_url.WithPathname(AppendCaptureFilename(base_url, uuid));
-    download_url = download_url.WithoutSearch().WithoutHash();
+    auto download_url = base_url.WithHostname(hostname)
+                            .WithPathname(AppendCaptureFilename(base_url, uuid))
+                            .Stripped(Url::StripOptions::kQuery | Url::StripOptions::kHash);
     return download_url;
 }
 

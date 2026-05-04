@@ -304,7 +304,9 @@ DecodeCdpBody(const dto::NetworkGetResponseBodyResult &body)
         if (!maybe_base_url)
             return CanonicalizeCapturedUrl(request_text);
         return CanonicalizeCapturedUrl(
-            maybe_base_url->WithoutSearch().WithoutHash().WithSearch(*location).Href()
+            maybe_base_url->Stripped(Url::StripOptions::kHash | Url::StripOptions::kQuery)
+                .WithSearch(*location)
+                .Href()
         );
     }
 
