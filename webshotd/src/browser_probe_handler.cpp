@@ -550,13 +550,9 @@ std::string BrowserProbeHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpMethod::kPost;
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    if (request.GetMethod() != kPost)
-        return httpu::RespondError(response, kMethodNotAllowed, "method not allowed"_t);
-
     const auto body = String::FromBytes(request.RequestBody());
     if (!body)
         return httpu::RespondError(response, kBadRequest, "invalid request body"_t);

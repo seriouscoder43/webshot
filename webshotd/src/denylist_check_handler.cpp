@@ -62,18 +62,12 @@ std::string DenylistCheckHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpMethod::kPost;
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
 
     auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
     eng::current_task::SetDeadline(final_deadline);
-
-    if (request.GetMethod() != kPost) {
-        response.SetStatus(kMethodNotAllowed);
-        return {};
-    }
 
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)

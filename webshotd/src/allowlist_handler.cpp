@@ -11,7 +11,6 @@
 #include "prefix_utils.hpp"
 #include "text.hpp"
 
-#include <chrono>
 #include <format>
 #include <string>
 
@@ -30,18 +29,6 @@ namespace server = us::server;
 namespace eng = us::engine;
 using namespace std::chrono_literals;
 using namespace text::literals;
-
-namespace {
-
-void ApplyDeadline(
-    const server::http::HttpRequest &request, std::chrono::milliseconds request_timeout
-)
-{
-    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
-    eng::current_task::SetDeadline(final_deadline);
-}
-
-} // namespace
 
 AllowlistCheckHandler::AllowlistCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
@@ -70,16 +57,11 @@ std::string AllowlistCheckHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpMethod::kPost;
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    ApplyDeadline(request, request_timeout);
-
-    if (request.GetMethod() != kPost) {
-        response.SetStatus(kMethodNotAllowed);
-        return {};
-    }
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    eng::current_task::SetDeadline(final_deadline);
 
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
@@ -127,16 +109,11 @@ std::string AllowlistAddHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpMethod::kPost;
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    ApplyDeadline(request, request_timeout);
-
-    if (request.GetMethod() != kPost) {
-        response.SetStatus(kMethodNotAllowed);
-        return {};
-    }
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    eng::current_task::SetDeadline(final_deadline);
 
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
@@ -181,16 +158,11 @@ std::string AllowlistRemoveHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    using server::http::HttpMethod::kPost;
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    ApplyDeadline(request, request_timeout);
-
-    if (request.GetMethod() != kPost) {
-        response.SetStatus(kMethodNotAllowed);
-        return {};
-    }
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    eng::current_task::SetDeadline(final_deadline);
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
         return httpu::RespondError(response, kBadRequest, link.Error());
