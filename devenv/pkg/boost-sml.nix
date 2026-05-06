@@ -1,14 +1,10 @@
-{pkgs}:
-pkgs.stdenv.mkDerivation rec {
-  pname = "stateforward-sml";
-  version = "unstable-2026-04-02";
-
-  src = pkgs.fetchFromGitHub {
-    owner = "stateforward";
-    repo = "sml.cpp";
-    rev = "4a7109b5dd4aae40e78304e3ac03440ccc35031e";
-    hash = "sha256-gRBOpIQwUvzKP+eUSMA74qu70JbL5BegB7FFq0GpZsI=";
-  };
+{
+  pkgs,
+  src,
+}:
+pkgs.stdenv.mkDerivation {
+  name = "stateforward-sml";
+  inherit src;
 
   nativeBuildInputs = with pkgs; [cmake];
   patches = [../../patch/boost_sml_disable_min_size.patch];

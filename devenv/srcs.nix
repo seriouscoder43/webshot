@@ -15,8 +15,8 @@
   in
     if name == lock.root || locked == null || kind == "path"
     then []
-    else if kind == "github"
-    then lib.optional (!(builtins.hasAttr "narHash" locked)) "${name} (github)"
+    else if kind == "github" || kind == "tarball"
+    then lib.optional (!(builtins.hasAttr "narHash" locked)) "${name} (${kind})"
     else [
       "${name} (${
         if kind == null
@@ -40,4 +40,15 @@ in
     testsuite = inputs.yandexTaxiTestsuiteSrc;
     unialgo = inputs.uniAlgoSrc;
     userver = inputs.userverSrc;
+    boostsml = inputs.boostSmlSrc;
+    pgque = inputs.pgqueSrc;
+    rapidoc = inputs.rapidocSrc;
+    htmx = inputs.htmxSrc;
+    htmxJsonEnc = inputs.htmxJsonEncSrc;
+    htmxClientSideTemplates = inputs.htmxClientSideTemplatesSrc;
+    htmxResponseTargets = inputs.htmxResponseTargetsSrc;
+    nunjucks = inputs.nunjucksSrc;
+    replaywebpage = inputs.replaywebpageSrc;
+    transliterate = inputs.transliterateSrc;
+    websockets = inputs.websocketsSrc;
   }

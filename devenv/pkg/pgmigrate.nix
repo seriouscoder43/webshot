@@ -5,8 +5,7 @@
   pyPkgs = pkgs.python3Packages;
 in
   pyPkgs.buildPythonApplication {
-    pname = "pgmigrate";
-    version = "1.0.10";
+    name = "pgmigrate";
 
     # Use the modern pyproject-based builder interface.
     pyproject = true;

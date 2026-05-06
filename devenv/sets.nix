@@ -75,7 +75,7 @@
       openssl
       nssTools.tools
     ]
-    ++ [drv.seaweedfs];
+    ++ [drv.seaweedfs drv.pgque];
 
   systemdRuntime = runtime ++ runtimeTools ++ [drv.pgmigrate drv.repoPy];
   systemdRuntimePath = nix.lib.makeBinPath systemdRuntime;

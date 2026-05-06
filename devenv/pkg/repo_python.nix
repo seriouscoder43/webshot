@@ -1,38 +1,34 @@
 {
   pkgs,
   s6Src,
+  srcs,
   python ? pkgs.python3,
 }: let
   pyPkgs = python.pkgs;
 
   transliterate = pyPkgs.buildPythonPackage rec {
-    pname = "transliterate";
-    version = "1.10.2";
+    name = "transliterate";
 
     pyproject = true;
     "build-system" = with pyPkgs; [setuptools wheel];
 
-    src = pkgs.fetchPypi {
-      inherit pname version;
-      hash = "sha256-vGCODUjmh9ucKx1+p8OBr+DRhJytIWCH2OA9jQalfIU=";
-    };
+    src = srcs.transliterate;
 
     propagatedBuildInputs = with pyPkgs; [six];
 
     doCheck = false;
   };
 
-  websocketsCompatible = pyPkgs.websockets.overridePythonAttrs (old: rec {
-    version = "12.0";
+  websocketsCompatible = pyPkgs.buildPythonPackage {
+    name = "websockets";
 
-    src = pkgs.fetchPypi {
-      pname = old.pname;
-      inherit version;
-      hash = "sha256-gd+cvLtsJg3h4AfljAEb/r4tr8hDUQewU385PdOMixs=";
-    };
+    pyproject = true;
+    "build-system" = with pyPkgs; [setuptools wheel];
+
+    src = srcs.websockets;
 
     doCheck = false;
-  });
+  };
 
   toolPackages = [
     # Repo build and test helpers still need the userver generator deps.

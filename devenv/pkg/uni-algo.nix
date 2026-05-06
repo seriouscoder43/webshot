@@ -4,8 +4,7 @@
   toolchain,
 }:
 toolchain.stdenv.mkDerivation {
-  pname = "uni-algo";
-  version = "1.2.0";
+  name = "uni-algo";
   inherit src;
 
   patches = [../../patch/uni_algo_enable_constexpr.patch];

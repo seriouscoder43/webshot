@@ -27,3 +27,36 @@ inputs:
   yandexTaxiTestsuiteSrc:
     url: github:yandex/yandex-taxi-testsuite/183bdc16a65cc050e3aee79ee7088f778f6e9666
     flake: false
+  boostSmlSrc:
+    url: github:stateforward/sml.cpp/4a7109b5dd4aae40e78304e3ac03440ccc35031e
+    flake: false
+  pgqueSrc:
+    url: github:nikolays/pgque/b23df0611c93fa2d1516b735af6db548d88001a4
+    flake: false
+  rapidocSrc:
+    url: https://registry.npmjs.org/rapidoc/-/rapidoc-9.3.8.tgz
+    flake: false
+  htmxSrc:
+    url: https://registry.npmjs.org/htmx.org/-/htmx.org-2.0.8.tgz
+    flake: false
+  htmxJsonEncSrc:
+    url: https://registry.npmjs.org/htmx-ext-json-enc/-/htmx-ext-json-enc-2.0.3.tgz
+    flake: false
+  htmxClientSideTemplatesSrc:
+    url: https://registry.npmjs.org/htmx-ext-client-side-templates/-/htmx-ext-client-side-templates-2.0.2.tgz
+    flake: false
+  htmxResponseTargetsSrc:
+    url: https://registry.npmjs.org/htmx-ext-response-targets/-/htmx-ext-response-targets-2.0.4.tgz
+    flake: false
+  nunjucksSrc:
+    url: https://registry.npmjs.org/nunjucks/-/nunjucks-3.2.4.tgz
+    flake: false
+  replaywebpageSrc:
+    url: https://registry.npmjs.org/replaywebpage/-/replaywebpage-2.4.4.tgz
+    flake: false
+  transliterateSrc:
+    url: https://files.pythonhosted.org/packages/source/t/transliterate/transliterate-1.10.2.tar.gz
+    flake: false
+  websocketsSrc:
+    url: https://files.pythonhosted.org/packages/source/w/websockets/websockets-12.0.tar.gz
+    flake: false

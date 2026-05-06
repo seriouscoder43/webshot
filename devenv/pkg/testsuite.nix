@@ -6,8 +6,7 @@
   pyPkgs = pkgs.python3Packages;
 in
   pyPkgs.buildPythonPackage {
-    pname = "yandex-taxi-testsuite";
-    version = "0.4.5";
+    name = "yandex-taxi-testsuite";
 
     inherit src;
 

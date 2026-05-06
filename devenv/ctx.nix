@@ -91,7 +91,7 @@
   };
 
   drv = import ./drv.nix {
-    inherit inputs nix paths projSrc s6Src sets srcs toolchain;
+    inherit inputs nix paths s6Src sets srcs toolchain;
   };
 
   repoToolPythonPath = "${drv.repoToolPy}/bin/python3";
@@ -181,11 +181,11 @@
       then layoutRoot
       else lib.escapeShellArg layoutRoot;
     stageDir = entry: ''
-      stageRuntimeDir ${lib.escapeShellArg entry.source} "$layout_root/${entry.destination}"
+      stage_runtime_dir ${lib.escapeShellArg entry.source} "$layout_root/${entry.destination}"
     '';
   in ''
     layout_root=${layoutRootExpr}
-    stageRuntimeDir() {
+    stage_runtime_dir() {
       local source="$1"
       local destination="$2"
 
@@ -295,7 +295,7 @@ in {
         wrapProgram "$out/webshotd/webshotd_wrapper" \
           --set PATH "${lib.makeBinPath sets.runtimeTools}"
 
-        installSystemdUnit() {
+        install_systemd_unit() {
           local unit_name="$1"
           local description="$2"
           local conflicts="$3"
@@ -314,13 +314,13 @@ in {
             --replace-fail '@execStartExtra@' "$exec_start_extra"
         }
 
-        installSystemdUnit \
+        install_systemd_unit \
           webshot.service \
           "webshot stack" \
           webshot-local-s3.service \
           "" \
           ""
-        installSystemdUnit \
+        install_systemd_unit \
           webshot-local-s3.service \
           "webshot stack (local S3)" \
           webshot.service \
