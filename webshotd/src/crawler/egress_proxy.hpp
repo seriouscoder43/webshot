@@ -53,7 +53,7 @@ public:
     void Close() noexcept;
 
     [[nodiscard]] i64 DownBytes() const noexcept;
-    [[nodiscard]] std::optional<String> FailureReason() const noexcept;
+    [[nodiscard]] std::optional<String> ErrorReason() const noexcept;
 
 private:
     struct Impl;

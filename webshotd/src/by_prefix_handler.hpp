@@ -38,7 +38,7 @@ public:
 
 private:
     Crud &crud_;
-    const Config &cfg_;
-    const std::chrono::milliseconds request_timeout;
+    const Config &config_;
+    const std::chrono::milliseconds request_timeout_;
 };
 } // namespace ws

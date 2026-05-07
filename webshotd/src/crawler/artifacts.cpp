@@ -54,12 +54,12 @@ constexpr std::string_view kIndexPath = "indexes/index.cdx";
     return std::format("{}{}", prefix, Sha256Hex(data));
 }
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> GzipMember(std::string_view body) noexcept
+[[nodiscard]] Expected<std::string, ArtifactError> GzipMember(std::string_view body) noexcept
 {
     arkhiv::GzipError error;
     auto maybe_bytes = arkhiv::GzipCompressMember(body, error);
     if (!maybe_bytes)
-        return Unex(ArtifactFailure{.code = ArtifactError::kGzipFailed, .detail = error.detail});
+        return Unex(ArtifactError{.code = ArtifactErrorCode::kGzipFailed, .detail = error.detail});
     return std::move(*maybe_bytes);
 }
 
@@ -494,7 +494,7 @@ std::string BuildPagesJsonl(const CapturedExchange &exchange)
     return ToJsonBytes(entry) + "\n";
 }
 
-Expected<std::string, ArtifactFailure> BuildSuccessStdoutLog(
+Expected<std::string, ArtifactError> BuildSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browser_pid,
     ReusedBrowser reused_browser
 )
@@ -515,7 +515,7 @@ Expected<std::string, ArtifactFailure> BuildSuccessStdoutLog(
     );
 }
 
-Expected<WarcBuildOutput, ArtifactFailure> BuildWarc(const CapturedExchange &exchange)
+Expected<WarcBuildOutput, ArtifactError> BuildWarc(const CapturedExchange &exchange)
 {
     const auto responses = CollectSerializableResponses(exchange);
 
@@ -566,7 +566,7 @@ Expected<WarcBuildOutput, ArtifactFailure> BuildWarc(const CapturedExchange &exc
     return out;
 }
 
-Expected<std::string, ArtifactFailure> BuildWacz(
+Expected<std::string, ArtifactError> BuildWacz(
     const RunRequest &run, const std::string &pages_jsonl, const WarcBuildOutput &warc,
     const std::string &stdout_log, const std::string &stderr_log
 )
@@ -580,9 +580,11 @@ Expected<std::string, ArtifactFailure> BuildWacz(
     arkhiv::ZipArchiveError error;
     const auto add_file = [&error, &zip](
                               std::string_view path, std::string_view body
-                          ) -> Expected<void, ArtifactFailure> {
+                          ) -> Expected<void, ArtifactError> {
         if (!zip.AddStoredFile(path, error, body))
-            return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
+            return Unex(
+                ArtifactError{.code = ArtifactErrorCode::kZipFailed, .detail = error.detail}
+            );
         return {};
     };
 
@@ -595,7 +597,7 @@ Expected<std::string, ArtifactFailure> BuildWacz(
 
     const auto zip_bytes = zip.Finish(error);
     if (!zip_bytes)
-        return Unex(ArtifactFailure{.code = ArtifactError::kZipFailed, .detail = error.detail});
+        return Unex(ArtifactError{.code = ArtifactErrorCode::kZipFailed, .detail = error.detail});
     return *zip_bytes;
 }
 

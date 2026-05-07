@@ -26,7 +26,7 @@ struct Detached {};
 struct Disposed {};
 struct Closed {};
 
-struct BrowserPageLifecycleDefinition {
+struct BrowserPageSessionLifecycleDefinition {
     [[nodiscard]] auto operator()() const
     {
         using namespace sml;
@@ -61,7 +61,7 @@ struct BrowserPageSessionLifecycle::Impl final {
         return sm.process_event(event);
     }
 
-    sml::sm<BrowserPageLifecycleDefinition> sm;
+    sml::sm<BrowserPageSessionLifecycleDefinition> sm;
 };
 
 BrowserPageSessionLifecycle::BrowserPageSessionLifecycle() : impl_(std::make_unique<Impl>()) {}

@@ -36,16 +36,16 @@ using namespace ws;
 using namespace text::literals;
 using namespace std::chrono_literals;
 
-DisallowAndPurgeHandler::DisallowAndPurgeHandler(
+DenyPrefixAndPurgeHandler::DenyPrefixAndPurgeHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
       config_(context.FindComponent<Config>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
-us::yaml_config::Schema DisallowAndPurgeHandler::GetStaticConfigSchema()
+us::yaml_config::Schema DenyPrefixAndPurgeHandler::GetStaticConfigSchema()
 {
     return us::yaml_config::MergeSchemas<server::handlers::HttpHandlerBase>(R"(
 type: object
@@ -59,7 +59,7 @@ properties:
 )");
 }
 
-std::string DisallowAndPurgeHandler::HandleRequestThrow(
+std::string DenyPrefixAndPurgeHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -67,14 +67,14 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     HandlerRequestSupport request_support{crud_, config_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    request_support.ApplyRequestDeadline(request, request_timeout_);
 
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
         return httpu::RespondError(response, kBadRequest, link.Error());
 
-    LOG_INFO() << std::format("invoked for: {}", link->Host());
     auto prefix_key = prefix::MakePrefixKey(*link);
+    LOG_INFO() << std::format("invoked for prefix: {}", prefix_key);
 
     const auto cooldown = request_support.CheckClientIpCooldown(request);
     if (!cooldown)
@@ -82,9 +82,9 @@ std::string DisallowAndPurgeHandler::HandleRequestThrow(
     if (*cooldown)
         return httpu::RespondClientIpCooldown(response, (*cooldown)->retry_after);
 
-    auto ok = crud_.DisallowAndPurgePrefix(prefix_key);
+    auto ok = crud_.DenyPrefixAndPurge(prefix_key);
     if (!ok) {
-        LOG_ERROR() << std::format("disallow_and_purge failed for {}", link->Host());
+        LOG_ERROR() << std::format("disallow_and_purge failed for prefix {}", prefix_key);
         return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
     response.SetStatus(kAccepted);

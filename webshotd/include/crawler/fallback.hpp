@@ -14,7 +14,7 @@ struct [[nodiscard]] SeedProbe {
 };
 
 enum class CrawlerErrorKind {
-    kBrowserLaunch,
+    kBrowserStart,
     kDevtoolsStartup,
     kCdp,
     kNavigation,
@@ -73,8 +73,8 @@ struct [[nodiscard]] CrawlerError {
     using text::literals::operator""_t;
 
     switch (kind) {
-    case kBrowserLaunch:
-        return "browser launch error"_t;
+    case kBrowserStart:
+        return "browser start error"_t;
     case kDevtoolsStartup:
         return "devtools startup error"_t;
     case kCdp:

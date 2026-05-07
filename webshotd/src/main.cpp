@@ -2,12 +2,12 @@
  * @file
  * @brief Service entry point wiring userver components and HTTP handlers.
  */
+#include "access_policy.hpp"
 #include "allowlist_handler.hpp"
 #include "by_id_handler.hpp"
 #include "by_prefix_handler.hpp"
 #include "config.hpp"
 #include "crud.hpp"
-#include "denylist.hpp"
 #include "denylist_check_handler.hpp"
 #include "disallow_and_purge_handler.hpp"
 #include "docs_handler.hpp"
@@ -53,19 +53,19 @@ int main(int argc, char *argv[])
             .Append<us::components::Postgres>("shared_state_db")
             .Append<us::congestion_control::Component>()
             .Append<eng::TaskProcessorsLoadMonitor>()
-            .Append<ws::Denylist>()
+            .Append<ws::AccessPolicyStore>()
             .Append<ws::Config>()
             .Append<ws::Metrics>()
             .Append<ws::Crud>()
             .Append<ws::ByPrefixHandler>()
-            .Append<ws::Handler>()
+            .Append<ws::CaptureByLinkHandler>()
             .Append<ws::JobHandler>()
-            .Append<ws::DisallowAndPurgeHandler>()
-            .Append<ws::DenylistCheckHandler>()
+            .Append<ws::DenyPrefixAndPurgeHandler>()
+            .Append<ws::AccessPolicyCheckHandler>()
             .Append<ws::AllowlistCheckHandler>()
             .Append<ws::AllowlistAddHandler>()
             .Append<ws::AllowlistRemoveHandler>()
-            .Append<ws::ById>()
+            .Append<ws::ByIdHandler>()
             .Append<ws::DocsHandler>()
             .Append<ws::DocsHandler>("docs_admin")
             .Append<ws::UiReplayHandler>()

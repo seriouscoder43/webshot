@@ -110,8 +110,8 @@ async def test_create_capture_job_strips_non_default_port_in_normalized_link(ser
     assert body["link"] == f"{TEST_HOST}/path?a=1"
 
 
-async def test_create_capture_denylisted_host(service_client, monitor_client):
-    # Insert host into denylist via dedicated endpoint.
+async def test_create_capture_denylisted_prefix(service_client, monitor_client):
+    # Insert prefix into denylist via dedicated endpoint.
     deny_resp = await monitor_client.post(
         "/v1/denylist/disallow_and_purge",
         json={"link": f"https://{TEST_HOST}/"},
@@ -125,7 +125,7 @@ async def test_create_capture_denylisted_host(service_client, monitor_client):
 
     assert response.status == 403
     body = response.json()
-    assert body["error"]["message"] == "host in denylist"
+    assert body["error"]["message"] == "link prefix in denylist"
 
 
 async def test_create_capture_denylisted_path_blocks_subpaths(service_client, monitor_client):
@@ -142,7 +142,7 @@ async def test_create_capture_denylisted_path_blocks_subpaths(service_client, mo
 
     assert response.status == 403
     body = response.json()
-    assert body["error"]["message"] == "host in denylist"
+    assert body["error"]["message"] == "link prefix in denylist"
 
 
 async def test_create_capture_denylisted_path_does_not_block_sibling_path(

@@ -22,7 +22,7 @@ DocsHandler::DocsHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms),
       title(config["title"].As<std::string>()), spec_url(config["spec-url"].As<std::string>())
 {
 }
@@ -51,7 +51,7 @@ std::string DocsHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
-    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout_);
     eng::current_task::SetDeadline(final_deadline);
 
     auto &response = request.GetHttpResponse();

@@ -32,7 +32,7 @@ public:
     ) const final;
 
 private:
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
     const std::string title;
     const std::string spec_url;
 };

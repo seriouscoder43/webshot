@@ -38,7 +38,7 @@ public:
 
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 
-    /** @return Maximum allowed URL length in bytes. */
+    /** @return Maximum URL byte length accepted when parsing a Link. */
     [[nodiscard]] usize UrlBytesMax() const noexcept { return url_bytes_max_; }
 
     /** @return Whether captures must match the allowlist. */

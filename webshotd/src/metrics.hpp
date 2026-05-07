@@ -41,7 +41,7 @@ public:
         kS3DeleteObject = 5,
         kStsRefresh = 6,
         kCrawlerRun = 7,
-        kDenylistCheck = 8,
+        kAccessPolicyCheck = 8,
         kCount = 9,
     };
 

@@ -1,14 +1,14 @@
 #include "crawler/runner.hpp"
 
+#include "access_policy.hpp"
 #include "config.hpp"
 #include "crawler/artifacts.hpp"
 #include "crawler/browser_session.hpp"
+#include "crawler/browser_start_policy.hpp"
 #include "crawler/cdp_client.hpp"
-#include "crawler/launch_policy.hpp"
 #include "crawler/limits.hpp"
 #include "crypto.hpp"
 #include "deadline_utils.hpp"
-#include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "invariant.hpp"
@@ -69,7 +69,7 @@ namespace datetime = us::utils::datetime;
 namespace dns = us::clients::dns;
 namespace {
 
-using crawler::DescribeCdpFailure;
+using crawler::FormatCdpError;
 using ws::Expected;
 
 constexpr auto kCdpWsPayloadSlackBytes = 2_i64 * 1024_i64 * 1024_i64;
@@ -179,7 +179,7 @@ NormalizeHeadersOrEmpty(const std::optional<dto::CdpHeaders> &headers)
     return text::Format("{}", us::utils::generators::GenerateBoostUuid());
 }
 
-struct [[nodiscard]] CaptureFailure final {
+struct [[nodiscard]] CaptureError final {
     String detail;
     std::optional<crawler::SeedProbe> seed_probe;
 };
@@ -342,7 +342,7 @@ DecodeCdpBody(const dto::NetworkGetResponseBodyResult &body)
 }
 
 [[nodiscard]] Expected<AccessDecision, String>
-EvaluateAccessPolicy(Denylist &denylist, const Config &config, const Url &url)
+EvaluateAccessPolicy(AccessPolicyStore &access_policy, const Config &config, const Url &url)
 {
     using enum AccessDecisionReason;
 
@@ -352,7 +352,7 @@ EvaluateAccessPolicy(Denylist &denylist, const Config &config, const Url &url)
 
     const auto link = TRY(LinkFromInterceptionUrl(config, url));
     return TRY_ERR_AS(
-        denylist.EvaluatePrefix(
+        access_policy.EvaluatePrefix(
             prefix::MakePrefixKey(link),
             config.AllowlistOnly() ? AccessPolicyMode::kAllowlistOnly : AccessPolicyMode::kRegular
         ),
@@ -437,7 +437,7 @@ public:
             if (event.params) {
                 const auto crashed = event.params->extra.As<dto::TargetTargetCrashedEvent>();
                 if (crashed.targetId && state->target_id.View() == *crashed.targetId)
-                    state->main_request_failure = "page target crashed"_t;
+                    state->main_request_error = "page target crashed"_t;
             }
             return;
         }
@@ -446,7 +446,7 @@ public:
                 const auto detached_session_id = event.params->extra["sessionId"];
                 if (!detached_session_id.IsMissing() &&
                     detached_session_id.As<std::string>() == state->session_id.View()) {
-                    state->main_request_failure = "target session detached"_t;
+                    state->main_request_error = "target session detached"_t;
                 }
             }
             return;
@@ -456,7 +456,7 @@ public:
                 const auto destroyed_target_id = event.params->extra["targetId"];
                 if (!destroyed_target_id.IsMissing() &&
                     destroyed_target_id.As<std::string>() == state->target_id.View()) {
-                    state->main_request_failure = "page target destroyed"_t;
+                    state->main_request_error = "page target destroyed"_t;
                 }
             }
             return;
@@ -468,13 +468,13 @@ public:
             if (event.params) {
                 const auto reason = event.params->extra["reason"];
                 if (!reason.IsMissing()) {
-                    state->main_request_failure = text::Format(
+                    state->main_request_error = text::Format(
                         "inspector detached: {}", reason.As<std::string>()
                     );
                     return;
                 }
             }
-            state->main_request_failure = "inspector detached"_t;
+            state->main_request_error = "inspector detached"_t;
             return;
         }
 
@@ -488,7 +488,7 @@ public:
         if (method == "Network.requestWillBeSent") {
             auto parsed = ParseEventParams<dto::NetworkRequestWillBeSentEvent>(event);
             if (!parsed)
-                state->main_request_failure = parsed.Error();
+                state->main_request_error = parsed.Error();
             else
                 HandleRequestWillBeSent(*state, GrabValueOf(parsed));
             return;
@@ -496,7 +496,7 @@ public:
         if (method == "Network.responseReceived") {
             auto parsed = ParseEventParams<dto::NetworkResponseReceivedEvent>(event);
             if (!parsed)
-                state->main_request_failure = parsed.Error();
+                state->main_request_error = parsed.Error();
             else
                 HandleResponseReceived(*state, GrabValueOf(parsed));
             return;
@@ -504,7 +504,7 @@ public:
         if (method == "Network.loadingFinished") {
             auto parsed = ParseEventParams<dto::NetworkLoadingFinishedEvent>(event);
             if (!parsed)
-                state->main_request_failure = parsed.Error();
+                state->main_request_error = parsed.Error();
             else
                 HandleLoadingFinished(*state, GrabValueOf(parsed));
             return;
@@ -512,7 +512,7 @@ public:
         if (method == "Network.loadingFailed") {
             auto parsed = ParseEventParams<dto::NetworkLoadingFailedEvent>(event);
             if (!parsed)
-                state->main_request_failure = parsed.Error();
+                state->main_request_error = parsed.Error();
             else
                 HandleLoadingFailed(*state, GrabValueOf(parsed));
         }
@@ -521,14 +521,14 @@ public:
     [[nodiscard]] bool IsLoadedOrFailed() const
     {
         const auto state = data_.Lock();
-        return state->loaded || state->main_request_failure;
+        return state->loaded || state->main_request_error;
     }
 
-    [[nodiscard]] bool HasMainDocumentOrFailure() const
+    [[nodiscard]] bool HasMainDocumentOrError() const
     {
         const auto state = data_.Lock();
         const auto *request = ActiveMainRequest(*state);
-        return state->main_request_failure ||
+        return state->main_request_error ||
                (state->completed_main_request && state->completed_main_request->loaded &&
                 HasResponse(*state->completed_main_request)) ||
                (request != nullptr && HasResponse(*request) && request->loaded);
@@ -551,29 +551,29 @@ public:
         const auto state = data_.Lock();
         if (const auto *request = ResolvedMainRequest(*state);
             request != nullptr && request->status_code) {
-            const i64 load_state{request->loaded && !state->main_request_failure ? 2_i64 : 0_i64};
+            const i64 load_state{request->loaded && !state->main_request_error ? 2_i64 : 0_i64};
             return crawler::SeedProbe{
                 .status = Raw(*request->status_code),
                 .load_state = Raw(load_state),
             };
         }
 
-        if (state->main_request_id || state->main_request_failure || state->loaded)
+        if (state->main_request_id || state->main_request_error || state->loaded)
             return crawler::SeedProbe{.status = Raw(0_i64), .load_state = Raw(0_i64)};
 
         return {};
     }
 
-    [[nodiscard]] std::optional<String> FailureReason() const
+    [[nodiscard]] std::optional<String> ErrorReason() const
     {
         const auto state = data_.Lock();
-        return state->main_request_failure;
+        return state->main_request_error;
     }
 
     void Fail(String reason)
     {
         auto state = data_.Lock();
-        state->main_request_failure = std::move(reason);
+        state->main_request_error = std::move(reason);
     }
 
     [[nodiscard]] Expected<std::string, String> ReadBody(
@@ -724,7 +724,7 @@ private:
         std::optional<TrackedRequest> completed_main_request;
         bool loaded{false};
         bool seed_navigation_started{false};
-        std::optional<String> main_request_failure;
+        std::optional<String> main_request_error;
         chrono::steady_clock::time_point last_network_at{datetime::SteadyNow()};
     };
 
@@ -917,7 +917,7 @@ private:
         const auto request_it = state.active_requests.find(request_id_text);
         if (request_it == std::end(state.active_requests)) {
             if (state.main_request_id && *state.main_request_id == request_id_text) {
-                state.main_request_failure = text::Format(
+                state.main_request_error = text::Format(
                     "main document response received for unknown request id {}", request_id_text
                 );
             }
@@ -960,7 +960,7 @@ private:
                 state.main_response_request_id = request_id_text;
             }
         } else if (state.main_request_id && *state.main_request_id == request_id_text) {
-            state.main_request_failure = text::Format(
+            state.main_request_error = text::Format(
                 "main document loading finished for unknown request id {}", request_id_text
             );
         }
@@ -975,7 +975,7 @@ private:
         const auto request_it = state.active_requests.find(request_id_text);
         if (request_it == std::end(state.active_requests)) {
             if (state.main_request_id && *state.main_request_id == request_id_text) {
-                state.main_request_failure = text::Format(
+                state.main_request_error = text::Format(
                     "main document loading failed for unknown request id {}", request_id_text
                 );
             }
@@ -989,7 +989,7 @@ private:
         if (HasResponse(request))
             return;
 
-        state.main_request_failure = *String::FromBytes(
+        state.main_request_error = *String::FromBytes(
             loading_failed.errorText.value_or("main document request failed")
         );
     }
@@ -1006,7 +1006,7 @@ private:
 
         const auto request_it = state.active_requests.find(request_id);
         if (request_it == std::end(state.active_requests)) {
-            state.main_request_failure = text::Format(
+            state.main_request_error = text::Format(
                 "redirect response for unknown request id {}", request_id
             );
             return;
@@ -1102,9 +1102,7 @@ struct [[nodiscard]] DomState {
 
     const auto result = TRY_MAP_ERR(
         cdp_session.Send<dto::RuntimeEvaluateDomStateResult>("Runtime.evaluate"_t, params),
-        [](auto failure) {
-            return DescribeCdpFailure("failed to read dom state"_t, std::move(failure));
-        }
+        [](auto error) { return FormatCdpError("failed to read dom state"_t, std::move(error)); }
     );
     const auto &value = result.result.value;
     const auto title = text::OptionalString(value.title).ValueOr(std::nullopt);
@@ -1140,8 +1138,8 @@ Expected<void, String> RunSiteBehavior(crawler::CdpSession &cdp_session, eng::De
     );
     params.awaitPromise = true;
     params.returnByValue = true;
-    TRY_MAP_ERR(cdp_session.Send<ujson::Value>("Runtime.evaluate"_t, params), [](auto failure) {
-        return DescribeCdpFailure("failed to run site behavior"_t, std::move(failure));
+    TRY_MAP_ERR(cdp_session.Send<ujson::Value>("Runtime.evaluate"_t, params), [](auto error) {
+        return FormatCdpError("failed to run site behavior"_t, std::move(error));
     });
     return {};
 }
@@ -1149,15 +1147,16 @@ Expected<void, String> RunSiteBehavior(crawler::CdpSession &cdp_session, eng::De
 class [[nodiscard]] CaptureSession final {
 public:
     CaptureSession(
-        Denylist &denylist, const Config &config, dns::Resolver &dns_resolver, usize url_bytes_max,
-        i64 proxy_down_bytes_max, eng::subprocess::ProcessStarter &process_starter,
-        eng::TaskProcessor &fs_task_processor, std::string browser_runs_root_in,
-        std::string cgroup_root_path_in, std::optional<crawler::CgroupLimits> cgroup_limits_in,
-        crawler::CaptureTimings timings, crawler::CrawlerTunables tunables_in,
-        i64 max_archive_bytes_in, eng::Deadline deadline, crawler::RunRequest run, Metrics &metrics
+        AccessPolicyStore &access_policy, const Config &config, dns::Resolver &dns_resolver,
+        usize url_bytes_max, i64 proxy_down_bytes_max,
+        eng::subprocess::ProcessStarter &process_starter, eng::TaskProcessor &fs_task_processor,
+        std::string browser_runs_root_in, std::string cgroup_root_path_in,
+        std::optional<crawler::CgroupLimits> cgroup_limits_in, crawler::CaptureTimings timings,
+        crawler::CrawlerTunables tunables_in, i64 max_archive_bytes_in, eng::Deadline deadline,
+        crawler::RunRequest run, Metrics &metrics
     )
-        : denylist_(denylist), config_(config), timings_(std::move(timings)), run_(std::move(run)),
-          deadline_(deadline), max_archive_bytes_(max_archive_bytes_in),
+        : access_policy_(access_policy), config_(config), timings_(std::move(timings)),
+          run_(std::move(run)), deadline_(deadline), max_archive_bytes_(max_archive_bytes_in),
           browser_(
               dns_resolver, process_starter, fs_task_processor,
               crawler::BrowserSessionConfig{
@@ -1187,37 +1186,37 @@ public:
 
     ~CaptureSession()
     {
-        CloseCdpForFailure();
+        CloseCdpForError();
         browser_.Close();
     }
 
-    [[nodiscard]] Expected<CaptureWithNetwork, CaptureFailure> Capture()
+    [[nodiscard]] Expected<CaptureWithNetwork, CaptureError> Capture()
     {
-        auto launched = Launch();
-        if (!launched) {
-            auto error_detail = browser_.BuildFailureDetail(launched.Error());
-            CloseCdpForFailure();
+        auto started = Start();
+        if (!started) {
+            auto error_detail = browser_.BuildErrorDetail(started.Error());
+            CloseCdpForError();
             browser_.Close();
-            return Unex(CaptureFailure{std::move(error_detail), {}});
+            return Unex(CaptureError{std::move(error_detail), {}});
         }
 
         auto captured = CaptureAttachedTarget();
         if (!captured) {
-            auto error_detail = browser_.BuildFailureDetail(captured.Error());
+            auto error_detail = browser_.BuildErrorDetail(captured.Error());
             if (tracker_) {
-                const auto tracker_failure = tracker_->FailureReason();
-                if (tracker_failure)
+                const auto tracker_error = tracker_->ErrorReason();
+                if (tracker_error)
                     error_detail = text::Format(
-                        "{}, tracker_error={}", error_detail, *tracker_failure
+                        "{}, tracker_error={}", error_detail, *tracker_error
                     );
             }
-            if (const auto proxy_failure = browser_.ProxyFailureReason())
-                error_detail = text::Format("{}, proxy_error={}", error_detail, *proxy_failure);
+            if (const auto proxy_error = browser_.ProxyErrorReason())
+                error_detail = text::Format("{}, proxy_error={}", error_detail, *proxy_error);
             auto seed_probe = CurrentSeedProbe();
-            CloseCdpForFailure();
+            CloseCdpForError();
             browser_.Close();
             return Unex(
-                CaptureFailure{
+                CaptureError{
                     std::move(error_detail),
                     std::move(seed_probe),
                 }
@@ -1236,7 +1235,7 @@ private:
     {
         auto result = GetSession().SendVoid(method, std::forward<Args>(args)...);
         if (!result)
-            return Unex(DescribeCdpFailure(text::Format("{} failed", method), result.Error()));
+            return Unex(FormatCdpError(text::Format("{} failed", method), result.Error()));
         return {};
     }
 
@@ -1247,16 +1246,16 @@ private:
         progress->cv.NotifyAll();
     }
 
-    [[nodiscard]] std::optional<String> CurrentWaitFailure() const
+    [[nodiscard]] std::optional<String> CurrentWaitError() const
     {
         {
-            const auto failure = interception_failure_.Lock();
-            if (*failure)
-                return *failure;
+            const auto error = interception_error_.Lock();
+            if (*error)
+                return *error;
         }
         if (tracker_) {
-            if (const auto tracker_failure = tracker_->FailureReason())
-                return tracker_failure;
+            if (const auto tracker_error = tracker_->ErrorReason())
+                return tracker_error;
         }
         return {};
     }
@@ -1266,15 +1265,15 @@ private:
     WaitForPredicate(Predicate &&predicate, String timeout_message)
     {
         while (!std::invoke(predicate)) {
-            if (const auto failure = CurrentWaitFailure())
-                return Unex(*failure);
+            if (const auto error = CurrentWaitError())
+                return Unex(*error);
             auto progress = event_progress_.UniqueLock();
             const auto version = progress->version;
             progress.GetLock().unlock();
             if (std::invoke(predicate))
                 return {};
-            if (const auto failure = CurrentWaitFailure())
-                return Unex(*failure);
+            if (const auto error = CurrentWaitError())
+                return Unex(*error);
             progress.GetLock().lock();
             if (progress->version != version)
                 continue;
@@ -1284,21 +1283,21 @@ private:
                 progress.GetLock().unlock();
                 if (std::invoke(predicate))
                     return {};
-                if (const auto failure = CurrentWaitFailure())
-                    return Unex(*failure);
+                if (const auto error = CurrentWaitError())
+                    return Unex(*error);
                 return Unex(timeout_message);
             }
         }
-        if (const auto failure = CurrentWaitFailure())
-            return Unex(*failure);
+        if (const auto error = CurrentWaitError())
+            return Unex(*error);
         return {};
     }
 
     [[nodiscard]] Expected<void, String> WaitForIdle(chrono::seconds idle)
     {
         while (!GetPageTracker().IsIdleFor(idle)) {
-            if (const auto failure = CurrentWaitFailure())
-                return Unex(*failure);
+            if (const auto error = CurrentWaitError())
+                return Unex(*error);
             auto progress = event_progress_.UniqueLock();
             const auto version = progress->version;
             const auto idle_deadline = eng::Deadline::FromTimePoint(
@@ -1308,8 +1307,8 @@ private:
             progress.GetLock().unlock();
             if (GetPageTracker().IsIdleFor(idle))
                 return {};
-            if (const auto failure = CurrentWaitFailure())
-                return Unex(*failure);
+            if (const auto error = CurrentWaitError())
+                return Unex(*error);
             progress.GetLock().lock();
             if (progress->version != version)
                 continue;
@@ -1319,14 +1318,14 @@ private:
                 progress.GetLock().unlock();
                 if (GetPageTracker().IsIdleFor(idle))
                     return {};
-                if (const auto failure = CurrentWaitFailure())
-                    return Unex(*failure);
+                if (const auto error = CurrentWaitError())
+                    return Unex(*error);
                 if (deadline_.IsReached())
                     return Unex("timed out waiting for network idle"_t);
             }
         }
-        if (const auto failure = CurrentWaitFailure())
-            return Unex(*failure);
+        if (const auto error = CurrentWaitError())
+            return Unex(*error);
         return {};
     }
 
@@ -1336,16 +1335,14 @@ private:
             auto event = GetSession().WaitEvent(deadline_, "timed out waiting for cdp event"_t);
             if (!event) {
                 if (!stopping_event_loop_.load()) {
-                    NoteInterceptionFailure(
-                        DescribeCdpFailure("cdp event loop failed"_t, event.Error())
-                    );
+                    NoteInterceptionError(FormatCdpError("cdp event loop failed"_t, event.Error()));
                     NoteEventProgress();
                 }
                 return;
             }
             HandleSessionEvent(*event);
             NoteEventProgress();
-            if (CurrentWaitFailure())
+            if (CurrentWaitError())
                 return;
         }
     }
@@ -1367,9 +1364,9 @@ private:
         event_task_ = {};
     }
 
-    [[nodiscard]] Expected<void, String> Launch()
+    [[nodiscard]] Expected<void, String> Start()
     {
-        TRY(browser_.Launch());
+        TRY(browser_.Start());
         browser_.MarkPhase("connect_cdp");
         cdp_ = TRY(browser_.ConnectCdp(deadline_));
         page_session_ = std::make_unique<crawler::BrowserPageSession>(GetCdpClient());
@@ -1414,9 +1411,8 @@ private:
 
         browser_.MarkPhase("get_frame_tree");
         const auto frame_tree = TRY_MAP_ERR(
-            GetSession().Send<dto::PageGetFrameTreeResult>("Page.getFrameTree"_t),
-            [](auto failure) {
-                return DescribeCdpFailure("Page.getFrameTree failed"_t, std::move(failure));
+            GetSession().Send<dto::PageGetFrameTreeResult>("Page.getFrameTree"_t), [](auto error) {
+                return FormatCdpError("Page.getFrameTree failed"_t, std::move(error));
             }
         );
         GetPageTracker().SetMainFrameId(*String::FromBytes(frame_tree.frameTree.frame.id));
@@ -1427,9 +1423,7 @@ private:
         GetPageTracker().BeginSeedNavigation(run_.seed_url);
         const auto navigate_result = TRY_MAP_ERR(
             GetSession().Send<dto::PageNavigateResult>("Page.navigate"_t, navigate_params),
-            [](auto failure) {
-                return DescribeCdpFailure("Page.navigate failed"_t, std::move(failure));
-            }
+            [](auto error) { return FormatCdpError("Page.navigate failed"_t, std::move(error)); }
         );
         ENSURE(!navigate_result.errorText, *String::FromBytes(*navigate_result.errorText));
         GetPageTracker().SetExpectedMainLoaderId(StringOrNull(navigate_result.loaderId));
@@ -1477,7 +1471,7 @@ private:
         browser_.MarkPhase("wait_for_main_document");
         browser_.MarkPhase("wait_for_main_document_wait");
         TRY(WaitForPredicate(
-            [this]() { return GetPageTracker().HasMainDocumentOrFailure(); },
+            [this]() { return GetPageTracker().HasMainDocumentOrError(); },
             "timed out waiting for main document response"_t
         ));
         browser_.MarkPhase("wait_for_main_document_done");
@@ -1517,26 +1511,26 @@ private:
         browser_.MarkPhase("before_browser_close");
         LOG_INFO() << std::format("captureViaProxy closing browser for {}", run_.seed_url);
         browser_.Close();
-        if (const auto proxy_failure = browser_.ProxyFailureReason()) {
+        if (const auto proxy_error = browser_.ProxyErrorReason()) {
             if (!IsSuccessfulMainDocumentExchange(exchange))
-                return Unex(*proxy_failure);
+                return Unex(*proxy_error);
             LOG_WARNING() << std::format(
-                "Ignoring late proxy failure after successful main document capture for {} "
+                "Ignoring late proxy error after successful main document capture for {} "
                 "(status={}): {}",
-                run_.seed_url, exchange.status_code, *proxy_failure
+                run_.seed_url, exchange.status_code, *proxy_error
             );
         }
         LOG_INFO() << std::format("captureViaProxy returning capture for {}", run_.seed_url);
         return exchange;
     }
 
-    void CloseCdpForFailure()
+    void CloseCdpForError()
     {
         StopEventLoop();
         if (page_session_) {
             if (const auto closed_page = page_session_->Close(); !closed_page) {
                 LOG_WARNING() << std::format(
-                    "Suppressing page session close failure during capture cleanup: {}",
+                    "Suppressing page session close error during capture cleanup: {}",
                     closed_page.Error()
                 );
             }
@@ -1547,7 +1541,7 @@ private:
 
         if (auto closed = cdp_->Close(); !closed) {
             LOG_WARNING() << std::format(
-                "Suppressing CDP close failure during capture cleanup: code={}{}",
+                "Suppressing CDP close error during capture cleanup: code={}{}",
                 NumericCast<int>(closed.Error().code),
                 closed.Error().detail ? std::format(", detail={}", *closed.Error().detail)
                                       : std::string{}
@@ -1581,14 +1575,14 @@ private:
         return page_session_->GetSession();
     }
 
-    void NoteInterceptionFailure(String reason)
+    void NoteInterceptionError(String reason)
     {
         auto tracker_reason = reason;
         {
-            auto failure = interception_failure_.UniqueLock();
-            if (*failure)
+            auto error = interception_error_.UniqueLock();
+            if (*error)
                 return;
-            *failure = std::move(reason);
+            *error = std::move(reason);
         }
         if (tracker_)
             tracker_->Fail(std::move(tracker_reason));
@@ -1612,7 +1606,7 @@ private:
     {
         const auto auth_required = ParseEventParams<dto::FetchAuthRequiredEvent>(event);
         if (!auth_required) {
-            NoteInterceptionFailure(auth_required.Error());
+            NoteInterceptionError(auth_required.Error());
             return;
         }
 
@@ -1633,8 +1627,8 @@ private:
 
         const auto continued = GetSession().SendVoid("Fetch.continueWithAuth"_t, params);
         if (!continued)
-            NoteInterceptionFailure(
-                DescribeCdpFailure("Fetch.continueWithAuth failed"_t, continued.Error())
+            NoteInterceptionError(
+                FormatCdpError("Fetch.continueWithAuth failed"_t, continued.Error())
             );
     }
 
@@ -1642,13 +1636,13 @@ private:
     {
         const auto paused = ParseEventParams<dto::FetchRequestPausedEvent>(event);
         if (!paused) {
-            NoteInterceptionFailure(paused.Error());
+            NoteInterceptionError(paused.Error());
             return;
         }
 
         const auto request_text = String::FromBytes(paused->request.url);
         if (!request_text) {
-            NoteInterceptionFailure("Fetch.requestPaused contained invalid request url"_t);
+            NoteInterceptionError("Fetch.requestPaused contained invalid request url"_t);
             return;
         }
 
@@ -1658,15 +1652,15 @@ private:
             params.requestId = paused->requestId;
             const auto continued = GetSession().SendVoid("Fetch.continueRequest"_t, params);
             if (!continued)
-                NoteInterceptionFailure(
-                    DescribeCdpFailure("Fetch.continueRequest failed"_t, continued.Error())
+                NoteInterceptionError(
+                    FormatCdpError("Fetch.continueRequest failed"_t, continued.Error())
                 );
             return;
         }
 
-        const auto decision = EvaluateAccessPolicy(denylist_, config_, *url);
+        const auto decision = EvaluateAccessPolicy(access_policy_, config_, *url);
         if (!decision) {
-            NoteInterceptionFailure(decision.Error());
+            NoteInterceptionError(decision.Error());
             return;
         }
 
@@ -1675,8 +1669,8 @@ private:
             params.requestId = paused->requestId;
             const auto continued = GetSession().SendVoid("Fetch.continueRequest"_t, params);
             if (!continued)
-                NoteInterceptionFailure(
-                    DescribeCdpFailure("Fetch.continueRequest failed"_t, continued.Error())
+                NoteInterceptionError(
+                    FormatCdpError("Fetch.continueRequest failed"_t, continued.Error())
                 );
             return;
         }
@@ -1691,8 +1685,8 @@ private:
         };
         const auto fulfilled = GetSession().SendVoid("Fetch.fulfillRequest"_t, params);
         if (!fulfilled)
-            NoteInterceptionFailure(
-                DescribeCdpFailure("Fetch.fulfillRequest failed"_t, fulfilled.Error())
+            NoteInterceptionError(
+                FormatCdpError("Fetch.fulfillRequest failed"_t, fulfilled.Error())
             );
     }
 
@@ -1701,7 +1695,7 @@ private:
         i64 version{0};
     };
 
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     const Config &config_;
     crawler::CaptureTimings timings_;
     crawler::RunRequest run_;
@@ -1714,12 +1708,12 @@ private:
     us::concurrent::Variable<EventProgressState> event_progress_;
     eng::Task event_task_;
     std::atomic<bool> stopping_event_loop_{false};
-    us::concurrent::Variable<std::optional<String>> interception_failure_;
+    us::concurrent::Variable<std::optional<String>> interception_error_;
 };
 
-[[nodiscard]] Expected<CaptureWithNetwork, CaptureFailure> CaptureViaProxy(
-    Denylist &denylist, const Config &config, dns::Resolver &dns_resolver, usize url_bytes_max,
-    i64 proxy_down_bytes_max, eng::subprocess::ProcessStarter &process_starter,
+[[nodiscard]] Expected<CaptureWithNetwork, CaptureError> CaptureViaProxy(
+    AccessPolicyStore &access_policy, const Config &config, dns::Resolver &dns_resolver,
+    usize url_bytes_max, i64 proxy_down_bytes_max, eng::subprocess::ProcessStarter &process_starter,
     eng::TaskProcessor &fs_task_processor, const std::string &browser_runs_root,
     const std::string &cgroup_root_path, std::optional<crawler::CgroupLimits> cgroup_limits,
     crawler::CaptureTimings timings, const crawler::CrawlerTunables &tunables,
@@ -1727,7 +1721,7 @@ private:
 )
 {
     auto session = CaptureSession(
-        denylist, config, dns_resolver, url_bytes_max, proxy_down_bytes_max, process_starter,
+        access_policy, config, dns_resolver, url_bytes_max, proxy_down_bytes_max, process_starter,
         fs_task_processor, std::string(browser_runs_root), std::string(cgroup_root_path),
         std::move(cgroup_limits), std::move(timings), tunables, max_archive_bytes, deadline,
         crawler::RunRequest{.seed_url = run.seed_url}, metrics
@@ -1736,7 +1730,7 @@ private:
 }
 
 [[nodiscard]] CrawlerRunArtifacts ExecuteRun(
-    Denylist &denylist, const Config &config, dns::Resolver &dns_resolver,
+    AccessPolicyStore &access_policy, const Config &config, dns::Resolver &dns_resolver,
     eng::subprocess::ProcessStarter &process_starter, eng::TaskProcessor &fs_task_processor,
     const std::string &browser_runs_root, const std::string &cgroup_root_path,
     std::optional<crawler::CgroupLimits> cgroup_limits, const crawler::CaptureTimings &timings,
@@ -1750,9 +1744,9 @@ private:
         LOG_INFO() << std::format("crawler executeRun starting for {}", run.seed_url);
 
         const auto fail_artifact =
-            [&out](const crawler::ArtifactFailure &failure) -> CrawlerRunArtifacts {
+            [&out](const crawler::ArtifactError &error) -> CrawlerRunArtifacts {
             std::optional<String> detail;
-            if (auto parsed = String::FromBytes(failure.detail))
+            if (auto parsed = String::FromBytes(error.detail))
                 detail = GrabValueOf(parsed);
             out.error = crawler::CrawlerError{
                 .kind = crawler::CrawlerErrorKind::kArchiveBuild,
@@ -1762,7 +1756,7 @@ private:
                 .process_status = {},
             };
             out.stdout_log.clear();
-            out.stderr_log = failure.detail + "\n";
+            out.stderr_log = error.detail + "\n";
             out.wacz.reset();
             out.pages_jsonl.reset();
             out.content_sha256.reset();
@@ -1779,9 +1773,9 @@ private:
         }();
 
         auto captured = CaptureViaProxy(
-            denylist, config, dns_resolver, config.UrlBytesMax(), max_down_bytes, process_starter,
-            fs_task_processor, browser_runs_root, cgroup_root_path, std::move(cgroup_limits),
-            timings, tunables, max_archive_bytes, deadline, run, metrics
+            access_policy, config, dns_resolver, config.UrlBytesMax(), max_down_bytes,
+            process_starter, fs_task_processor, browser_runs_root, cgroup_root_path,
+            std::move(cgroup_limits), timings, tunables, max_archive_bytes, deadline, run, metrics
         );
         if (!captured) {
             constexpr std::string_view size_limit_prefix = "size_limit:";
@@ -1955,14 +1949,14 @@ private:
 } // namespace
 
 CrawlerRunner::CrawlerRunner(
-    Denylist &denylist, const Config &config, dns::Resolver &dns_resolver,
+    AccessPolicyStore &access_policy, const Config &config, dns::Resolver &dns_resolver,
     eng::subprocess::ProcessStarter &process_starter, chrono::seconds run_timeout,
     eng::TaskProcessor &fs_task_processor, std::string state_dir,
     std::optional<crawler::CgroupLimits> limits, i64 max_archive_bytes,
     crawler::CaptureTimings timings, crawler::CrawlerTunables tunables,
     i64 network_down_bytes_ratio_max, Metrics &metrics
 )
-    : denylist_(denylist), config_(config), dns_resolver_(dns_resolver),
+    : access_policy_(access_policy), config_(config), dns_resolver_(dns_resolver),
       process_starter_(process_starter), fs_task_processor_(fs_task_processor),
       run_timeout_(run_timeout),
       browser_runs_root_(crawler::BuildBrowserRunsRoot(std::move(state_dir))),
@@ -1979,9 +1973,10 @@ CrawlerRunArtifacts CrawlerRunner::Run(const String &seed_url) const
 {
     const auto deadline = eng::Deadline::FromDuration(run_timeout_);
     return ExecuteRun(
-        denylist_, config_, dns_resolver_, process_starter_, fs_task_processor_, browser_runs_root_,
-        cgroup_root_path_, cgroup_limits_, timings_, tunables_, max_archive_bytes_,
-        network_down_bytes_ratio_max_, deadline, crawler::RunRequest{.seed_url = seed_url}, metrics_
+        access_policy_, config_, dns_resolver_, process_starter_, fs_task_processor_,
+        browser_runs_root_, cgroup_root_path_, cgroup_limits_, timings_, tunables_,
+        max_archive_bytes_, network_down_bytes_ratio_max_, deadline,
+        crawler::RunRequest{.seed_url = seed_url}, metrics_
     );
 }
 

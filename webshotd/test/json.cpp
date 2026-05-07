@@ -25,7 +25,7 @@ UTEST(Json, ParsesJsonIntoExpected)
     EXPECT_EQ(*parsed, 7);
 }
 
-UTEST(Json, MapsJsonParseFailure)
+UTEST(Json, MapsJsonParseError)
 {
     const auto json_text = String::FromBytes(R"("bad")");
     ASSERT_TRUE(json_text);

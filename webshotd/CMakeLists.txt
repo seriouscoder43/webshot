@@ -79,17 +79,17 @@ set(${PROJECT_NAME}_headers
     src/crawler/browser_session.hpp
     include/crawler/browser_page_lifecycle.hpp
     include/crawler/limits.hpp
-    src/crawler/launch_policy.hpp
+    src/crawler/browser_start_policy.hpp
     src/crawler/cdp_client.hpp
     src/crawler/egress_proxy.hpp
     include/config.hpp
-    src/crawler/failure.hpp
+    src/crawler/error.hpp
     include/crawler/fallback.hpp
     include/client_ip.hpp
     include/error_utils.hpp
     include/http_utils.hpp
     include/ip.hpp
-    src/denylist.hpp
+    src/access_policy.hpp
     include/link.hpp
     include/uuid_utils.hpp
     include/url.hpp
@@ -120,10 +120,10 @@ add_library(
   src/crawler/browser_page_lifecycle.cpp
   src/crawler/cdp_client.cpp
   src/crawler/egress_proxy.cpp
-  src/crawler/failure.cpp
+  src/crawler/error.cpp
   src/text_postgres_formatter.cpp
   src/error_utils.cpp
-  src/denylist.cpp
+  src/access_policy.cpp
   src/link.cpp
   src/config.cpp
   src/storage_url.cpp

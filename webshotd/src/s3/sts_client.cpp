@@ -167,7 +167,7 @@ Expected<StsCredentials, StsError> FetchStsCredentials(
         const auto status = NumericCast<int>(resp->status_code());
         if (status >= 300) {
             LOG_ERROR() << std::format("STS request failed: url={}, status={}", url_bytes, status);
-            return Unex(StsError::kHttpFailure);
+            return Unex(StsError::kHttpError);
         }
         return resp->body();
     };

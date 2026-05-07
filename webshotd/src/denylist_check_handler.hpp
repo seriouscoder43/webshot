@@ -14,15 +14,15 @@ namespace ws {
 namespace us = userver;
 namespace server = us::server;
 class Config;
-class Denylist;
+class AccessPolicyStore;
 class Metrics;
 class Crud;
 
-class [[nodiscard]] DenylistCheckHandler : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] AccessPolicyCheckHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "denylist_check";
 
-    explicit DenylistCheckHandler(
+    explicit AccessPolicyCheckHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
@@ -36,10 +36,10 @@ public:
 
 private:
     const Config &config_;
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     Metrics &metrics_;
     Crud &crud_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 
 } // namespace ws

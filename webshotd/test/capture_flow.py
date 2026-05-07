@@ -173,7 +173,7 @@ async def test_disallow_and_purge_blocks_new_captures(service_client, monitor_cl
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 403
     err = resp.json()["error"]["message"]
-    assert err == "host in denylist"
+    assert err == "link prefix in denylist"
 
 
 @pytest.mark.asyncio

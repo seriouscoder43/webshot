@@ -23,9 +23,9 @@ paths:
           schema:
             $ref: '../common/common.yaml#/components/schemas/Link'
           examples:
-            full-url:
+            absolute-link:
               value: https://example.com/a?b=1
-            host-without-scheme:
+            link-without-scheme:
               value: example.com/a?b=1
         - in: query
           name: page_token
@@ -39,9 +39,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PagedFindCapturesByUrlResponse'
+                $ref: '#/components/schemas/PagedFindCapturesByLinkResponse'
         '400':
-          description: Bad request (invalid URL or pagination parameters).
+          description: Bad request (invalid link or pagination parameters).
           content:
             application/json:
               schema:
@@ -82,7 +82,7 @@ paths:
       operationId: createCapture
       summary: Enqueue a capture job and return its status
       description: |
-        Enqueues a background capture job for the provided URL and returns an initial
+        Enqueues a background capture job for the provided link and returns an initial
         job descriptor. The returned UUID identifies the capture job. Once the job
         succeeds, the stored capture UUID is available in `result.uuid` and may
         refer to an existing capture if the content is deduplicated. Clients should poll
@@ -97,12 +97,12 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateCaptureRequest'
             examples:
-              full-url:
-                summary: Full HTTP/HTTPS URL
+              absolute-link:
+                summary: Absolute HTTP/HTTPS link
                 value:
                   link: https://example.com/path?q=1
-              host-without-scheme:
-                summary: Host with optional path
+              link-without-scheme:
+                summary: Link without scheme
                 value:
                   link: example.com/path?q=1
       responses:
@@ -113,7 +113,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CaptureJob'
         '400':
-          description: Invalid JSON or URL supplied.
+          description: Invalid JSON or link supplied.
           content:
             application/json:
               schema:
@@ -128,7 +128,7 @@ paths:
                     error:
                       message: invalid host
         '403':
-          description: Host is denied by denylist or allowlist-only policy
+          description: Link prefix is denied by access policy
           content:
             application/json:
               schema:
@@ -137,7 +137,7 @@ paths:
                 denylisted:
                   value:
                     error:
-                      message: host in denylist
+                      message: link prefix in denylist
                 not_allowlisted:
                   value:
                     error:
@@ -434,7 +434,7 @@ components:
           type: string
           format: date-time
           example: 2025-11-11T12:34:56+00:00
-    PagedFindCapturesByUrlResponse:
+    PagedFindCapturesByLinkResponse:
       type: object
       additionalProperties: false
       required: [items]

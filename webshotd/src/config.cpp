@@ -74,7 +74,7 @@ properties:
   url_bytes_max:
     type: integer
     minimum: 1
-    description: Maximum allowed URL length in bytes
+    description: Maximum URL byte length accepted when parsing a Link
     defaultDescription: "32768"
   allowlist_only:
     type: boolean
@@ -111,7 +111,7 @@ properties:
   s3_timeout_ms:
     type: integer
     minimum: 1
-    description: HTTP timeout to  in milliseconds
+    description: HTTP timeout for S3 requests in milliseconds
 )");
 }
 } // namespace ws

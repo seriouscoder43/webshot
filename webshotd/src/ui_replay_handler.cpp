@@ -116,7 +116,7 @@ UiReplayHandler::UiReplayHandler(
 )
     : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
       config_(context.FindComponent<Config>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -142,10 +142,10 @@ std::string UiReplayHandler::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     HandlerRequestSupport request_support{crud_, config_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    request_support.ApplyRequestDeadline(request, request_timeout_);
     response.SetContentType("text/html; charset=utf-8");
 
-    const auto uuid = request_support.ParseUuidPathArg(request, "uuid"_t);
+    const auto uuid = request_support.ParseRequiredPathParamUuid(request, "uuid"_t);
     if (!uuid) {
         response.SetStatus(kBadRequest);
         return RenderErrorPage(text::Format("{}: {}", uuid.Error().name, uuid.Error().message));
@@ -155,7 +155,7 @@ std::string UiReplayHandler::HandleRequestThrow(
     if (!cooldown) {
         if (cooldown.Error() == ClientRequestError::kInvalidClientIp) {
             response.SetStatus(kBadRequest);
-            return RenderErrorPage("invalid client ip"_t);
+            return RenderErrorPage("invalid client IP"_t);
         }
 
         response.SetStatus(kInternalServerError);

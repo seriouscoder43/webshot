@@ -111,4 +111,4 @@ async def test_allowlist_only_denylist_wins(service_client, monitor_client):
 
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 403
-    assert resp.json()["error"]["message"] == "host in denylist"
+    assert resp.json()["error"]["message"] == "link prefix in denylist"

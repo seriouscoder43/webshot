@@ -14,7 +14,7 @@ namespace ws {
 namespace us = userver;
 namespace server = us::server;
 class Config;
-class Denylist;
+class AccessPolicyStore;
 class Metrics;
 class Crud;
 
@@ -36,10 +36,10 @@ public:
 
 private:
     const Config &config_;
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     Metrics &metrics_;
     Crud &crud_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 
 class [[nodiscard]] AllowlistAddHandler final : public server::handlers::HttpHandlerBase {
@@ -60,10 +60,10 @@ public:
 
 private:
     const Config &config_;
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     Metrics &metrics_;
     Crud &crud_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 
 class [[nodiscard]] AllowlistRemoveHandler final : public server::handlers::HttpHandlerBase {
@@ -84,10 +84,10 @@ public:
 
 private:
     const Config &config_;
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     Metrics &metrics_;
     Crud &crud_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 
 } // namespace ws

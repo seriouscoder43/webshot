@@ -19,10 +19,10 @@ class Crud;
 /**
  * @brief HTTP handler that returns stored capture metadata by id.
  */
-class [[nodiscard]] ById : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] ByIdHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "by_id";
-    explicit ById(
+    explicit ByIdHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
@@ -37,6 +37,6 @@ public:
 private:
     Crud &crud_;
     const Config &config_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 } // namespace ws

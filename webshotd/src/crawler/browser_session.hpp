@@ -68,17 +68,17 @@ public:
     BrowserSession &operator=(const BrowserSession &) = delete;
     BrowserSession &operator=(BrowserSession &&) = delete;
 
-    [[nodiscard]] Expected<void, String> Launch();
+    [[nodiscard]] Expected<void, String> Start();
     [[nodiscard]] Expected<std::unique_ptr<CdpClient>, String>
     ConnectCdp(eng::Deadline overall_deadline) const;
     [[nodiscard]] std::pair<std::string, std::string> DrainBrowserLogs() const;
     void MarkPhase(std::string_view phase) const;
-    [[nodiscard]] std::string CurrentLaunchLogs() const;
-    [[nodiscard]] String BuildFailureDetail(const String &message);
+    [[nodiscard]] std::string CurrentStartLogs() const;
+    [[nodiscard]] String BuildErrorDetail(const String &message);
     void Close();
     [[nodiscard]] i64 ProxyDownBytes() const noexcept;
     [[nodiscard]] const std::string &RunId() const noexcept;
-    [[nodiscard]] std::optional<String> ProxyFailureReason() const noexcept;
+    [[nodiscard]] std::optional<String> ProxyErrorReason() const noexcept;
 
 private:
     struct Impl;

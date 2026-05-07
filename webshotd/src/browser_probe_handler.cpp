@@ -51,7 +51,7 @@ namespace server = us::server;
 namespace eng = us::engine;
 namespace {
 
-using crawler::DescribeCdpFailure;
+using crawler::FormatCdpError;
 
 constexpr chrono::milliseconds kMinProbeSettleWindow = 250ms;
 
@@ -104,9 +104,8 @@ EvaluateExpression(crawler::CdpSession &cdp_session, const String &expression)
     };
 
     const auto result = TRY_MAP_ERR(
-        cdp_session.Send<ujson::Value>("Runtime.evaluate"_t, params), [](auto failure) {
-            return DescribeCdpFailure("Runtime.evaluate failed"_t, std::move(failure));
-        }
+        cdp_session.Send<ujson::Value>("Runtime.evaluate"_t, params),
+        [](auto error) { return FormatCdpError("Runtime.evaluate failed"_t, std::move(error)); }
     );
 
     const auto exception = result["exceptionDetails"];
@@ -180,8 +179,7 @@ void CleanupProbeSession(
     if (page_session) {
         if (const auto closed_page = page_session->Close(); !closed_page) {
             LOG_WARNING() << std::format(
-                "Suppressing page session close failure during probe cleanup: {}",
-                closed_page.Error()
+                "Suppressing page session close error during probe cleanup: {}", closed_page.Error()
             );
         }
         page_session.reset();
@@ -189,7 +187,7 @@ void CleanupProbeSession(
     if (cdp) {
         if (const auto closed = cdp->Close(); !closed) {
             LOG_WARNING() << std::format(
-                "Suppressing CDP close failure during probe cleanup: code={}{}",
+                "Suppressing CDP close error during probe cleanup: code={}{}",
                 NumericCast<int>(closed.Error().code),
                 closed.Error().detail ? std::format(", detail={}", *closed.Error().detail)
                                       : std::string{}
@@ -261,9 +259,9 @@ void CleanupProbeSession(
         );
         auto event = cdp_session.WaitEvent(event_deadline, "timed out waiting for expression"_t);
         if (!event) {
-            if (event.Error().code == crawler::CdpError::kTimeout)
+            if (event.Error().code == crawler::CdpErrorCode::kTimeout)
                 continue;
-            return Unex(DescribeCdpFailure("wait for cdp event failed"_t, event.Error()));
+            return Unex(FormatCdpError("wait for cdp event failed"_t, event.Error()));
         }
         TRY(HandleProbeEvent(*event, console, page_errors));
     }
@@ -294,9 +292,9 @@ void CleanupProbeSession(
         );
         auto event = cdp_session.WaitEvent(event_deadline, "timed out waiting for probe settle"_t);
         if (!event) {
-            if (event.Error().code == crawler::CdpError::kTimeout)
+            if (event.Error().code == crawler::CdpErrorCode::kTimeout)
                 continue;
-            return Unex(DescribeCdpFailure("wait for cdp event failed"_t, event.Error()));
+            return Unex(FormatCdpError("wait for cdp event failed"_t, event.Error()));
         }
         TRY(HandleProbeEvent(*event, console, page_errors));
     }
@@ -338,9 +336,9 @@ void CleanupProbeSession(
             event_deadline, "timed out waiting for frame expression"_t
         );
         if (!event) {
-            if (event.Error().code == crawler::CdpError::kTimeout)
+            if (event.Error().code == crawler::CdpErrorCode::kTimeout)
                 continue;
-            return Unex(DescribeCdpFailure("wait for cdp event failed"_t, event.Error()));
+            return Unex(FormatCdpError("wait for cdp event failed"_t, event.Error()));
         }
         TRY(HandleProbeEvent(*event, console, page_errors));
     }
@@ -383,11 +381,11 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
     std::vector<String> console;
     std::vector<String> page_errors;
 
-    const auto decorate_failure = [&browser](auto detail) {
-        return browser.BuildFailureDetail(std::move(detail));
+    const auto decorate_error = [&browser](auto detail) {
+        return browser.BuildErrorDetail(std::move(detail));
     };
     const auto result = [&]() -> Expected<dto::BrowserProbeResponse, String> {
-        TRY(browser.Launch());
+        TRY(browser.Start());
 
         const auto mark_phase = [&browser](std::string_view phase) { browser.MarkPhase(phase); };
 
@@ -405,9 +403,7 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         navigate_params.url = request.url;
         const auto navigate_result = TRY_MAP_ERR(
             cdp_session.Send<dto::PageNavigateResult>("Page.navigate"_t, navigate_params),
-            [](auto failure) {
-                return DescribeCdpFailure("Page.navigate failed"_t, std::move(failure));
-            }
+            [](auto error) { return FormatCdpError("Page.navigate failed"_t, std::move(error)); }
         );
         ENSURE(!navigate_result.errorText, *String::FromBytes(*navigate_result.errorText));
         TRY(DrainProbeEvents(cdp_session, console, page_errors));
@@ -456,7 +452,7 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
         );
         return probe_result;
     }()
-                                     .TransformError(decorate_failure);
+                                     .TransformError(decorate_error);
 
     CleanupProbeSession(browser, page_session, cdp);
     return result;

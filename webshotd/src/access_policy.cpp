@@ -1,7 +1,7 @@
-#include "denylist.hpp"
+#include "access_policy.hpp"
 /**
  * @file
- * @brief Host denylist checks and persistence backed by Postgres.
+ * @brief Link prefix access policy checks and persistence backed by Postgres.
  */
 #include <webshot/sql_queries.hpp>
 
@@ -34,7 +34,7 @@ String AccessDecisionMessage(AccessDecisionReason reason)
     case kAllowed:
         return "allowed"_t;
     case kDenylisted:
-        return "host in denylist"_t;
+        return "link prefix in denylist"_t;
     case kNotAllowlisted:
         return "link not in allowlist"_t;
     case kNonHttps:
@@ -42,17 +42,17 @@ String AccessDecisionMessage(AccessDecisionReason reason)
     }
 }
 
-us::yaml_config::Schema Denylist::GetStaticConfigSchema()
+us::yaml_config::Schema AccessPolicyStore::GetStaticConfigSchema()
 {
     return us::yaml_config::MergeSchemas<us::components::ComponentBase>(R"(
 type: object
-description: 'denylist component'
+description: 'access policy store component'
 additionalProperties: false
 properties: {}
 )");
 }
 
-struct Denylist::Impl {
+struct AccessPolicyStore::Impl {
     explicit Impl(
         const us::components::ComponentConfig &, const us::components::ComponentContext &context
     )
@@ -81,32 +81,32 @@ struct Denylist::Impl {
     pg::ClusterPtr cluster;
 };
 
-Denylist::Denylist(
+AccessPolicyStore::AccessPolicyStore(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : us::components::ComponentBase(config, context), impl_(std::make_unique<Impl>(config, context))
 {
 }
 
-Denylist::~Denylist() = default;
+AccessPolicyStore::~AccessPolicyStore() = default;
 
-Expected<bool, DenylistError> Denylist::IsAllowedPrefix(const String &prefix_key)
+Expected<bool, AccessPolicyError> AccessPolicyStore::IsAllowedPrefix(const String &prefix_key)
 {
     return !TRY(IsDeniedPrefix(prefix_key));
 }
 
-Expected<bool, DenylistError> Denylist::IsDeniedPrefix(const String &prefix_key)
+Expected<bool, AccessPolicyError> AccessPolicyStore::IsDeniedPrefix(const String &prefix_key)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
     auto denied = impl_->Readonly(
         [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckDenylistTree, tree
     );
     if (!denied)
-        LOG_ERROR() << std::format("denylist check failed: {}", denied.Error().what);
-    return TRY_ERR_AS(std::move(denied), DenylistError::kDbFailure);
+        LOG_ERROR() << std::format("access policy check failed: {}", denied.Error().what);
+    return TRY_ERR_AS(std::move(denied), AccessPolicyError::kDbError);
 }
 
-Expected<bool, DenylistError> Denylist::IsAllowlistedPrefix(const String &prefix_key)
+Expected<bool, AccessPolicyError> AccessPolicyStore::IsAllowlistedPrefix(const String &prefix_key)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
     auto allowlisted = impl_->Readonly(
@@ -114,11 +114,11 @@ Expected<bool, DenylistError> Denylist::IsAllowlistedPrefix(const String &prefix
     );
     if (!allowlisted)
         LOG_ERROR() << std::format("allowlist check failed: {}", allowlisted.Error().what);
-    return TRY_ERR_AS(std::move(allowlisted), DenylistError::kDbFailure);
+    return TRY_ERR_AS(std::move(allowlisted), AccessPolicyError::kDbError);
 }
 
-Expected<AccessDecision, DenylistError>
-Denylist::EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode)
+Expected<AccessDecision, AccessPolicyError>
+AccessPolicyStore::EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode)
 {
     using enum AccessDecisionReason;
     using enum AccessPolicyMode;
@@ -144,11 +144,12 @@ Denylist::EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode)
     return AccessDecision{.allowed = true, .reason = kAllowed};
 }
 
-Expected<void, DenylistError> Denylist::InsertPrefix(const String &prefix_key, const String &reason)
+Expected<void, AccessPolicyError>
+AccessPolicyStore::InsertPrefix(const String &prefix_key, const String &reason)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
     const auto inserted = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertDenylistHost, prefix_key, tree,
+        [&](auto &res) { static_cast<void>(res); }, sql::kInsertDenylistPrefix, prefix_key, tree,
         reason
     );
     if (!inserted) {
@@ -160,33 +161,33 @@ Expected<void, DenylistError> Denylist::InsertPrefix(const String &prefix_key, c
     return {};
 }
 
-Expected<void, DenylistError>
-Denylist::InsertAllowlistPrefix(const String &prefix_key, const String &reason)
+Expected<void, AccessPolicyError>
+AccessPolicyStore::InsertAllowlistPrefix(const String &prefix_key, const String &reason)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
     const auto inserted = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertAllowlistHost, prefix_key, tree,
+        [&](auto &res) { static_cast<void>(res); }, sql::kInsertAllowlistPrefix, prefix_key, tree,
         reason
     );
     if (!inserted) {
         LOG_ERROR() << std::format(
             "allowlist insert failed for {}: {}", prefix_key, inserted.Error().what
         );
-        return Unex(DenylistError::kDbFailure);
+        return Unex(AccessPolicyError::kDbError);
     }
     return {};
 }
 
-Expected<void, DenylistError> Denylist::RemoveAllowlistPrefix(const String &prefix_key)
+Expected<void, AccessPolicyError> AccessPolicyStore::RemoveAllowlistPrefix(const String &prefix_key)
 {
     const auto removed = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteAllowlistHost, prefix_key
+        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteAllowlistPrefix, prefix_key
     );
     if (!removed) {
         LOG_ERROR() << std::format(
-            "allowlist delete failed for {}: {}", prefix_key, removed.Error().what
+            "allowlist remove failed for {}: {}", prefix_key, removed.Error().what
         );
-        return Unex(DenylistError::kDbFailure);
+        return Unex(AccessPolicyError::kDbError);
     }
     return {};
 }

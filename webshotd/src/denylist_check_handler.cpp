@@ -1,10 +1,10 @@
 #include "denylist_check_handler.hpp"
 /**
  * @file
- * @brief Internal endpoint for checking whether a URL is denylisted.
+ * @brief Internal endpoint for checking whether a link is denylisted.
  */
+#include "access_policy.hpp"
 #include "config.hpp"
-#include "denylist.hpp"
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
 #include "metrics.hpp"
@@ -29,21 +29,21 @@ namespace us = userver;
 namespace server = us::server;
 using namespace std::chrono_literals;
 
-DenylistCheckHandler::DenylistCheckHandler(
+AccessPolicyCheckHandler::AccessPolicyCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
-      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
-      crud_(context.FindComponent<Crud>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      access_policy_(context.FindComponent<AccessPolicyStore>()),
+      metrics_(context.FindComponent<Metrics>()), crud_(context.FindComponent<Crud>()),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
-us::yaml_config::Schema DenylistCheckHandler::GetStaticConfigSchema()
+us::yaml_config::Schema AccessPolicyCheckHandler::GetStaticConfigSchema()
 {
     return us::yaml_config::MergeSchemas<server::handlers::HttpHandlerBase>(R"(
 type: object
-description: Denylist check handler static config
+description: Access policy check handler static config
 additionalProperties: false
 properties:
   request-timeout-ms:
@@ -53,7 +53,7 @@ properties:
 )");
 }
 
-std::string DenylistCheckHandler::HandleRequestThrow(
+std::string AccessPolicyCheckHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -61,15 +61,15 @@ std::string DenylistCheckHandler::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     HandlerRequestSupport request_support{crud_, config_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    request_support.ApplyRequestDeadline(request, request_timeout_);
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
         return httpu::RespondError(response, kBadRequest, link.Error());
 
     auto prefix_key = prefix::MakePrefixKey(*link);
-    const auto allowed = denylist_.IsAllowedPrefix(prefix_key);
+    const auto allowed = access_policy_.IsAllowedPrefix(prefix_key);
     if (!allowed) {
-        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kAccessPolicyCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }

@@ -23,7 +23,7 @@ struct [[nodiscard]] CdpPendingRequest final {
 
 class [[nodiscard]] CdpRequestTracker final {
 public:
-    void InsertWaiting(i64 id, String method, std::optional<String> session_id)
+    void InsertPending(i64 id, String method, std::optional<String> session_id)
     {
         Insert(
             id, CdpPendingRequest{

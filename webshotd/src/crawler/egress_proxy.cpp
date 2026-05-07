@@ -1,4 +1,4 @@
-#include "crawler/egress_proxy.hpp"
+#include "egress_proxy.hpp"
 /**
  * @file
  * @brief In-process forward proxy used by the sandboxed Chromium crawler.
@@ -545,16 +545,16 @@ struct EgressProxy::Impl final {
     EgressProxyConfig config;
     std::atomic<int64_t> down_bytes{};
     std::atomic<bool> closed{false};
-    concurrent::Variable<std::optional<String>> failure;
+    concurrent::Variable<std::optional<String>> error;
     eng::io::Socket listener;
     std::optional<eng::TaskWithResult<void>> accept_task;
     concurrent::Variable<std::vector<eng::TaskWithResult<void>>> client_tasks;
 
     [[nodiscard]] bool IsClosed() const noexcept { return closed.load(std::memory_order_relaxed); }
 
-    void NoteFailure(String reason) noexcept
+    void NoteError(String reason) noexcept
     {
-        auto lock = failure.Lock();
+        auto lock = error.Lock();
         if (*lock)
             return;
         *lock = std::move(reason);
@@ -577,7 +577,7 @@ struct EgressProxy::Impl final {
         const auto next = down_bytes.fetch_add(delta, std::memory_order_relaxed) + delta;
         if (next <= Raw(config.down_bytes_max))
             return;
-        NoteFailure(
+        NoteError(
             text::Format(
                 "net_limit: proxy downstream bytes {} exceeded limit {}", next,
                 config.down_bytes_max
@@ -595,7 +595,7 @@ struct EgressProxy::Impl final {
         const auto used = i64(down_bytes.load(std::memory_order_relaxed));
         const auto remaining = config.down_bytes_max - used;
         if (remaining <= 0_i64) {
-            NoteFailure(
+            NoteError(
                 text::Format(
                     "net_limit: proxy downstream bytes {} exceeded limit {}", used,
                     config.down_bytes_max
@@ -688,10 +688,10 @@ struct EgressProxy::Impl final {
         }
 
         std::string details{};
-        for (const auto &error : errors) {
+        for (const auto &cur : errors) {
             if (!details.empty())
                 details.append("; ");
-            details.append(error);
+            details.append(cur);
         }
         return Unex(
             text::Format(
@@ -815,7 +815,7 @@ struct EgressProxy::Impl final {
 
         auto upstream = ConnectUpstream(resolver, authority->host, authority->port, deadline);
         if (!upstream) {
-            NoteFailure(upstream.Error());
+            NoteError(upstream.Error());
             Send502(client, upstream.Error().View(), deadline);
             return;
         }
@@ -854,7 +854,7 @@ struct EgressProxy::Impl final {
 
         auto upstream = ConnectUpstream(resolver, target->host, target->port, deadline);
         if (!upstream) {
-            NoteFailure(upstream.Error());
+            NoteError(upstream.Error());
             Send502(client, upstream.Error().View(), deadline);
             return;
         }
@@ -862,7 +862,7 @@ struct EgressProxy::Impl final {
         auto upstream_socket = GrabValueOf(upstream);
         const auto request = BuildForwardRequest(req, target->path);
         if (!SendAll(upstream_socket, request, deadline)) {
-            NoteFailure("send upstream failed"_t);
+            NoteError("send upstream failed"_t);
             Send502(client, "send upstream failed", deadline);
             CloseSocketsQuietly(client, upstream_socket);
             return;
@@ -1010,9 +1010,9 @@ void EgressProxy::Close() noexcept { impl_->CloseAll(); }
 
 i64 EgressProxy::DownBytes() const noexcept { return i64(impl_->down_bytes.load()); }
 
-std::optional<String> EgressProxy::FailureReason() const noexcept
+std::optional<String> EgressProxy::ErrorReason() const noexcept
 {
-    auto lock = impl_->failure.Lock();
+    auto lock = impl_->error.Lock();
     return *lock;
 }
 

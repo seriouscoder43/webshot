@@ -174,7 +174,7 @@ async def test_create_capture_rejects_missing_or_invalid_client_ip_header(servic
 
     missing = await service_client.post("/v1/capture", json={"link": link})
     assert missing.status == 400
-    assert missing.json()["error"]["message"] == "invalid client ip"
+    assert missing.json()["error"]["message"] == "invalid client IP"
 
     invalid = await service_client.post(
         "/v1/capture",
@@ -182,4 +182,4 @@ async def test_create_capture_rejects_missing_or_invalid_client_ip_header(servic
         headers={_CLIENT_IP_HEADER: f"{_CLIENT_IP}, {_OTHER_CLIENT_IP}"},
     )
     assert invalid.status == 400
-    assert invalid.json()["error"]["message"] == "invalid client ip"
+    assert invalid.json()["error"]["message"] == "invalid client IP"

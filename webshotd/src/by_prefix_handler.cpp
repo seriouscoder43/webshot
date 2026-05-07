@@ -42,8 +42,8 @@ ByPrefixHandler::ByPrefixHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
-      cfg_(context.FindComponent<Config>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      config_(context.FindComponent<Config>()),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -67,8 +67,8 @@ std::string ByPrefixHandler::HandleRequestThrow(
 {
     using enum server::http::HttpStatus;
     auto &response = request.GetHttpResponse();
-    HandlerRequestSupport request_support{crud_, cfg_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    HandlerRequestSupport request_support{crud_, config_};
+    request_support.ApplyRequestDeadline(request, request_timeout_);
 
     const auto prefix = request_support.ParseRequiredQueryLink(request, "prefix"_t);
     if (!prefix)
@@ -91,7 +91,7 @@ std::string ByPrefixHandler::HandleRequestThrow(
     auto page = crud_.FindCapturesByPrefixPage(prefix->Normalized(), *token);
     if (!page) {
         using enum errors::CapturePageError;
-        if (page.Error() == kDbFailure)
+        if (page.Error() == kDbError)
             return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
         return httpu::RespondParamError(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t

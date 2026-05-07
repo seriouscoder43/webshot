@@ -24,12 +24,12 @@ struct [[nodiscard]] LinkError final {
 };
 
 /**
- * @brief Parsed and normalized link used at REST and denylist boundaries.
+ * @brief Parsed and normalized link used at REST and access-policy boundaries.
  *
  * This type encapsulates request-facing link normalization semantics.
  * Internal URL manipulation code should use Url directly.
  *
- * Invariants after construction via fromText:
+ * Invariants after construction via FromText:
  * - Scheme is http or https (scheme-less input is accepted and normalized).
  * - Username/password are cleared; fragment/hash is stripped.
  * - Port is stripped.
@@ -46,10 +46,10 @@ struct [[nodiscard]] Link {
      * Accepts text that was already validated and normalized by String;
      * performs trimming, default scheme insertion for parsing, validation of
      * scheme and host, punycode handling, clears credentials and fragment, and
-     * enforces a limit on the total URL length in bytes.
+     * enforces the configured URL byte limit accepted when parsing a Link.
      *
      * @param text Prevalidated, normalized UTF-8 text.
-     * @param urlBytesMax Maximum allowed URL length in bytes.
+     * @param urlBytesMax Maximum URL byte length accepted when parsing a Link.
      * @return Normalized Link.
      */
     [[nodiscard]] static Expected<Link, LinkError>

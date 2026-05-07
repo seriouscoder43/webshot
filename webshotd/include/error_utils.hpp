@@ -18,9 +18,9 @@ json::Value MakeError(String message);
 /**
  * @brief Convenience for parameter-specific errors.
  *
- * @param fieldName Name of the offending parameter.
+ * @param paramName Name of the offending parameter.
  * @param message Additional context to append to the message.
  */
-json::Value MakeParamError(String field_name, String message);
+json::Value MakeParamError(String param_name, String message);
 
 } // namespace ws::errors

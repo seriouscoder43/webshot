@@ -3,9 +3,9 @@
  * @file
  * @brief Internal endpoints for checking and editing the allowlist.
  */
+#include "access_policy.hpp"
 #include "config.hpp"
 #include "crud.hpp"
-#include "denylist.hpp"
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
 #include "metrics.hpp"
@@ -35,9 +35,9 @@ AllowlistCheckHandler::AllowlistCheckHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
-      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
-      crud_(context.FindComponent<Crud>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      access_policy_(context.FindComponent<AccessPolicyStore>()),
+      metrics_(context.FindComponent<Metrics>()), crud_(context.FindComponent<Crud>()),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -62,16 +62,16 @@ std::string AllowlistCheckHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout_);
     eng::current_task::SetDeadline(final_deadline);
 
     const auto link = ParseJsonLinkBody(request, config_);
     if (!link)
         return httpu::RespondError(response, kBadRequest, link.Error());
 
-    const auto allowed = denylist_.IsAllowlistedPrefix(prefix::MakePrefixKey(*link));
+    const auto allowed = access_policy_.IsAllowlistedPrefix(prefix::MakePrefixKey(*link));
     if (!allowed) {
-        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kAccessPolicyCheck);
         response.SetStatus(kInternalServerError);
         return {};
     }
@@ -88,9 +88,9 @@ AllowlistAddHandler::AllowlistAddHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
-      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
-      crud_(context.FindComponent<Crud>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      access_policy_(context.FindComponent<AccessPolicyStore>()),
+      metrics_(context.FindComponent<Metrics>()), crud_(context.FindComponent<Crud>()),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -115,7 +115,7 @@ std::string AllowlistAddHandler::HandleRequestThrow(
     using enum server::http::HttpStatus;
 
     auto &response = request.GetHttpResponse();
-    auto final_deadline = ComputeHandlerDeadline(request, request_timeout);
+    auto final_deadline = ComputeHandlerDeadline(request, request_timeout_);
     eng::current_task::SetDeadline(final_deadline);
 
     const auto link = ParseJsonLinkBody(request, config_);
@@ -123,9 +123,9 @@ std::string AllowlistAddHandler::HandleRequestThrow(
         return httpu::RespondError(response, kBadRequest, link.Error());
 
     const auto prefix_key = prefix::MakePrefixKey(*link);
-    const auto inserted = denylist_.InsertAllowlistPrefix(prefix_key, "allowlist_add"_t);
+    const auto inserted = access_policy_.InsertAllowlistPrefix(prefix_key, "allowlist_add"_t);
     if (!inserted) {
-        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kAccessPolicyCheck);
         LOG_ERROR() << std::format("allowlist add failed for {}", prefix_key);
         return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
@@ -138,9 +138,9 @@ AllowlistRemoveHandler::AllowlistRemoveHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), config_(context.FindComponent<Config>()),
-      denylist_(context.FindComponent<Denylist>()), metrics_(context.FindComponent<Metrics>()),
-      crud_(context.FindComponent<Crud>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      access_policy_(context.FindComponent<AccessPolicyStore>()),
+      metrics_(context.FindComponent<Metrics>()), crud_(context.FindComponent<Crud>()),
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
@@ -170,9 +170,9 @@ std::string AllowlistRemoveHandler::HandleRequestThrow(
         return httpu::RespondError(response, kBadRequest, link.Error());
 
     const auto prefix_key = prefix::MakePrefixKey(*link);
-    const auto removed = denylist_.RemoveAllowlistPrefix(prefix_key);
+    const auto removed = access_policy_.RemoveAllowlistPrefix(prefix_key);
     if (!removed) {
-        metrics_.AccountError(Metrics::Error::kDenylistCheck);
+        metrics_.AccountError(Metrics::Error::kAccessPolicyCheck);
         LOG_ERROR() << std::format("allowlist remove failed for {}", prefix_key);
         return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }

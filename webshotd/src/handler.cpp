@@ -3,9 +3,9 @@
  * @file
  * @brief Handler that creates captures and lists them by exact link.
  */
+#include "access_policy.hpp"
 #include "config.hpp"
 #include "crud.hpp"
-#include "denylist.hpp"
 #include "handler_request_support.hpp"
 #include "http_utils.hpp"
 #include "metrics.hpp"
@@ -43,17 +43,18 @@ using namespace ws;
 using namespace std::chrono_literals;
 using namespace text::literals;
 
-Handler::Handler(
+CaptureByLinkHandler::CaptureByLinkHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
-      config_(context.FindComponent<Config>()), denylist_(context.FindComponent<Denylist>()),
+      config_(context.FindComponent<Config>()),
+      access_policy_(context.FindComponent<AccessPolicyStore>()),
       metrics_(context.FindComponent<Metrics>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
-us::yaml_config::Schema Handler::GetStaticConfigSchema()
+us::yaml_config::Schema CaptureByLinkHandler::GetStaticConfigSchema()
 {
     return us::yaml_config::MergeSchemas<server::handlers::HttpHandlerBase>(R"(
 type: object
@@ -67,7 +68,7 @@ properties:
 )");
 }
 
-std::string Handler::HandleRequestThrow(
+std::string CaptureByLinkHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -76,7 +77,7 @@ std::string Handler::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     HandlerRequestSupport request_support{crud_, config_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    request_support.ApplyRequestDeadline(request, request_timeout_);
 
     if (request.GetMethod() == kPost) {
         const auto req = request_support.ParseJsonBody<dto::CreateCaptureRequest>(request);
@@ -87,12 +88,12 @@ std::string Handler::HandleRequestThrow(
         if (!parsed)
             return httpu::RespondError(response, kBadRequest, "invalid parameter"_t);
         auto prefix_key = prefix::MakePrefixKey(*parsed);
-        const auto decision = denylist_.EvaluatePrefix(
+        const auto decision = access_policy_.EvaluatePrefix(
             prefix_key,
             config_.AllowlistOnly() ? AccessPolicyMode::kAllowlistOnly : AccessPolicyMode::kRegular
         );
         if (!decision) {
-            metrics_.AccountError(Metrics::Error::kDenylistCheck);
+            metrics_.AccountError(Metrics::Error::kAccessPolicyCheck);
             return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
         }
         if (!decision->allowed)
@@ -133,7 +134,7 @@ std::string Handler::HandleRequestThrow(
     auto page = crud_.FindCapturesByLinkPage(*link, *token);
     if (!page) {
         using enum errors::CapturePageError;
-        if (page.Error() == kDbFailure)
+        if (page.Error() == kDbError)
             return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
         return httpu::RespondParamError(
             response, kBadRequest, "page_token"_t, "invalid page_token"_t

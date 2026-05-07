@@ -24,7 +24,7 @@ paths:
               absolute:
                 value:
                   link: https://example.com/a?b=1
-              host-without-scheme:
+              link-without-scheme:
                 value:
                   link: example.com/a?b=1
       responses:
@@ -48,7 +48,7 @@ paths:
         Normalizes the provided link, derives a host+path prefix, and inserts it into
         the allowlist. The operation is idempotent.
 
-        Port and query are ignored for allowlisting; only the normalized host and path are used.
+        Port and query are ignored for allowlisting; only the normalized link prefix is used.
       requestBody:
         required: true
         content:
@@ -85,7 +85,7 @@ paths:
         Normalizes the provided link, derives a host+path prefix, and removes it from
         the allowlist. The operation is idempotent.
 
-        Port and query are ignored for allowlisting; only the normalized host and path are used.
+        Port and query are ignored for allowlisting; only the normalized link prefix is used.
       requestBody:
         required: true
         content:
@@ -133,7 +133,7 @@ paths:
               absolute:
                 value:
                   link: https://example.com/a?b=1
-              host-without-scheme:
+              link-without-scheme:
                 value:
                   link: example.com/a?b=1
       responses:
@@ -152,12 +152,12 @@ paths:
   /v1/denylist/disallow_and_purge:
     post:
       operationId: disallowAndPurgePrefix
-      summary: Disallow a host prefix and enqueue purge
+      summary: Deny a link prefix and enqueue purge
       description: |
-        Normalizes the provided link, derives a host+path prefix, inserts it into the
+        Normalizes the provided link, derives a link prefix, inserts it into the
         denylist, and enqueues background purge of all captures matching that prefix.
 
-        Port and query are ignored for denylisting; only the normalized host and path are used.
+        Port and query are ignored for denylisting; only the normalized link prefix is used.
       requestBody:
         required: true
         content:

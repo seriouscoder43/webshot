@@ -7,7 +7,7 @@
 namespace ws::errors {
 
 enum class CrudError {
-    kDbFailure,
+    kDbError,
 };
 
 enum class PageTokenError {
@@ -18,11 +18,11 @@ enum class PageTokenError {
 enum class CapturePageError {
     kInvalidPageToken,
     kMismatchedPageToken,
-    kDbFailure,
+    kDbError,
 };
 
 enum class CreateJobError {
-    kDbFailure,
+    kDbError,
 };
 
 enum class CaptureErrorKind {

@@ -16,7 +16,7 @@
 namespace ws {
 namespace us = userver;
 namespace eng = us::engine;
-class Denylist;
+class AccessPolicyStore;
 class Config;
 class Metrics;
 namespace crawler {
@@ -53,10 +53,10 @@ struct [[nodiscard]] CrawlerRunArtifacts {
 class [[nodiscard]] CrawlerRunner final {
 public:
     CrawlerRunner(
-        Denylist &denylist, const Config &config, us::clients::dns::Resolver &dns_resolver,
-        eng::subprocess::ProcessStarter &process_starter, std::chrono::seconds run_timeout,
-        eng::TaskProcessor &fs_task_processor, std::string state_dir,
-        std::optional<crawler::CgroupLimits> limits, i64 max_archive_bytes,
+        AccessPolicyStore &access_policy, const Config &config,
+        us::clients::dns::Resolver &dns_resolver, eng::subprocess::ProcessStarter &process_starter,
+        std::chrono::seconds run_timeout, eng::TaskProcessor &fs_task_processor,
+        std::string state_dir, std::optional<crawler::CgroupLimits> limits, i64 max_archive_bytes,
         crawler::CaptureTimings timings, crawler::CrawlerTunables tunables,
         i64 network_down_bytes_ratio_max, Metrics &metrics
     );
@@ -64,7 +64,7 @@ public:
     [[nodiscard]] CrawlerRunArtifacts Run(const String &seed_url) const;
 
 private:
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     const Config &config_;
     us::clients::dns::Resolver &dns_resolver_;
     eng::subprocess::ProcessStarter &process_starter_;

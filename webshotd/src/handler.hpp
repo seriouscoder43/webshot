@@ -15,21 +15,21 @@ namespace ws {
 namespace us = userver;
 namespace server = us::server;
 class Config;
-class Denylist;
+class AccessPolicyStore;
 class Crud;
 class Metrics;
 
 /**
- * @brief HTTP handler for creating and listing captures for an exact URL.
+ * @brief HTTP handler for creating and listing captures for an exact link.
  *
  * Supports:
  * - POST to enqueue a capture job for the provided link.
  * - GET to list captures for the exact normalized `link` query parameter.
  */
-class [[nodiscard]] Handler : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] CaptureByLinkHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "handler";
-    explicit Handler(
+    explicit CaptureByLinkHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
@@ -44,8 +44,8 @@ public:
 private:
     Crud &crud_;
     const Config &config_;
-    Denylist &denylist_;
+    AccessPolicyStore &access_policy_;
     Metrics &metrics_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 } // namespace ws

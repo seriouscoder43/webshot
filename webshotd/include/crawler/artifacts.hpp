@@ -20,13 +20,13 @@ enum class ReusedBrowser {
     kYes,
 };
 
-enum class ArtifactError {
+enum class ArtifactErrorCode {
     kGzipFailed,
     kZipFailed,
 };
 
-struct [[nodiscard]] ArtifactFailure {
-    ArtifactError code;
+struct [[nodiscard]] ArtifactError {
+    ArtifactErrorCode code;
     std::string detail;
 };
 
@@ -86,15 +86,14 @@ struct [[nodiscard]] WarcBuildOutput {
 
 [[nodiscard]] std::string BuildPagesJsonl(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> BuildSuccessStdoutLog(
+[[nodiscard]] Expected<std::string, ArtifactError> BuildSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browser_pid,
     ReusedBrowser reused_browser
 );
 
-[[nodiscard]] Expected<WarcBuildOutput, ArtifactFailure>
-BuildWarc(const CapturedExchange &exchange);
+[[nodiscard]] Expected<WarcBuildOutput, ArtifactError> BuildWarc(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactFailure> BuildWacz(
+[[nodiscard]] Expected<std::string, ArtifactError> BuildWacz(
     const RunRequest &run, const std::string &pages_jsonl, const WarcBuildOutput &warc,
     const std::string &stdout_log, const std::string &stderr_log
 );

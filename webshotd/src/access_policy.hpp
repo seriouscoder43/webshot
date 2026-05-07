@@ -11,8 +11,8 @@
 namespace ws {
 
 namespace us = userver;
-enum class DenylistError {
-    kDbFailure,
+enum class AccessPolicyError {
+    kDbError,
 };
 
 enum class AccessPolicyMode {
@@ -35,40 +35,40 @@ struct [[nodiscard]] AccessDecision final {
 [[nodiscard]] String AccessDecisionMessage(AccessDecisionReason reason);
 
 /**
- * @brief Host access-list management and purge helper.
+ * @brief Link prefix access policy management and purge helper.
  *
- * Provides host checks used by the ingestion path, allowlist/denylist
+ * Provides link prefix checks used by the ingestion path, allowlist/denylist
  * administration, and an administrative purge that deletes all captures for a
- * host and its subhosts.
+ * link prefix and nested prefixes.
  */
-class [[nodiscard]] Denylist : public us::components::ComponentBase {
+class [[nodiscard]] AccessPolicyStore : public us::components::ComponentBase {
 public:
-    static constexpr std::string_view kName = "denylist";
+    static constexpr std::string_view kName = "access_policy";
 
-    explicit Denylist(
+    explicit AccessPolicyStore(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
 
-    ~Denylist() override;
+    ~AccessPolicyStore() override;
 
     /** @brief Returns true if the normalized prefix key is not deny-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> IsAllowedPrefix(const String &prefix_key);
+    [[nodiscard]] Expected<bool, AccessPolicyError> IsAllowedPrefix(const String &prefix_key);
     /** @brief Returns true if the normalized prefix key is deny-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> IsDeniedPrefix(const String &prefix_key);
+    [[nodiscard]] Expected<bool, AccessPolicyError> IsDeniedPrefix(const String &prefix_key);
     /** @brief Returns true if the normalized prefix key is allow-listed. */
-    [[nodiscard]] Expected<bool, DenylistError> IsAllowlistedPrefix(const String &prefix_key);
-    /** @brief Evaluate the normalized prefix key against allowlist and denylist policy. */
-    [[nodiscard]] Expected<AccessDecision, DenylistError>
+    [[nodiscard]] Expected<bool, AccessPolicyError> IsAllowlistedPrefix(const String &prefix_key);
+    /** @brief Evaluate the normalized prefix key against the configured access policy. */
+    [[nodiscard]] Expected<AccessDecision, AccessPolicyError>
     EvaluatePrefix(const String &prefix_key, AccessPolicyMode mode);
     /** @brief Insert a prefix key into the denylist (noop if already present). */
-    [[nodiscard]] Expected<void, DenylistError>
+    [[nodiscard]] Expected<void, AccessPolicyError>
     InsertPrefix(const String &prefix_key, const String &reason);
     /** @brief Insert a prefix key into the allowlist (noop if already present). */
-    [[nodiscard]] Expected<void, DenylistError>
+    [[nodiscard]] Expected<void, AccessPolicyError>
     InsertAllowlistPrefix(const String &prefix_key, const String &reason);
     /** @brief Remove a prefix key from the allowlist (noop if absent). */
-    [[nodiscard]] Expected<void, DenylistError> RemoveAllowlistPrefix(const String &prefix_key);
+    [[nodiscard]] Expected<void, AccessPolicyError> RemoveAllowlistPrefix(const String &prefix_key);
     static us::yaml_config::Schema GetStaticConfigSchema();
 
 private:

@@ -1,4 +1,4 @@
-#include "failure.hpp"
+#include "error.hpp"
 
 #include "integers.hpp"
 

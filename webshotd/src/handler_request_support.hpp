@@ -58,7 +58,7 @@ ParseJsonLinkBody(const server::http::HttpRequest &request, const Config &config
 
 enum class ClientRequestError {
     kInvalidClientIp,
-    kCrudFailure,
+    kCrudError,
 };
 
 class [[nodiscard]] HandlerRequestSupport final {
@@ -76,9 +76,9 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     ParseRequiredQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(param_name.ToBytes());
-        ENSURE(!arg.empty(), MissingParamError(param_name));
-        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+        const std::string param_value = request.GetArg(param_name.ToBytes());
+        ENSURE(!param_value.empty(), MissingParamError(param_name));
+        return TRY_MAP_ERR(String::FromBytes(param_value), ([&](auto) {
                                return InvalidParamError(param_name);
                            }));
     }
@@ -86,8 +86,8 @@ public:
     [[nodiscard]] Expected<String, ParamError>
     ParseQueryText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetArg(param_name.ToBytes());
-        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+        const std::string param_value = request.GetArg(param_name.ToBytes());
+        return TRY_MAP_ERR(String::FromBytes(param_value), ([&](auto) {
                                return InvalidParamError(param_name);
                            }));
     }
@@ -123,7 +123,7 @@ public:
     }
 
     [[nodiscard]] Expected<ws::uuid::Uuid, ParamError>
-    ParseUuidPathArg(const server::http::HttpRequest &request, String param_name) const
+    ParseRequiredPathParamUuid(const server::http::HttpRequest &request, String param_name) const
     {
         const auto text = TRY(ParseRequiredPathText(request, param_name));
         return TRY_OK_OR(ws::uuid::Parse(text.View()), InvalidParamError(param_name));
@@ -138,7 +138,7 @@ public:
 
         auto cooldown = crud_.AcquireClientIpCooldown(std::move(*client_ip));
         if (!cooldown)
-            return Unex(ClientRequestError::kCrudFailure);
+            return Unex(ClientRequestError::kCrudError);
         return *cooldown;
     }
 
@@ -168,9 +168,9 @@ private:
     [[nodiscard]] Expected<String, ParamError>
     ParseRequiredPathText(const server::http::HttpRequest &request, String param_name) const
     {
-        const std::string arg = request.GetPathArg(param_name.ToBytes());
-        ENSURE(!arg.empty(), MissingParamError(param_name));
-        return TRY_MAP_ERR(String::FromBytes(arg), ([&](auto) {
+        const std::string param_value = request.GetPathArg(param_name.ToBytes());
+        ENSURE(!param_value.empty(), MissingParamError(param_name));
+        return TRY_MAP_ERR(String::FromBytes(param_value), ([&](auto) {
                                return InvalidParamError(param_name);
                            }));
     }
@@ -188,8 +188,8 @@ RespondClientRequestError(server::http::HttpResponse &response, ClientRequestErr
 
     switch (error) {
     case kInvalidClientIp:
-        return httpu::RespondError(response, kBadRequest, "invalid client ip"_t);
-    case kCrudFailure:
+        return httpu::RespondError(response, kBadRequest, "invalid client IP"_t);
+    case kCrudError:
         return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
 }

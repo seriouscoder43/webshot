@@ -34,16 +34,16 @@ using namespace ws;
 using namespace text::literals;
 using namespace std::chrono_literals;
 
-ById::ById(
+ByIdHandler::ByIdHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
     : HttpHandlerBase(config, context), crud_(context.FindComponent<Crud>()),
       config_(context.FindComponent<Config>()),
-      request_timeout(config["request-timeout-ms"].As<int64_t>() * 1ms)
+      request_timeout_(config["request-timeout-ms"].As<int64_t>() * 1ms)
 {
 }
 
-us::yaml_config::Schema ById::GetStaticConfigSchema()
+us::yaml_config::Schema ByIdHandler::GetStaticConfigSchema()
 {
     return us::yaml_config::MergeSchemas<server::handlers::HttpHandlerBase>(R"(
 type: object
@@ -57,7 +57,7 @@ properties:
 )");
 }
 
-std::string ById::HandleRequestThrow(
+std::string ByIdHandler::HandleRequestThrow(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -65,9 +65,9 @@ std::string ById::HandleRequestThrow(
 
     auto &response = request.GetHttpResponse();
     HandlerRequestSupport request_support{crud_, config_};
-    request_support.ApplyRequestDeadline(request, request_timeout);
+    request_support.ApplyRequestDeadline(request, request_timeout_);
 
-    const auto uuid = request_support.ParseUuidPathArg(request, "uuid"_t);
+    const auto uuid = request_support.ParseRequiredPathParamUuid(request, "uuid"_t);
     if (!uuid)
         return httpu::RespondParamError(
             response, kBadRequest, uuid.Error().name, uuid.Error().message

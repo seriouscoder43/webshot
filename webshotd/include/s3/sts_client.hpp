@@ -17,7 +17,7 @@ namespace httpc = us::clients::http;
 enum class StsError {
     kInvalidEndpoint,
     kInvalidQuery,
-    kHttpFailure,
+    kHttpError,
     kXmlMissingTag,
     kXmlMissingClosingTag,
     kInvalidExpiration,

@@ -1,10 +1,10 @@
 #include "crawler/browser_session.hpp"
 
+#include "crawler/browser_start_policy.hpp"
 #include "crawler/cdp_client.hpp"
 #include "crawler/cgroup_stats.hpp"
 #include "crawler/egress_proxy.hpp"
-#include "crawler/failure.hpp"
-#include "crawler/launch_policy.hpp"
+#include "crawler/error.hpp"
 #include "grab_value.hpp"
 #include "invariant.hpp"
 #include "metrics.hpp"
@@ -496,7 +496,7 @@ void WritePhaseMarker(
     );
 }
 
-[[nodiscard]] std::string FormatLaunchLogs(
+[[nodiscard]] std::string FormatStartLogs(
     const std::pair<std::string, std::string> &browser_logs, const std::string &bwrap_status
 )
 {
@@ -750,8 +750,8 @@ BrowserCgroupPath(const BrowserPaths &paths, const BrowserSessionConfig &config)
             fs_task_processor, deadline, config.cdp_handshake_timeout, config.cdp_command_timeout,
             config.cdp_max_remote_payload_bytes
         ),
-        [](auto failure) {
-            return DescribeCdpFailure("devtools websocket handshake failed"_t, std::move(failure));
+        [](auto error) {
+            return FormatCdpError("devtools websocket handshake failed"_t, std::move(error));
         }
     );
 }
@@ -786,12 +786,12 @@ struct BrowserSession::Impl final {
     {
     }
 
-    [[nodiscard]] Expected<void, String> Launch()
+    [[nodiscard]] Expected<void, String> Start()
     {
         paths = CreateBrowserPaths(fs_task_processor, config.browser_runs_root_);
         TRY(StageLocalFixtureTrustDbIfNeeded(fs_task_processor, paths, config));
 
-        MarkPhase("launch_browser");
+        MarkPhase("start_browser");
         const auto devtools_deadline = eng::Deadline::FromDuration(config.devtools_startup_timeout);
         proxy = TRY(
             StartBrowserProxy(dns_resolver, fs_task_processor, paths, config, devtools_deadline)
@@ -806,7 +806,7 @@ struct BrowserSession::Impl final {
             config.metrics->RegisterBrowserCgroup(*registered_cgroup_path);
         }
         websocket_path = TRY_MAP_ERR(WaitForDevtoolsPath(devtools_deadline), [this](auto detail) {
-            return BuildFailureDetail(std::move(detail));
+            return BuildErrorDetail(std::move(detail));
         });
         return {};
     }
@@ -816,7 +816,7 @@ struct BrowserSession::Impl final {
     {
         Invariant(overall_deadline.IsReachable(), "cdp overall deadline must be reachable"_t);
 
-        std::optional<String> last_failure;
+        std::optional<String> last_error;
         i64 attempts{0};
         while (!overall_deadline.IsReached()) {
             attempts++;
@@ -826,18 +826,18 @@ struct BrowserSession::Impl final {
             if (cdp)
                 return GrabValueOf(std::move(cdp));
 
-            last_failure = text::Format("{} ({})", cdp.Error(), CurrentLaunchLogs());
+            last_error = text::Format("{} ({})", cdp.Error(), CurrentStartLogs());
 
             if (!overall_deadline.IsReached())
                 eng::SleepFor(config.devtools_poll_interval);
         }
 
-        if (last_failure)
-            return Unex(std::move(*last_failure));
+        if (last_error)
+            return Unex(std::move(*last_error));
         return Unex(
             text::Format(
                 "devtools websocket handshake failed after {} attempt(s) ({})", attempts,
-                CurrentLaunchLogs()
+                CurrentStartLogs()
             )
         );
     }
@@ -855,14 +855,14 @@ struct BrowserSession::Impl final {
         WritePhaseMarker(fs_task_processor, paths.phase_file_path, phase);
     }
 
-    [[nodiscard]] std::string CurrentLaunchLogs() const
+    [[nodiscard]] std::string CurrentStartLogs() const
     {
-        return FormatLaunchLogs(
+        return FormatStartLogs(
             DrainBrowserLogs(), ReadLogTail(fs_task_processor, paths.bwrap_status_file_path)
         );
     }
 
-    [[nodiscard]] String BuildFailureDetail(const String &message)
+    [[nodiscard]] String BuildErrorDetail(const String &message)
     {
         String diagnostics{};
 
@@ -917,8 +917,8 @@ struct BrowserSession::Impl final {
             AppendDiagnosticField(
                 diagnostics, "proxy_down_bytes"_t, text::Format("{}", proxy->DownBytes())
             );
-            if (const auto proxy_failure = proxy->FailureReason())
-                AppendDiagnosticField(diagnostics, "proxy_failure"_t, *proxy_failure);
+            if (const auto proxy_error = proxy->ErrorReason())
+                AppendDiagnosticField(diagnostics, "proxy_error"_t, *proxy_error);
         }
 
         if (diagnostics.Empty())
@@ -946,11 +946,11 @@ struct BrowserSession::Impl final {
 
     [[nodiscard]] i64 ProxyDownBytes() const noexcept { return proxy ? proxy->DownBytes() : 0_i64; }
     [[nodiscard]] const std::string &RunId() const noexcept { return paths.run_id; }
-    [[nodiscard]] std::optional<String> ProxyFailureReason() const noexcept
+    [[nodiscard]] std::optional<String> ProxyErrorReason() const noexcept
     {
         if (!proxy)
             return {};
-        return proxy->FailureReason();
+        return proxy->ErrorReason();
     }
 
     [[nodiscard]] Expected<String, String> WaitForDevtoolsPath(eng::Deadline deadline)
@@ -968,7 +968,7 @@ struct BrowserSession::Impl final {
             if (process && process->WaitFor(0ms)) {
                 return Unex(
                     text::Format(
-                        "chromium exited before exposing devtools ({})", CurrentLaunchLogs()
+                        "chromium exited before exposing devtools ({})", CurrentStartLogs()
                     )
                 );
             }
@@ -981,7 +981,7 @@ struct BrowserSession::Impl final {
         }
         if (process && process->WaitFor(0ms)) {
             return Unex(
-                text::Format("chromium exited before exposing devtools ({})", CurrentLaunchLogs())
+                text::Format("chromium exited before exposing devtools ({})", CurrentStartLogs())
             );
         }
         return Unex(
@@ -991,7 +991,7 @@ struct BrowserSession::Impl final {
                 : !saw_cdp_socket
                     ? "devtools websocket path was written but cdp socket never appeared"
                     : "devtools websocket path and cdp socket appeared but handshake never started",
-                CurrentLaunchLogs()
+                CurrentStartLogs()
             )
         );
     }
@@ -1022,7 +1022,7 @@ BrowserSession::BrowserSession(
 
 BrowserSession::~BrowserSession() = default;
 
-Expected<void, String> BrowserSession::Launch() { return impl_->Launch(); }
+Expected<void, String> BrowserSession::Start() { return impl_->Start(); }
 
 Expected<std::unique_ptr<CdpClient>, String>
 BrowserSession::ConnectCdp(eng::Deadline overall_deadline) const
@@ -1037,11 +1037,11 @@ std::pair<std::string, std::string> BrowserSession::DrainBrowserLogs() const
 
 void BrowserSession::MarkPhase(std::string_view phase) const { impl_->MarkPhase(phase); }
 
-std::string BrowserSession::CurrentLaunchLogs() const { return impl_->CurrentLaunchLogs(); }
+std::string BrowserSession::CurrentStartLogs() const { return impl_->CurrentStartLogs(); }
 
-String BrowserSession::BuildFailureDetail(const String &message)
+String BrowserSession::BuildErrorDetail(const String &message)
 {
-    return impl_->BuildFailureDetail(message);
+    return impl_->BuildErrorDetail(message);
 }
 
 void BrowserSession::Close() { impl_->Close(); }
@@ -1050,9 +1050,9 @@ i64 BrowserSession::ProxyDownBytes() const noexcept { return impl_->ProxyDownByt
 
 const std::string &BrowserSession::RunId() const noexcept { return impl_->RunId(); }
 
-std::optional<String> BrowserSession::ProxyFailureReason() const noexcept
+std::optional<String> BrowserSession::ProxyErrorReason() const noexcept
 {
-    return impl_->ProxyFailureReason();
+    return impl_->ProxyErrorReason();
 }
 
 namespace {
@@ -1061,9 +1061,8 @@ template <typename T, typename... Args>
 [[nodiscard]] Expected<T, String> SendCdp(auto &cdp_endpoint, const String &method, Args &&...args)
 {
     return TRY_MAP_ERR(
-        cdp_endpoint.template Send<T>(method, std::forward<Args>(args)...),
-        [&method](auto failure) {
-            return DescribeCdpFailure(text::Format("{} failed", method), std::move(failure));
+        cdp_endpoint.template Send<T>(method, std::forward<Args>(args)...), [&method](auto error) {
+            return FormatCdpError(text::Format("{} failed", method), std::move(error));
         }
     );
 }
@@ -1128,9 +1127,7 @@ Expected<void, String> BrowserPageSession::AttachToTarget()
     auto session_id = *String::FromBytes(attached.sessionId);
     auto cdp_session = cdp_client_.CreateSession(session_id, *target_id_);
     if (!cdp_session)
-        return Unex(
-            DescribeCdpFailure("failed to register cdp target session"_t, cdp_session.Error())
-        );
+        return Unex(FormatCdpError("failed to register cdp target session"_t, cdp_session.Error()));
     session_id_ = std::move(session_id);
     cdp_session_ = GrabValueOf(cdp_session);
     Invariant(

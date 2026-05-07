@@ -6,11 +6,11 @@
  * Implements the `Crud` component, including background crawl startup,
  * metadata writes, and various paged queries.
  */
+#include "access_policy.hpp"
 #include "config.hpp"
-#include "crawler/failure.hpp"
+#include "crawler/error.hpp"
 #include "crawler/runner.hpp"
 #include "database.hpp"
-#include "denylist.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "invariant.hpp"
@@ -455,7 +455,7 @@ public:
     us::clients::dns::Resolver &dns_resolver_;
     eng::subprocess::ProcessStarter &process_starter_;
     eng::TaskProcessor &fs_task_processor_;
-    Denylist &denylist;
+    AccessPolicyStore &access_policy;
     CrawlerRunner crawler_runner;
     struct [[nodiscard]] S3ClientState {
         s3::Credentials creds;
@@ -557,9 +557,9 @@ public:
           dns_resolver_(ctx.FindComponent<us::clients::dns::Component>().GetResolver()),
           process_starter_(ctx.FindComponent<us::components::ProcessStarter>().Get()),
           fs_task_processor_(ctx.GetTaskProcessor("fs-task-processor")),
-          denylist(ctx.FindComponent<Denylist>()),
+          access_policy(ctx.FindComponent<AccessPolicyStore>()),
           crawler_runner(
-              denylist, svc_cfg, dns_resolver_, process_starter_, crawler_run_timeout,
+              access_policy, svc_cfg, dns_resolver_, process_starter_, crawler_run_timeout,
               fs_task_processor_, std::string(svc_cfg.StateDir()),
               ComputeCrawlerLimits(crawler_cpu_cores, crawler_memory_gib),
               crawler_size_limit_mi_b * 1024_i64 * 1024_i64,
@@ -712,9 +712,9 @@ Crud::Impl::RunCrawlJob(Uuid id, Link link)
 {
     using enum errors::CaptureErrorKind;
 
-    const auto total_crawl_time_limit = crawler_job_overhead_timeout +
-                                        crawler_run_timeout * kCrawlerSeedAttemptsMax;
-    eng::current_task::SetDeadline(eng::Deadline::FromDuration(total_crawl_time_limit));
+    const auto total_crawl_timeout_budget = crawler_job_overhead_timeout +
+                                            crawler_run_timeout * kCrawlerSeedAttemptsMax;
+    eng::current_task::SetDeadline(eng::Deadline::FromDuration(total_crawl_timeout_budget));
 
     std::shared_lock<eng::CancellableSemaphore> slot_lock(crawl_slots);
 
@@ -933,8 +933,8 @@ Crud::Impl::GetOrCreateCaptureJobLocked(const String &normalized_link)
                 auto job = MakeCaptureJob(GrabValueOf(latest_job_row_opt));
                 const auto now = datetime::Now();
                 const auto last_created = job.created_at.GetTimePoint();
-                const auto deadline = last_created + link_cooldown;
-                if (now < deadline) {
+                const auto cooldown_until = last_created + link_cooldown;
+                if (now < cooldown_until) {
                     trx.Commit();
                     return CreateCaptureJobResult{.job = std::move(job), .created = false};
                 }
@@ -1127,16 +1127,17 @@ std::optional<StoredCapture> Crud::Impl::PersistMetadataForContext(CrawlContext 
 {
     const auto prefix_key = prefix::MakePrefixKey(ctx.link);
     const auto prefix_tree = prefix::MakePrefixTree(prefix_key);
-    const auto host = ctx.link.Host();
     Invariant(ctx.replay_url, "replayUrl must be set for a successful capture"_t);
 
-    const auto allowed = denylist.IsAllowedPrefix(prefix_key);
+    const auto allowed = access_policy.IsAllowedPrefix(prefix_key);
     if (!allowed || !*allowed) {
         if (!allowed) {
-            metrics.AccountError(Metrics::Error::kDenylistCheck);
-            LOG_ERROR() << std::format("Failed to check denylist state during crawl: {}", host);
+            metrics.AccountError(Metrics::Error::kAccessPolicyCheck);
+            LOG_ERROR() << std::format(
+                "Failed to check access policy state during crawl: {}", prefix_key
+            );
         } else {
-            LOG_INFO() << std::format("Host became denylisted during crawl: {}", host);
+            LOG_INFO() << std::format("Prefix became denylisted during crawl: {}", prefix_key);
         }
         return {};
     }
@@ -1218,9 +1219,9 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
         );
         if (!ids) {
             LOG_ERROR() << std::format(
-                "denylist purge failed for {}: {}", prefix_key, ids.Error().what
+                "access policy purge failed for {}: {}", prefix_key, ids.Error().what
             );
-            return Unex(kDbFailure);
+            return Unex(kDbError);
         }
         if (ids->empty())
             break;
@@ -1236,7 +1237,7 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
                     "S3 delete failed for key {} (prefix={}): {}", key, prefix_key,
                     s3_deleted.Error()
                 );
-                return Unex(kDbFailure);
+                return Unex(kDbError);
             }
 
             single.clear();
@@ -1244,9 +1245,9 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
             auto db_deleted = Readwrite([](auto &) {}, sql::kDeleteCapturesByIds, single);
             if (!db_deleted) {
                 LOG_ERROR() << std::format(
-                    "denylist purge failed for {}: {}", prefix_key, db_deleted.Error().what
+                    "access policy purge failed for {}: {}", prefix_key, db_deleted.Error().what
                 );
-                return Unex(kDbFailure);
+                return Unex(kDbError);
             }
         }
     }
@@ -1279,7 +1280,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::CreateCaptureJob(Link li
                 "Failed to create or reuse crawl job for {}: {}", normalized_link,
                 capture_job_result.Error().what
             );
-        auto result = TRY_ERR_AS(std::move(capture_job_result), kDbFailure);
+        auto result = TRY_ERR_AS(std::move(capture_job_result), kDbError);
         job = std::move(result.job);
         if (!result.created)
             return job;
@@ -1291,7 +1292,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::CreateCaptureJob(Link li
             LOG_ERROR() << std::format(
                 "Failed to create crawl job for {}: {}", normalized_link, insert_result.Error().what
             );
-        auto created_at = TRY_ERR_AS(std::move(insert_result), kDbFailure);
+        auto created_at = TRY_ERR_AS(std::move(insert_result), kDbError);
         impl_ptr->metrics.AccountCaptureJobCreated();
         job = MakePendingCaptureJob(id, normalized_link, created_at);
     }
@@ -1410,7 +1411,7 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::FindCapture(Uuid
         LOG_ERROR() << std::format(
             "DB select capture failed for {}: {}", uuid, capture.Error().what
         );
-        return Unex(kDbFailure);
+        return Unex(kDbError);
     }
     auto capture_opt = GrabValueOf(capture);
     if (!capture_opt) {
@@ -1436,12 +1437,12 @@ Expected<std::optional<dto::CaptureJob>, errors::CrudError> Crud::FindCaptureJob
     auto job = impl_->LoadJob(uuid);
     if (!job) {
         LOG_ERROR() << std::format("DB select job failed for {}: {}", uuid, job.Error().what);
-        return Unex(kDbFailure);
+        return Unex(kDbError);
     }
     return *job;
 }
 
-Expected<dto::PagedFindCapturesByUrlResponse, errors::CapturePageError>
+Expected<dto::PagedFindCapturesByLinkResponse, errors::CapturePageError>
 Crud::FindCapturesByLinkPage(const Link &link, String page_token)
 {
     namespace crud = ws::crud;
@@ -1484,7 +1485,7 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
 
     if (!rows) {
         LOG_ERROR() << std::format("DB select captures page failed: {}", rows.Error().what);
-        return Unex(kDbFailure);
+        return Unex(kDbError);
     }
     auto db_rows = GrabValueOf(rows);
     bool has_previous = cur && cur->direction == crud::PageDirection::kNext;
@@ -1524,7 +1525,7 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
                        .ToBytes();
         }
     }
-    return dto::PagedFindCapturesByUrlResponse{
+    return dto::PagedFindCapturesByLinkResponse{
         .items = std::move(items),
         .next_page_token = std::move(next),
         .previous_page_token = std::move(previous),
@@ -1597,7 +1598,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
                     LOG_ERROR() << std::format(
                         "DB select prefix captures failed: {}", has_rows_before.Error().what
                     );
-                    return Unex(kDbFailure);
+                    return Unex(kDbError);
                 }
                 include_cursor_link = *has_rows_before;
             }
@@ -1607,7 +1608,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
                 LOG_ERROR() << std::format(
                     "DB select prefix links failed: {}", previous.Error().what
                 );
-                return Unex(kDbFailure);
+                return Unex(kDbError);
             }
             auto previous_links = GrabValueOf(previous);
             const auto visible_previous_links_max = include_cursor_link ? links_per_page - 1_i64
@@ -1629,7 +1630,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
                     LOG_ERROR() << std::format(
                         "DB select prefix links failed: {}", more.Error().what
                     );
-                    return Unex(kDbFailure);
+                    return Unex(kDbError);
                 }
                 auto next_links = GrabValueOf(more);
                 links.insert(std::end(links), std::begin(next_links), std::end(next_links));
@@ -1639,7 +1640,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
                     LOG_ERROR() << std::format(
                         "DB select prefix links failed: {}", more.Error().what
                     );
-                    return Unex(kDbFailure);
+                    return Unex(kDbError);
                 }
                 links.insert(std::end(links), std::begin(*more), std::end(*more));
             }
@@ -1652,7 +1653,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         auto first = select_links_first(links_per_page + 1_i64);
         if (!first) {
             LOG_ERROR() << std::format("DB select prefix links failed: {}", first.Error().what);
-            return Unex(kDbFailure);
+            return Unex(kDbError);
         }
         links.insert(std::end(links), std::begin(*first), std::end(*first));
         if (ssize(links) > links_per_page) {
@@ -1696,7 +1697,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         auto rows = select_rows_for_link(link, idx);
         if (!rows) {
             LOG_ERROR() << std::format("DB select prefix captures failed: {}", rows.Error().what);
-            return Unex(kDbFailure);
+            return Unex(kDbError);
         }
         auto db_rows = GrabValueOf(rows);
         const auto is_previous_cursor_link = cur &&
@@ -1756,11 +1757,11 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
     };
 }
 
-Expected<void, DenylistError> Crud::DisallowAndPurgePrefix(String prefix_key) noexcept
+Expected<void, AccessPolicyError> Crud::DenyPrefixAndPurge(String prefix_key) noexcept
 {
-    auto inserted = impl_->denylist.InsertPrefix(prefix_key, "disallow_and_purge"_t);
+    auto inserted = impl_->access_policy.InsertPrefix(prefix_key, "disallow_and_purge"_t);
     if (!inserted)
-        impl_->metrics.AccountError(Metrics::Error::kDenylistCheck);
+        impl_->metrics.AccountError(Metrics::Error::kAccessPolicyCheck);
     TRY(std::move(inserted));
 
     LOG_INFO() << std::format("enqueued for prefix {}", prefix_key);

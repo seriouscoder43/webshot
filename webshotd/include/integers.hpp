@@ -41,7 +41,7 @@ struct SafeIntegerAbort {
 
         std::array<char, 512> buf{};
         const int written = std::snprintf(
-            buf.data(), buf.size(), "safe integer failure: %s: %s",
+            buf.data(), buf.size(), "safe integer error: %s: %s",
             error_safe ? error_safe : "(unknown)", msg_safe
         );
 
@@ -101,19 +101,19 @@ enum class NumericCastError {
     kEnumUnderlyingOverflow,
 };
 
-[[noreturn]] inline void AbortNumericCastFailure(NumericCastError error) noexcept
+[[noreturn]] inline void AbortNumericCastError(NumericCastError error) noexcept
 {
     using enum NumericCastError;
 
     switch (error) {
     case kNegativeToUnsigned:
-        ws::us::utils::AbortWithStacktrace("safe integer failure: negative to unsigned");
+        ws::us::utils::AbortWithStacktrace("safe integer error: negative to unsigned");
     case kNarrowingOverflow:
-        ws::us::utils::AbortWithStacktrace("safe integer failure: narrowing overflow");
+        ws::us::utils::AbortWithStacktrace("safe integer error: narrowing overflow");
     case kEnumUnderlyingOverflow:
-        ws::us::utils::AbortWithStacktrace("safe integer failure: enum underlying overflow");
+        ws::us::utils::AbortWithStacktrace("safe integer error: enum underlying overflow");
     default:
-        ws::us::utils::AbortWithStacktrace("safe integer failure");
+        ws::us::utils::AbortWithStacktrace("safe integer error");
     }
 }
 
@@ -168,7 +168,7 @@ template <typename To, typename From>
     using ToValue = std::remove_cvref_t<To>;
     const auto converted = detail::CheckedNumericCast<ToValue>(value);
     if (!converted)
-        detail::AbortNumericCastFailure(converted.Error());
+        detail::AbortNumericCastError(converted.Error());
     return *converted;
 }
 
@@ -187,7 +187,7 @@ NumericCast(const boost::safe_numerics::safe<T, PromotionPolicy, ExceptionPolicy
     using ToValue = std::remove_cvref_t<To>;
     const auto converted = detail::CheckedNumericCast<ToValue>(value);
     if (!converted)
-        detail::AbortNumericCastFailure(converted.Error());
+        detail::AbortNumericCastError(converted.Error());
     return *converted;
 }
 

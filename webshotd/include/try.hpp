@@ -20,7 +20,7 @@ struct TryEmptyReturn final {
     template <typename T> constexpr operator std::optional<T>() const noexcept { return {}; }
 };
 
-template <typename E> struct TryExpectedFailure final {
+template <typename E> struct TryExpectedError final {
     template <typename T> constexpr operator std::optional<T>() const noexcept { return {}; }
 
     template <typename T> [[nodiscard]] operator Expected<T, E>() & { return Unex(error); }
@@ -86,12 +86,12 @@ template <typename T> inline T TryExtract(std::optional<T> &&opt)
     return GrabValueOf(std::move(opt));
 }
 
-template <typename T> [[nodiscard]] inline auto TryFailure(T &&value)
+template <typename T> [[nodiscard]] inline auto TryError(T &&value)
 {
     static_assert(IsTrySupported<T>::value, "TRY only supports ws::Expected and std::optional");
 
     if constexpr (IsExpected<RemoveCvref<T>>::value) {
-        return TryExpectedFailure{std::forward<T>(value).Error()};
+        return TryExpectedError{std::forward<T>(value).Error()};
     } else {
         return TryEmptyReturn{};
     }
@@ -178,7 +178,7 @@ template <typename T, typename F>
             "TRY only supports ws::Expected and std::optional"                                     \
         );                                                                                         \
         if (!::ws::detail::TryHasValue(_temporaryTryResult)) [[unlikely]] {                        \
-            return ::ws::detail::TryFailure(                                                       \
+            return ::ws::detail::TryError(                                                         \
                 std::forward<decltype(_temporaryTryResult)>(_temporaryTryResult)                   \
             );                                                                                     \
         }                                                                                          \

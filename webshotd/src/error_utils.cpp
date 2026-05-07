@@ -21,9 +21,9 @@ json::Value MakeError(String message)
     return json::ValueBuilder(env).ExtractValue();
 }
 
-json::Value MakeParamError(String field_name, String message)
+json::Value MakeParamError(String param_name, String message)
 {
-    return MakeError(text::Format("{}: {}", field_name, message));
+    return MakeError(text::Format("{}: {}", param_name, message));
 }
 
 } // namespace ws::errors

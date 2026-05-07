@@ -20,7 +20,7 @@ using Uuid = boost::uuids::uuid;
 namespace ws {
 namespace us = userver;
 namespace datetime = us::utils::datetime;
-enum class DenylistError;
+enum class AccessPolicyError;
 class Config;
 
 struct [[nodiscard]] ClientIpCooldown final {
@@ -80,13 +80,13 @@ public:
     [[nodiscard]] Expected<std::vector<dto::UuidWithTime>, errors::CrudError>
     FindCapturesByLink(const Link &link);
     /** @brief Paged variant for capture ids by link. */
-    [[nodiscard]] Expected<dto::PagedFindCapturesByUrlResponse, errors::CapturePageError>
+    [[nodiscard]] Expected<dto::PagedFindCapturesByLinkResponse, errors::CapturePageError>
     FindCapturesByLinkPage(const Link &link, String page_token);
     /** @brief Paged list of captures grouped by normalized link prefix. */
     [[nodiscard]] Expected<dto::PagedFindCapturesByPrefixResponse, errors::CapturePageError>
     FindCapturesByPrefixPage(String normalized_prefix, String page_token);
     /** @brief Disallow a prefix and enqueue purge of its captures. */
-    [[nodiscard]] Expected<void, DenylistError> DisallowAndPurgePrefix(String prefix_key) noexcept;
+    [[nodiscard]] Expected<void, AccessPolicyError> DenyPrefixAndPurge(String prefix_key) noexcept;
     /** @brief Static config schema for this component. */
     [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema();
 

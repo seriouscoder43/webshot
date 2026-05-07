@@ -79,7 +79,7 @@ async def test_disallow_and_purge_blocks_concurrent_new_captures(
     for r in responses:
         assert r.status == 403
         body = r.json()
-        assert body["error"]["message"] == "host in denylist"
+        assert body["error"]["message"] == "link prefix in denylist"
 
     db = pgsql["capture_meta_db"]
     await wait_for_purge(db, prefix_key)

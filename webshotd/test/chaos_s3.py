@@ -18,7 +18,7 @@ async def test_s3_outage_marks_job_failed(service_client_with_s3_gate, s3_gate, 
     await s3_gate.sockets_close()
     await s3_gate.stop_accepting()
 
-    link = f"https://{TEST_HOST}/chaos-s3-failure"
+    link = f"https://{TEST_HOST}/chaos-s3-error"
     service_client = service_client_with_s3_gate
     resp = await service_client.post("/v1/capture", json={"link": link})
     assert resp.status == 202

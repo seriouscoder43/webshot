@@ -65,9 +65,9 @@ void WriteErrorMetric(
     case kCrawlerRun:
         writer["errors"]["total"].ValueWithLabels(value, {{"op", "run"}, {"subsystem", "crawler"}});
         return;
-    case kDenylistCheck:
+    case kAccessPolicyCheck:
         writer["errors"]["total"].ValueWithLabels(
-            value, {{"op", "check"}, {"subsystem", "denylist"}}
+            value, {{"op", "check"}, {"subsystem", "access_policy"}}
         );
         return;
     case kCount:

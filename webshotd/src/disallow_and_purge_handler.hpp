@@ -18,15 +18,15 @@ class Crud;
 class Config;
 
 /**
- * @brief HTTP handler that disallows a host and enqueues purge.
+ * @brief HTTP handler that denies a link prefix and enqueues purge.
  *
- * Accepts a JSON link request body, normalizes it via Crud, inserts it into
+ * Accepts a JSON link request body, derives its prefix, inserts it into
  * the denylist, and enqueues background purge of matching captures.
  */
-class [[nodiscard]] DisallowAndPurgeHandler : public server::handlers::HttpHandlerBase {
+class [[nodiscard]] DenyPrefixAndPurgeHandler : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "disallow_and_purge";
-    explicit DisallowAndPurgeHandler(
+    explicit DenyPrefixAndPurgeHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context
     );
@@ -41,6 +41,6 @@ public:
 private:
     Crud &crud_;
     const Config &config_;
-    const std::chrono::milliseconds request_timeout;
+    const std::chrono::milliseconds request_timeout_;
 };
 } // namespace ws

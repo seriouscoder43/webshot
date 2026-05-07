@@ -11,7 +11,7 @@ UTEST(CdpRequestTracker, WaitingRequestStartsDeliverable)
 {
     CdpRequestTracker tracker;
 
-    tracker.InsertWaiting(17_i64, "Network.getResponseBody"_t, "session-1"_t);
+    tracker.InsertPending(17_i64, "Network.getResponseBody"_t, "session-1"_t);
 
     const auto *request = tracker.Find(17_i64);
     ASSERT_NE(request, nullptr);
@@ -38,7 +38,7 @@ UTEST(CdpRequestTracker, MarkIgnoreResponsePreservesTraceContext)
 {
     CdpRequestTracker tracker;
 
-    tracker.InsertWaiting(31_i64, "Network.getResponseBody"_t, "session-2"_t);
+    tracker.InsertPending(31_i64, "Network.getResponseBody"_t, "session-2"_t);
     tracker.MarkIgnoreResponse(31_i64);
 
     const auto *request = tracker.Find(31_i64);
@@ -53,7 +53,7 @@ UTEST(CdpRequestTracker, EraseRemovesRequest)
 {
     CdpRequestTracker tracker;
 
-    tracker.InsertWaiting(47_i64, "Page.navigate"_t, {});
+    tracker.InsertPending(47_i64, "Page.navigate"_t, {});
     tracker.Erase(47_i64);
 
     EXPECT_EQ(tracker.Find(47_i64), nullptr);
