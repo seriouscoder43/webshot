@@ -520,7 +520,8 @@ ReadBrowserFileIfExists(eng::TaskProcessor &fs_task_processor, const std::string
         if (!us::fs::FileExists(fs_task_processor, path))
             return {};
         return us::fs::ReadFileContents(fs_task_processor, path);
-    } catch (const std::runtime_error &) {
+    } catch (const std::runtime_error &e) {
+        LOG_WARNING() << std::format("ReadBrowserFileIfExists failed for {}: {}", path, e.what());
         return {};
     }
 }

@@ -40,6 +40,7 @@
 #include <userver/engine/io/socket.hpp>
 #include <userver/engine/task/task_with_result.hpp>
 #include <userver/engine/wait_all_checked.hpp>
+#include <userver/logging/log.hpp>
 #include <userver/utils/assert.hpp>
 #include <userver/utils/text_light.hpp>
 
@@ -620,7 +621,8 @@ struct EgressProxy::Impl final {
         try {
             static_cast<void>(sock.SendAll(bytes.data(), bytes.size(), deadline));
             return true;
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("SendAll failed: {}", e.what());
             return false;
         }
     }
@@ -646,11 +648,13 @@ struct EgressProxy::Impl final {
     {
         try {
             a.Close();
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("CloseSocketsQuietly: close failed: {}", e.what());
         }
         try {
             b.Close();
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("CloseSocketsQuietly: close failed: {}", e.what());
         }
     }
 
@@ -716,7 +720,8 @@ struct EgressProxy::Impl final {
                     return;
                 }
             }
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("CopyClientToUpstream: {}", e.what());
             return;
         }
     }
@@ -743,7 +748,8 @@ struct EgressProxy::Impl final {
                     pending = pending.subspan(Raw(sent));
                 }
             }
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("CopyUpstreamToClientBudgeted: {}", e.what());
             return;
         }
     }
@@ -930,7 +936,8 @@ struct EgressProxy::Impl final {
             eng::io::Socket client;
             try {
                 client = listener.Accept(deadline);
-            } catch (const std::exception &) {
+            } catch (const std::exception &e) {
+                LOG_WARNING() << std::format("AcceptLoop accept error: {}", e.what());
                 return;
             }
             if (IsClosed())
@@ -967,7 +974,8 @@ struct EgressProxy::Impl final {
         try {
             if (listener.IsValid())
                 listener.Close();
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+            LOG_WARNING() << std::format("CloseAll listener close failed: {}", e.what());
         }
     }
 };

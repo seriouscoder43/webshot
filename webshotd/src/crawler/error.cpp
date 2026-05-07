@@ -6,6 +6,7 @@
 
 #include <userver/engine/exception.hpp>
 #include <userver/fs/read.hpp>
+#include <userver/logging/log.hpp>
 
 namespace ws::crawler {
 namespace us = userver;
@@ -24,8 +25,8 @@ ReadProcessOutputText(eng::TaskProcessor &fs_task_processor, const std::string &
         auto text = RetainProcessOutputText(us::fs::ReadFileContents(fs_task_processor, path));
         if (!text.Empty())
             return text;
-    } catch (const std::runtime_error &) {
-        // Best-effort diagnostics: ignore unreadable or missing process-output files.
+    } catch (const std::runtime_error &e) {
+        LOG_WARNING() << std::format("ReadProcessOutputText failed for {}: {}", path, e.what());
     }
     return {};
 }
