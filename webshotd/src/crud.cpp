@@ -1760,7 +1760,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
 
 Expected<void, AccessPolicyError> Crud::DenyPrefixAndPurge(String prefix_key) noexcept
 {
-    auto inserted = impl_->access_policy.InsertPrefix(prefix_key, "disallow_and_purge"_t);
+    auto inserted = impl_->access_policy.InsertPrefix(prefix_key, "deny_and_purge"_t);
     if (!inserted)
         impl_->metrics.AccountError(Metrics::Error::kAccessPolicyCheck);
     TRY(std::move(inserted));

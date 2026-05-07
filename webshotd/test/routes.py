@@ -65,24 +65,24 @@ async def test_list_captures_prefix_empty_result(service_client):
     assert "next_page_token" not in body
 
 
-async def test_disallow_and_purge_not_exposed_on_main_listener(service_client):
-    response = await service_client.post("/v1/denylist/disallow_and_purge")
+async def test_deny_and_purge_not_exposed_on_main_listener(service_client):
+    response = await service_client.post("/v1/denylist/deny-and-purge")
 
     assert response.status == 404
 
 
-async def test_disallow_and_purge_missing_body(monitor_client):
-    response = await monitor_client.post("/v1/denylist/disallow_and_purge")
+async def test_deny_and_purge_missing_body(monitor_client):
+    response = await monitor_client.post("/v1/denylist/deny-and-purge")
 
     assert response.status == 400
     body = response.json()
     assert body["error"]["message"] == "invalid request body"
 
 
-async def test_disallow_and_purge_invalid_link(monitor_client):
+async def test_deny_and_purge_invalid_link(monitor_client):
     # IP literals are rejected
     response = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": "127.0.0.1"},
     )
 
@@ -113,7 +113,7 @@ async def test_create_capture_job_strips_non_default_port_in_normalized_link(ser
 async def test_create_capture_denylisted_prefix(service_client, monitor_client):
     # Insert prefix into denylist via dedicated endpoint.
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"https://{TEST_HOST}/"},
     )
     assert deny_resp.status == 202
@@ -130,7 +130,7 @@ async def test_create_capture_denylisted_prefix(service_client, monitor_client):
 
 async def test_create_capture_denylisted_path_blocks_subpaths(service_client, monitor_client):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"https://{TEST_HOST}/a"},
     )
     assert deny_resp.status == 202
@@ -149,7 +149,7 @@ async def test_create_capture_denylisted_path_does_not_block_sibling_path(
     service_client, monitor_client
 ):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"https://{TEST_HOST}/a"},
     )
     assert deny_resp.status == 202

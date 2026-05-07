@@ -25,7 +25,7 @@ class Config;
  */
 class [[nodiscard]] DenyPrefixAndPurgeHandler : public server::handlers::HttpHandlerBase {
 public:
-    static constexpr std::string_view kName = "disallow_and_purge";
+    static constexpr std::string_view kName = "deny_and_purge";
     explicit DenyPrefixAndPurgeHandler(
         const us::components::ComponentConfig &config,
         const us::components::ComponentContext &context

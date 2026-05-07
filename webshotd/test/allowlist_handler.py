@@ -80,7 +80,7 @@ async def test_regular_mode_allowlist_overrides_denylist(service_client, monitor
     allow_resp = await monitor_client.post("/v1/allowlist/add", json={"link": link})
     assert allow_resp.status == 204
 
-    deny_resp = await monitor_client.post("/v1/denylist/disallow_and_purge", json={"link": link})
+    deny_resp = await monitor_client.post("/v1/denylist/deny-and-purge", json={"link": link})
     assert deny_resp.status == 202
 
     resp = await service_client.post("/v1/capture", json={"link": link})
@@ -106,7 +106,7 @@ async def test_allowlist_only_denylist_wins(service_client, monitor_client):
     allow_resp = await monitor_client.post("/v1/allowlist/add", json={"link": link})
     assert allow_resp.status == 204
 
-    deny_resp = await monitor_client.post("/v1/denylist/disallow_and_purge", json={"link": link})
+    deny_resp = await monitor_client.post("/v1/denylist/deny-and-purge", json={"link": link})
     assert deny_resp.status == 202
 
     resp = await service_client.post("/v1/capture", json={"link": link})

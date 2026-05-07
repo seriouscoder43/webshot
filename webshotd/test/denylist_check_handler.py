@@ -43,9 +43,9 @@ async def test_denylist_check_allowed(monitor_client):
 
 
 @pytest.mark.asyncio
-async def test_denylist_check_denied_after_disallow_and_purge(monitor_client):
+async def test_denylist_check_denied_after_deny_and_purge(monitor_client):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"http://{TEST_ASSET_HOST}/"},
     )
     assert deny_resp.status == 202
@@ -60,7 +60,7 @@ async def test_denylist_check_denied_after_disallow_and_purge(monitor_client):
 @pytest.mark.asyncio
 async def test_denylist_check_ignores_query_when_matching_prefix(monitor_client):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"http://{TEST_ASSET_HOST}/pixel?cache=bust"},
     )
     assert deny_resp.status == 202

@@ -1,7 +1,7 @@
-#include "disallow_and_purge_handler.hpp"
+#include "deny_and_purge_handler.hpp"
 /**
  * @file
- * @brief Handler that disallows a host and enqueues purge of its captures.
+ * @brief Handler that denies a host and enqueues purge of its captures.
  */
 #include "config.hpp"
 #include "crud.hpp"
@@ -55,7 +55,7 @@ properties:
   request-timeout-ms:
     type: integer
     minimum: 1
-    description: Upper bound for /ws/denylist/disallow_and_purge handler in milliseconds
+    description: Upper bound for /ws/denylist/deny_and_purge handler in milliseconds
 )");
 }
 
@@ -84,7 +84,7 @@ std::string DenyPrefixAndPurgeHandler::HandleRequestThrow(
 
     auto ok = crud_.DenyPrefixAndPurge(prefix_key);
     if (!ok) {
-        LOG_ERROR() << std::format("disallow_and_purge failed for prefix {}", prefix_key);
+        LOG_ERROR() << std::format("deny_and_purge failed for prefix {}", prefix_key);
         return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
     }
     response.SetStatus(kAccepted);

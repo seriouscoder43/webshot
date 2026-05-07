@@ -63,7 +63,7 @@ async def test_denylist_blocks_subresource_fetch(
     service_client, monitor_client, browser_probe, service_baseurl
 ):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"https://{TEST_HOST}/denylist/style.css"},
     )
     assert deny_resp.status == 202
@@ -89,7 +89,7 @@ async def test_regular_mode_allowlist_overrides_denylisted_subresource_fetch(
     assert allow_resp.status == 204
 
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": script},
     )
     assert deny_resp.status == 202
@@ -184,7 +184,7 @@ async def test_denylist_blocks_https_subresource_fetch(
     service_client, monitor_client, browser_probe, service_baseurl
 ):
     deny_resp = await monitor_client.post(
-        "/v1/denylist/disallow_and_purge",
+        "/v1/denylist/deny-and-purge",
         json={"link": f"https://{TEST_ASSET_HOST}/denylist/asset.css"},
     )
     assert deny_resp.status == 202
