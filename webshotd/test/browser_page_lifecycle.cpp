@@ -15,7 +15,7 @@ UTEST(BrowserPageSessionLifecycle, HappyPathTransitions)
     EXPECT_TRUE(lifecycle.MarkBaseDomainsEnabled());
     EXPECT_TRUE(lifecycle.MarkDetached());
     EXPECT_TRUE(lifecycle.MarkDisposed());
-    EXPECT_TRUE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkStopped());
 }
 
 UTEST(BrowserPageSessionLifecycle, RejectsInvalidOrder)
@@ -28,7 +28,7 @@ UTEST(BrowserPageSessionLifecycle, RejectsInvalidOrder)
     EXPECT_TRUE(lifecycle.MarkTargetCreated());
     EXPECT_FALSE(lifecycle.MarkBaseDomainsEnabled());
     EXPECT_TRUE(lifecycle.MarkAttached());
-    EXPECT_FALSE(lifecycle.MarkClosed());
+    EXPECT_FALSE(lifecycle.MarkStopped());
     EXPECT_TRUE(lifecycle.MarkBaseDomainsEnabled());
 }
 
@@ -36,11 +36,11 @@ UTEST(BrowserPageSessionLifecycle, CleanupTransitionsAreIdempotent)
 {
     BrowserPageSessionLifecycle lifecycle{};
 
-    EXPECT_TRUE(lifecycle.MarkClosed());
-    EXPECT_TRUE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkStopped());
+    EXPECT_TRUE(lifecycle.MarkStopped());
     EXPECT_TRUE(lifecycle.MarkDetached());
     EXPECT_TRUE(lifecycle.MarkDisposed());
-    EXPECT_TRUE(lifecycle.MarkClosed());
+    EXPECT_TRUE(lifecycle.MarkStopped());
 
     BrowserPageSessionLifecycle attached_lifecycle{};
     EXPECT_TRUE(attached_lifecycle.MarkBrowserContextCreated());
@@ -51,8 +51,8 @@ UTEST(BrowserPageSessionLifecycle, CleanupTransitionsAreIdempotent)
     EXPECT_TRUE(attached_lifecycle.MarkDisposed());
     EXPECT_TRUE(attached_lifecycle.MarkDisposed());
     EXPECT_TRUE(attached_lifecycle.MarkDetached());
-    EXPECT_TRUE(attached_lifecycle.MarkClosed());
-    EXPECT_TRUE(attached_lifecycle.MarkClosed());
+    EXPECT_TRUE(attached_lifecycle.MarkStopped());
+    EXPECT_TRUE(attached_lifecycle.MarkStopped());
 }
 
 } // namespace

@@ -50,7 +50,7 @@ public:
 
     [[nodiscard]] Expected<void, String>
     Start(us::clients::dns::Resolver &resolver, eng::Deadline deadline);
-    void Close() noexcept;
+    void Stop() noexcept;
 
     [[nodiscard]] i64 DownBytes() const noexcept;
     [[nodiscard]] std::optional<String> ErrorReason() const noexcept;

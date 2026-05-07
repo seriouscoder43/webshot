@@ -304,7 +304,7 @@ ParseHandshakeResponse(std::string_view response)
 Expected<void, CdpError>
 ValidateHandshakeResponse(const HandshakeResponse &response, std::string_view sec_websocket_key)
 {
-    if (!utext::StartsWith(response.status_line, "HTTP/1.1 101 ") &&
+    if (!response.status_line.starts_with("HTTP/1.1 101 ") &&
         response.status_line != "HTTP/1.1 101") {
         return Unex(CdpError{.code = CdpErrorCode::kHandshakeRejected, .detail = {}});
     }
@@ -351,7 +351,7 @@ struct CdpSessionState final {
         eng::ConditionVariable cv;
         std::deque<CdpEvent> events;
         std::optional<CdpError> error;
-        bool closed{false};
+        bool stopped{false};
     };
 
     us::concurrent::Variable<Data> data;
@@ -484,7 +484,7 @@ Expected<std::unique_ptr<CdpClient>, CdpError> CdpClient::Connect(
     return client;
 }
 
-CdpClient::~CdpClient() noexcept { CloseQuietly(); }
+CdpClient::~CdpClient() noexcept { StopQuietly(); }
 
 void CdpClient::StartReaderTask()
 {
@@ -502,7 +502,7 @@ Expected<json::Value, CdpError> CdpClient::SendRaw(
         auto state = shared_state_.Lock();
         if (state->fatal_error)
             return Unex(*state->fatal_error);
-        if (state->closing || state->closed)
+        if (state->stopping || state->stopped)
             return Unex(MakeSocketClosedError("cdp socket is closed"_t));
         id = state->next_request_id++;
         state->pending_requests.InsertPending(id, method, session_id);
@@ -559,17 +559,17 @@ Expected<json::Value, CdpError> CdpClient::SendRaw(
     return *waiter_state->result;
 }
 
-Expected<void, CdpError> CdpClient::Close()
+Expected<void, CdpError> CdpClient::Stop()
 {
     auto close_already_resolved = false;
     {
         auto state = shared_state_.Lock();
-        if (state->closed || state->fatal_error) {
-            state->closing = true;
-            state->closed = true;
+        if (state->stopped || state->fatal_error) {
+            state->stopping = true;
+            state->stopped = true;
             close_already_resolved = true;
         } else {
-            state->closing = true;
+            state->stopping = true;
         }
     }
     if (close_already_resolved) {
@@ -578,7 +578,7 @@ Expected<void, CdpError> CdpClient::Close()
         return {};
     }
 
-    TraceClose("out"_t, NumericCast<int>(us::websocket::CloseStatus::kNormal));
+    TraceStop("out"_t, NumericCast<int>(us::websocket::CloseStatus::kNormal));
     Expected<void, std::string> closed_connection;
     {
         const auto send_lock = send_state_.Lock();
@@ -608,7 +608,7 @@ CdpClient::CreateSession(String session_id, String target_id)
         auto state = shared_state_.Lock();
         if (state->fatal_error)
             return Unex(*state->fatal_error);
-        if (state->closing || state->closed)
+        if (state->stopping || state->stopped)
             return Unex(MakeSocketClosedError("cdp socket is closed"_t));
         state->sessions_by_id.emplace(session_id, session_state);
         state->sessions_by_target_id.emplace(target_id, session_state);
@@ -635,7 +635,7 @@ void CdpClient::ReaderLoop()
         }
         if (message.close_status) {
             const auto close_code = us::utils::UnderlyingValue(*message.close_status);
-            TraceClose("in"_t, close_code);
+            TraceStop("in"_t, close_code);
             SetFatalError(
                 CdpError{
                     .code = CdpErrorCode::kSocketClosed,
@@ -680,7 +680,7 @@ Expected<void, CdpError> CdpClient::HandleMessage(const std::string &payload)
             auto state = shared_state_.Lock();
             auto *request = state->pending_requests.Find(id);
             if (request == nullptr) {
-                if (state->closing || state->closed || state->fatal_error)
+                if (state->stopping || state->stopped || state->fatal_error)
                     return {};
                 return Unex(
                     CdpError{
@@ -702,7 +702,7 @@ Expected<void, CdpError> CdpClient::HandleMessage(const std::string &payload)
             }
             const auto waiter_it = state->pending_waiters.find(id);
             if (waiter_it == std::end(state->pending_waiters)) {
-                if (state->closing || state->closed || state->fatal_error)
+                if (state->stopping || state->stopped || state->fatal_error)
                     return {};
                 return Unex(
                     CdpError{
@@ -786,7 +786,7 @@ Expected<void, CdpError> CdpClient::HandleMessage(const std::string &payload)
         return {};
 
     auto session_data = session_state->data.Lock();
-    if (session_data->closed || session_data->error)
+    if (session_data->stopped || session_data->error)
         return {};
     session_data->events.push_back(std::move(event));
     session_data->cv.NotifyOne();
@@ -800,14 +800,14 @@ Expected<CdpEvent, CdpError> CdpClient::WaitForSessionEvent(
 {
     auto session_data = session_state->data.UniqueLock();
     const auto ready = [&session_data]() {
-        return !session_data->events.empty() || session_data->error || session_data->closed;
+        return !session_data->events.empty() || session_data->error || session_data->stopped;
     };
     if (!ready() && !session_data->cv.WaitUntil(session_data.GetLock(), deadline, ready))
         return Unex(MakeTimeoutError(timeout_message));
     if (session_data->error)
         return Unex(*session_data->error);
-    if (session_data->closed)
-        return Unex(MakeSocketClosedError("cdp session is closed"_t));
+    if (session_data->stopped)
+        return Unex(MakeSocketClosedError("cdp session is stopped"_t));
     Invariant(!session_data->events.empty(), "cdp session woke without queued event"_t);
     auto event = std::move(session_data->events.front());
     session_data->events.pop_front();
@@ -844,18 +844,18 @@ void CdpClient::UnregisterSession(
         }
     }
     auto session_data = session_state->data.Lock();
-    session_data->closed = true;
+    session_data->stopped = true;
     if (!session_data->error)
-        session_data->error = MakeSocketClosedError("cdp session is closed"_t);
+        session_data->error = MakeSocketClosedError("cdp session is stopped"_t);
     session_data->cv.NotifyAll();
 }
 
-void CdpClient::CloseQuietly() noexcept
+void CdpClient::StopQuietly() noexcept
 {
     {
         auto state = shared_state_.Lock();
-        state->closing = true;
-        state->closed = true;
+        state->stopping = true;
+        state->stopped = true;
     }
     StopReaderTask();
     connection_.reset();
@@ -880,7 +880,7 @@ void CdpClient::SetFatalError(CdpError error)
         if (state->fatal_error)
             return;
         state->fatal_error = error;
-        state->closed = true;
+        state->stopped = true;
         for (auto &waiter : std::views::values(state->pending_waiters))
             waiters.push_back(waiter);
         state->pending_waiters.clear();
@@ -900,7 +900,7 @@ void CdpClient::SetFatalError(CdpError error)
     for (const auto &session_state : sessions) {
         auto session_data = session_state->data.Lock();
         session_data->error = error;
-        session_data->closed = true;
+        session_data->stopped = true;
         session_data->cv.NotifyAll();
     }
 }
@@ -986,12 +986,12 @@ void CdpClient::TraceEvent(const String &method, const std::optional<String> &se
     WriteTraceLineBestEffort(entry.ExtractValue());
 }
 
-void CdpClient::TraceClose(const String &direction, int close_code)
+void CdpClient::TraceStop(const String &direction, int close_code)
 {
     json::ValueBuilder entry;
     entry["ts"] = CurrentTraceTimestamp();
     entry["direction"] = direction.ToBytes();
-    entry["kind"] = "close";
+    entry["kind"] = "stop";
     entry["closeCode"] = close_code;
     WriteTraceLineBestEffort(entry.ExtractValue());
 }

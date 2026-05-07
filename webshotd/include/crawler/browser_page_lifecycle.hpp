@@ -20,7 +20,7 @@ public:
     [[nodiscard]] bool MarkBaseDomainsEnabled();
     [[nodiscard]] bool MarkDetached();
     [[nodiscard]] bool MarkDisposed();
-    [[nodiscard]] bool MarkClosed();
+    [[nodiscard]] bool MarkStopped();
 
 private:
     struct Impl;

@@ -1184,19 +1184,14 @@ public:
     {
     }
 
-    ~CaptureSession()
-    {
-        CloseCdpForError();
-        browser_.Close();
-    }
+    ~CaptureSession() { StopCdpForError(); }
 
     [[nodiscard]] Expected<CaptureWithNetwork, CaptureError> Capture()
     {
         auto started = Start();
         if (!started) {
             auto error_detail = browser_.BuildErrorDetail(started.Error());
-            CloseCdpForError();
-            browser_.Close();
+            StopCdpForError();
             return Unex(CaptureError{std::move(error_detail), {}});
         }
 
@@ -1213,8 +1208,7 @@ public:
             if (const auto proxy_error = browser_.ProxyErrorReason())
                 error_detail = text::Format("{}, proxy_error={}", error_detail, *proxy_error);
             auto seed_probe = CurrentSeedProbe();
-            CloseCdpForError();
-            browser_.Close();
+            StopCdpForError();
             return Unex(
                 CaptureError{
                     std::move(error_detail),
@@ -1487,7 +1481,7 @@ private:
         auto resources = TRY(GetPageTracker().ReadResources(GetSession(), budget));
 
         StopEventLoop();
-        TRY(page_session_->Close([this](std::string_view phase) { browser_.MarkPhase(phase); }));
+        TRY(page_session_->Stop([this](std::string_view phase) { browser_.MarkPhase(phase); }));
         page_session_.reset();
 
         browser_.MarkPhase("build_exchange_start");
@@ -1507,10 +1501,8 @@ private:
         tracker_.reset();
         cdp_.reset();
 
-        browser_.MarkPhase("close_browser_success");
-        browser_.MarkPhase("before_browser_close");
-        LOG_INFO() << std::format("captureViaProxy closing browser for {}", run_.seed_url);
-        browser_.Close();
+        browser_.MarkPhase("stop_browser_success");
+        LOG_INFO() << std::format("captureViaProxy stopping browser for {}", run_.seed_url);
         if (const auto proxy_error = browser_.ProxyErrorReason()) {
             if (!IsSuccessfulMainDocumentExchange(exchange))
                 return Unex(*proxy_error);
@@ -1524,14 +1516,14 @@ private:
         return exchange;
     }
 
-    void CloseCdpForError()
+    void StopCdpForError()
     {
         StopEventLoop();
         if (page_session_) {
-            if (const auto closed_page = page_session_->Close(); !closed_page) {
+            if (const auto stopped_page = page_session_->Stop(); !stopped_page) {
                 LOG_WARNING() << std::format(
-                    "Suppressing page session close error during capture cleanup: {}",
-                    closed_page.Error()
+                    "Suppressing page session stop error during capture cleanup: {}",
+                    stopped_page.Error()
                 );
             }
             page_session_.reset();
@@ -1539,12 +1531,12 @@ private:
         if (!cdp_)
             return;
 
-        if (auto closed = cdp_->Close(); !closed) {
+        if (auto stopped = cdp_->Stop(); !stopped) {
             LOG_WARNING() << std::format(
-                "Suppressing CDP close error during capture cleanup: code={}{}",
-                NumericCast<int>(closed.Error().code),
-                closed.Error().detail ? std::format(", detail={}", *closed.Error().detail)
-                                      : std::string{}
+                "Suppressing CDP stop error during capture cleanup: code={}{}",
+                NumericCast<int>(stopped.Error().code),
+                stopped.Error().detail ? std::format(", detail={}", *stopped.Error().detail)
+                                       : std::string{}
             );
         }
         cdp_.reset();

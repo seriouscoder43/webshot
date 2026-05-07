@@ -75,7 +75,6 @@ public:
     void MarkPhase(std::string_view phase) const;
     [[nodiscard]] std::string CurrentStartLogs() const;
     [[nodiscard]] String BuildErrorDetail(const String &message);
-    void Close();
     [[nodiscard]] i64 ProxyDownBytes() const noexcept;
     [[nodiscard]] const std::string &RunId() const noexcept;
     [[nodiscard]] std::optional<String> ProxyErrorReason() const noexcept;
@@ -102,10 +101,10 @@ public:
     [[nodiscard]] Expected<void, String>
     EnableBaseDomains(const std::function<void(std::string_view)> &mark_phase);
     [[nodiscard]] Expected<void, String>
-    Close(const std::function<void(std::string_view)> &mark_phase);
+    Stop(const std::function<void(std::string_view)> &mark_phase);
     [[nodiscard]] Expected<void, String> Detach();
     [[nodiscard]] Expected<void, String> DisposeBrowserContext();
-    [[nodiscard]] Expected<void, String> Close();
+    [[nodiscard]] Expected<void, String> Stop();
     [[nodiscard]] const String &BrowserContextId() const;
     [[nodiscard]] CdpSession &GetSession() const;
     [[nodiscard]] const String &TargetId() const;

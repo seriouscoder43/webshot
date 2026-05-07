@@ -132,7 +132,7 @@ public:
     [[nodiscard]] Expected<std::unique_ptr<class CdpSession>, CdpError>
     CreateSession(String session_id, String target_id);
 
-    Expected<void, CdpError> Close();
+    Expected<void, CdpError> Stop();
 
 private:
     struct PendingCommandWaiter;
@@ -143,8 +143,8 @@ private:
         CdpRequestTracker pending_requests;
         i64 next_request_id{1_i64};
         std::optional<CdpError> fatal_error;
-        bool closing{false};
-        bool closed{false};
+        bool stopping{false};
+        bool stopped{false};
     };
     struct SendState final {};
 
@@ -173,7 +173,7 @@ private:
         const String &session_id, const String &target_id,
         const std::shared_ptr<CdpSessionState> &session_state
     ) noexcept;
-    void CloseQuietly() noexcept;
+    void StopQuietly() noexcept;
     void StopReaderTask() noexcept;
     Expected<void, CdpError> WriteTraceLine(const json::Value &value);
     void WriteTraceLineBestEffort(const json::Value &value);
@@ -181,7 +181,7 @@ private:
     void
     TraceResponse(i64 id, const CdpPendingRequest *request, const std::optional<String> &error);
     void TraceEvent(const String &method, const std::optional<String> &session_id);
-    void TraceClose(const String &direction, int close_code);
+    void TraceStop(const String &direction, int close_code);
     void TraceTransportError(const String &operation, const String &error);
     void SetFatalError(CdpError error);
 

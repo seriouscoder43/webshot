@@ -545,13 +545,13 @@ struct EgressProxy::Impl final {
 
     EgressProxyConfig config;
     concurrent::Variable<i64> down_bytes_{0};
-    std::atomic<bool> closed{false};
+    std::atomic<bool> stopped{false};
     concurrent::Variable<std::optional<String>> error;
     eng::io::Socket listener;
     std::optional<eng::TaskWithResult<void>> accept_task;
     concurrent::Variable<std::vector<eng::TaskWithResult<void>>> client_tasks;
 
-    [[nodiscard]] bool IsClosed() const noexcept { return closed.load(); }
+    [[nodiscard]] bool IsStopped() const noexcept { return stopped.load(); }
 
     void NoteError(String reason) noexcept
     {
@@ -575,7 +575,7 @@ struct EgressProxy::Impl final {
     {
         if (bytes.empty())
             return 0_uz;
-        if (IsClosed())
+        if (IsStopped())
             return 0_uz;
 
         const auto max_claim = std::min<i64>(ssize(bytes), config.down_bytes_max);
@@ -590,7 +590,7 @@ struct EgressProxy::Impl final {
                         config.down_bytes_max
                     )
                 );
-                closed.store(true);
+                stopped.store(true);
                 RequestCancelAllClientTasksNoWait();
                 return 0_uz;
             }
@@ -708,7 +708,7 @@ struct EgressProxy::Impl final {
         std::array<char, kIoBufferBytes> storage{};
         std::span<char> buffer{storage};
         try {
-            while (!IsClosed()) {
+            while (!IsStopped()) {
                 const usize received{client.RecvSome(buffer.data(), buffer.size(), deadline)};
                 if (received == 0_uz) {
                     ShutdownWriteQuietly(upstream);
@@ -733,7 +733,7 @@ struct EgressProxy::Impl final {
         std::array<char, kIoBufferBytes> storage{};
         std::span<char> buffer{storage};
         try {
-            while (!IsClosed()) {
+            while (!IsStopped()) {
                 const usize received{upstream.RecvSome(buffer.data(), buffer.size(), deadline)};
                 if (received == 0_uz) {
                     ShutdownWriteQuietly(client);
@@ -741,7 +741,7 @@ struct EgressProxy::Impl final {
                 }
 
                 std::span<const char> pending{buffer.data(), Raw(received)};
-                while (!pending.empty() && !IsClosed()) {
+                while (!pending.empty() && !IsStopped()) {
                     const auto sent = SendBudgeted(client, pending, deadline);
                     if (sent == 0_uz)
                         return;
@@ -788,7 +788,7 @@ struct EgressProxy::Impl final {
 
         std::array<char, kIoBufferBytes> storage{};
         std::span<char> buffer{storage};
-        while (remaining_body > 0_i64 && !IsClosed()) {
+        while (remaining_body > 0_i64 && !IsStopped()) {
             const auto want = NumericCast<size_t>(std::min(remaining_body, ssize(buffer)));
             auto received = 0_uz;
             try {
@@ -824,7 +824,7 @@ struct EgressProxy::Impl final {
 
         auto upstream_socket = GrabValueOf(upstream);
         static_cast<void>(SendBudgeted(client, kConnectEstablishedResponse, deadline));
-        if (IsClosed()) {
+        if (IsStopped()) {
             CloseSocketsQuietly(client, upstream_socket);
             return;
         }
@@ -880,7 +880,7 @@ struct EgressProxy::Impl final {
 
     void HandleClient(dns::Resolver &resolver, eng::io::Socket client, eng::Deadline deadline)
     {
-        if (IsClosed())
+        if (IsStopped())
             return;
 
         std::string header;
@@ -932,7 +932,7 @@ struct EgressProxy::Impl final {
 
     void AcceptLoop(dns::Resolver &resolver, eng::Deadline deadline)
     {
-        while (!IsClosed()) {
+        while (!IsStopped()) {
             eng::io::Socket client;
             try {
                 client = listener.Accept(deadline);
@@ -940,7 +940,7 @@ struct EgressProxy::Impl final {
                 LOG_WARNING() << std::format("AcceptLoop accept error: {}", e.what());
                 return;
             }
-            if (IsClosed())
+            if (IsStopped())
                 return;
             auto task = eng::AsyncNoSpan([this, &resolver, deadline,
                                           sock = std::move(client)]() mutable {
@@ -951,9 +951,9 @@ struct EgressProxy::Impl final {
         }
     }
 
-    void CloseAll() noexcept
+    void StopAll() noexcept
     {
-        closed.store(true);
+        stopped.store(true);
         if (accept_task) {
             accept_task->RequestCancel();
             static_cast<void>(accept_task->WaitNothrow());
@@ -975,7 +975,7 @@ struct EgressProxy::Impl final {
             if (listener.IsValid())
                 listener.Close();
         } catch (const std::exception &e) {
-            LOG_WARNING() << std::format("CloseAll listener close failed: {}", e.what());
+            LOG_WARNING() << std::format("StopAll listener close failed: {}", e.what());
         }
     }
 };
@@ -987,7 +987,7 @@ EgressProxy::EgressProxy(EgressProxyConfig config)
     Invariant(!impl_->config.run_id.empty(), "proxy runId must not be empty"_t);
 }
 
-EgressProxy::~EgressProxy() noexcept { Close(); }
+EgressProxy::~EgressProxy() noexcept { Stop(); }
 
 Expected<void, String> EgressProxy::Start(dns::Resolver &resolver, eng::Deadline deadline)
 {
@@ -1010,7 +1010,7 @@ Expected<void, String> EgressProxy::Start(dns::Resolver &resolver, eng::Deadline
     return {};
 }
 
-void EgressProxy::Close() noexcept { impl_->CloseAll(); }
+void EgressProxy::Stop() noexcept { impl_->StopAll(); }
 
 i64 EgressProxy::DownBytes() const noexcept
 {

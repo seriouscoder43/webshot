@@ -172,30 +172,29 @@ EvaluateFrameExpression(crawler::CdpSession &cdp_session, const String &expressi
 }
 
 void CleanupProbeSession(
-    crawler::BrowserSession &browser, std::unique_ptr<crawler::BrowserPageSession> &page_session,
+    std::unique_ptr<crawler::BrowserPageSession> &page_session,
     std::unique_ptr<crawler::CdpClient> &cdp
 )
 {
     if (page_session) {
-        if (const auto closed_page = page_session->Close(); !closed_page) {
+        if (const auto stopped_page = page_session->Stop(); !stopped_page) {
             LOG_WARNING() << std::format(
-                "Suppressing page session close error during probe cleanup: {}", closed_page.Error()
+                "Suppressing page session stop error during probe cleanup: {}", stopped_page.Error()
             );
         }
         page_session.reset();
     }
     if (cdp) {
-        if (const auto closed = cdp->Close(); !closed) {
+        if (const auto stopped = cdp->Stop(); !stopped) {
             LOG_WARNING() << std::format(
-                "Suppressing CDP close error during probe cleanup: code={}{}",
-                NumericCast<int>(closed.Error().code),
-                closed.Error().detail ? std::format(", detail={}", *closed.Error().detail)
-                                      : std::string{}
+                "Suppressing CDP stop error during probe cleanup: code={}{}",
+                NumericCast<int>(stopped.Error().code),
+                stopped.Error().detail ? std::format(", detail={}", *stopped.Error().detail)
+                                       : std::string{}
             );
         }
         cdp.reset();
     }
-    browser.Close();
 }
 
 [[nodiscard]] Expected<void, String> HandleProbeEvent(
@@ -454,7 +453,7 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
     }()
                                      .TransformError(decorate_error);
 
-    CleanupProbeSession(browser, page_session, cdp);
+    CleanupProbeSession(page_session, cdp);
     return result;
 }
 

@@ -927,17 +927,13 @@ struct BrowserSession::Impl final {
         return text::Format("{}, {}", message, diagnostics);
     }
 
-    void Close()
+    ~Impl()
     {
-        if (closed)
-            return;
-        closed = true;
-
         if (registered_cgroup_path && config.metrics)
             config.metrics->UnregisterBrowserCgroup(*registered_cgroup_path);
         StopProcess(process, config.browser_stop_timeout);
         if (proxy)
-            proxy->Close();
+            proxy->Stop();
         if (auto ret = RemoveBrowserRunDir(fs_task_processor, paths.root_dir); !ret) {
             LOG_WARNING() << std::format(
                 "Failed to remove browser dir {}: {}", paths.root_dir, ret.Error()
@@ -1006,7 +1002,6 @@ struct BrowserSession::Impl final {
     std::optional<eng::subprocess::ChildProcess> process;
     String websocket_path;
     std::optional<std::string> registered_cgroup_path;
-    bool closed{false};
 };
 
 BrowserSession::BrowserSession(
@@ -1044,8 +1039,6 @@ String BrowserSession::BuildErrorDetail(const String &message)
 {
     return impl_->BuildErrorDetail(message);
 }
-
-void BrowserSession::Close() { impl_->Close(); }
 
 i64 BrowserSession::ProxyDownBytes() const noexcept { return impl_->ProxyDownBytes(); }
 
@@ -1172,7 +1165,7 @@ BrowserPageSession::EnableBaseDomains(const std::function<void(std::string_view)
 }
 
 Expected<void, String>
-BrowserPageSession::Close(const std::function<void(std::string_view)> &mark_phase)
+BrowserPageSession::Stop(const std::function<void(std::string_view)> &mark_phase)
 {
     if (session_id_) {
         mark_phase("detach_target");
@@ -1182,7 +1175,7 @@ BrowserPageSession::Close(const std::function<void(std::string_view)> &mark_phas
         mark_phase("dispose_browser_context");
         TRY(DisposeBrowserContext());
     }
-    return Close();
+    return Stop();
 }
 
 Expected<void, String> BrowserPageSession::Detach()
@@ -1219,13 +1212,13 @@ Expected<void, String> BrowserPageSession::DisposeBrowserContext()
     return {};
 }
 
-Expected<void, String> BrowserPageSession::Close()
+Expected<void, String> BrowserPageSession::Stop()
 {
     TRY(Detach());
     TRY(DisposeBrowserContext());
     Invariant(
-        lifecycle_.MarkClosed(),
-        "invalid browser page lifecycle transition after closing page session"_t
+        lifecycle_.MarkStopped(),
+        "invalid browser page lifecycle transition after stopping page session"_t
     );
     return {};
 }
