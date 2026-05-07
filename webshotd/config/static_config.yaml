@@ -1,8 +1,8 @@
 components_manager:
   task_processors:
     main-task-processor:
-      worker_threads: 4
-      guess-cpu-limit: true
+      worker_threads: $main_worker_threads
+      worker_threads#fallback: 4
     purge_task_processor:
       worker_threads: 1
       thread_name: purge_task_processor_worker

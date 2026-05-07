@@ -7,6 +7,15 @@ from typing import Any
 from s6.common import CGROUP_FS_ROOT, current_cgroup_v2_relative_path, die
 
 USERVER_DEFAULT_HW_THREADS_ESTIMATE = 512
+MAIN_WORKER_THREADS_CONFIG_VAR = "$main_worker_threads"
+
+
+def task_processor_config_vars(static_config: dict[str, Any]) -> dict[str, int]:
+    main_threads = main_worker_threads(static_config)
+    return {
+        "main_worker_threads": main_threads,
+        "fs_worker_threads": main_threads + 2,
+    }
 
 
 def fs_worker_threads(static_config: dict[str, Any]) -> int:
@@ -28,14 +37,21 @@ def main_worker_threads(static_config: dict[str, Any]) -> int:
 
 def _static_main_worker_threads(static_config: dict[str, Any]) -> int:
     try:
-        value = static_config["components_manager"]["task_processors"]["main-task-processor"][
-            "worker_threads"
+        main_task_processor = static_config["components_manager"]["task_processors"][
+            "main-task-processor"
         ]
+        value = main_task_processor["worker_threads"]
     except KeyError:
         die("static config is missing main-task-processor.worker_threads", exit_code=2)
 
+    if value == MAIN_WORKER_THREADS_CONFIG_VAR:
+        value = main_task_processor.get("worker_threads#fallback")
+
     if not isinstance(value, int) or value <= 0:
-        die("main-task-processor.worker_threads must be a positive integer", exit_code=2)
+        die(
+            "main-task-processor.worker_threads or worker_threads#fallback "
+            "must be a positive integer"
+        )
     return value
 
 

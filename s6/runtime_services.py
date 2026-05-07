@@ -25,7 +25,7 @@ from s6.runtime_support import (
     write_executable,
     write_text,
 )
-from s6.userver_task_processors import fs_worker_threads
+from s6.userver_task_processors import task_processor_config_vars
 
 TEST_HOST = "test-target"
 TEST_ASSET_HOST = "asset.test-target"
@@ -341,7 +341,7 @@ def _webshotd_scripts(ctx: RuntimeUpContext) -> ServiceScripts:
         ctx.webshotd_config_vars_override_path,
         yaml.safe_dump(
             {
-                "fs_worker_threads": fs_worker_threads(static_config),
+                **task_processor_config_vars(static_config),
                 "rapidoc_assets_dir": str(runtime_layout.rapidoc_assets_dir),
                 "openapi_public_dir": str(ctx.repo_root / "schema" / "public"),
                 "openapi_admin_dir": str(ctx.repo_root / "schema" / "admin"),
