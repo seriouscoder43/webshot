@@ -7,14 +7,12 @@
 
 #include "browser_probe_handler.hpp"
 
-#include <userver/testsuite/testsuite_support.hpp>
-
 namespace ws {
 
 namespace us = userver;
 void AppendTestOnlyComponents(us::components::ComponentList &component_list)
 {
-    component_list.Append<us::components::TestsuiteSupport>().Append<BrowserProbeHandler>();
+    component_list.Append<BrowserProbeHandler>();
 }
 
 } // namespace ws

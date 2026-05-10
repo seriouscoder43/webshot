@@ -168,6 +168,7 @@ components_manager:
       title: Webshot Admin API
       spec-url: /openapi/admin/webshot.yaml
     # WEBSHOT_TESTSUITE_COMPONENTS
+    testsuite-support: {}
     rapidoc_assets_cache:
       dir: $rapidoc_assets_dir
       update-period: 0s

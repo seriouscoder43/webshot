@@ -32,6 +32,7 @@
 #include <userver/storages/postgres/component.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/provider_component.hpp>
+#include <userver/testsuite/testsuite_support.hpp>
 #include <userver/utils/daemon_run.hpp>
 
 namespace ws {
@@ -51,6 +52,7 @@ int main(int argc, char *argv[])
             .Append<us::components::Secdist>()
             .Append<us::components::DefaultSecdistProvider>()
             .Append<us::components::ProcessStarter>()
+            .Append<us::components::TestsuiteSupport>()
             .Append<us::components::Postgres>("capture_meta_db")
             .Append<us::components::Postgres>("shared_state_db")
             .Append<us::congestion_control::Component>()
