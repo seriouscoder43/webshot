@@ -39,7 +39,6 @@
 
     # Repo-enabled local tests and helper flows.
     pyPkgs.minio
-    pyPkgs.playwright
     pyPkgs.py
     pyPkgs.psycopg2
     pyPkgs.pytest
