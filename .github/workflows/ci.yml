@@ -1,0 +1,84 @@
+name: ci
+on:
+  push:
+  pull_request:
+defaults:
+  run:
+    shell: bash
+jobs:
+  test-san:
+    name: build, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Install Nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+      - name: Configure Cachix
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71
+        with:
+          name: ${{ secrets.CACHIX_CACHE_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          useDaemon: false
+      - name: Build, test
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+          ./delegated_devenv.sh tasks run proj:devBuild 2>&1 | tee ci-artifacts/devBuild.log
+          ulimit -c unlimited || true
+          ./delegated_devenv.sh tasks run proj:devTest 2>&1 | tee ci-artifacts/devTest.log
+      - name: Collect failure artifacts
+        if: failure()
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts/collect
+          cp -a build/webshotd/san/Testing/Temporary ci-artifacts/collect/ctest || true
+          cp -a build/webshotd/san/test ci-artifacts/collect/test-dir || true
+          cp -a build/webshotd/san/runtime_root/webshotd ci-artifacts/collect/runtime-root || true
+          mkdir -p ci-artifacts/collect/browser-runs
+          while IFS= read -r -d '' source_path; do
+            run_name="$(basename "$(dirname "$source_path")")"
+            target_dir="ci-artifacts/collect/browser-runs/${run_name}"
+            mkdir -p "$target_dir"
+            cp -a "$source_path" "$target_dir/" || true
+          done < <(
+            find /tmp/webshot/browser-runs -maxdepth 2 -type f \
+              \( -name 'cdp-trace.jsonl' -o -name 'phase.txt' \) \
+              -print0 2>/dev/null
+          )
+          tar -C / -czf ci-artifacts/collect/tmp-webshot.tgz tmp/webshot || true
+          tar -C / -czf ci-artifacts/collect/tmp-run.tgz tmp/run || true
+          mkdir -p ci-artifacts/collect/core-dumps ci-artifacts/collect/backtraces
+          binary_path=build/webshotd/san/runtime_root/webshotd
+          while IFS= read -r -d '' core_path; do
+            safe_name="$(printf '%s' "$core_path" | sed 's#^/##; s#[^A-Za-z0-9._-]#_#g')"
+            cp -a "$core_path" "ci-artifacts/collect/core-dumps/${safe_name}" || true
+            if [[ -x "$binary_path" ]]; then
+              ./delegated_devenv.sh shell -- \
+                gdb -batch -q "$binary_path" "$core_path" \
+                -ex 'set pagination off' \
+                -ex 'thread apply all bt full' \
+                > "ci-artifacts/collect/backtraces/${safe_name}.bt.txt" 2>&1 || true
+            fi
+          done < <(
+            find build/webshotd/san /tmp/webshot -type f \
+              \( -name 'core' -o -name 'core.*' -o -name '*.core' \) \
+              -print0 2>/dev/null
+          )
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: test-san-${{ github.run_number }}-${{ github.sha }}
+          path: ci-artifacts
+          retention-days: 7
+      - name: Cleanup infra
+        if: always()
+        run: |
+          set -euo pipefail
+          ./delegated_devenv.sh tasks run proj:devDown || true
