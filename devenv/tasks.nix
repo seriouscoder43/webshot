@@ -91,8 +91,16 @@
 
   mkRuntime = action: mode: profile: let
     cfg = modes.${mode};
-    ephemeralStateDir = "${cfg.buildDir}/ephemeral_state/${cfg.infra}";
-    persistentStateDir = "${cfg.buildDir}/persistent_state/${cfg.infra}";
+    # Dev flows (including proj:devTest) expect a single runtime state dir under /tmp.
+    # Keep prodlike state under the build tree to avoid cross-run contamination.
+    ephemeralStateDir =
+      if mode == "dev"
+      then "/tmp/webshot/dev"
+      else "${cfg.buildDir}/ephemeral_state/${cfg.infra}";
+    persistentStateDir =
+      if mode == "dev"
+      then "/tmp/webshot/dev"
+      else "${cfg.buildDir}/persistent_state/${cfg.infra}";
     profileArg =
       if profile == null
       then ""
