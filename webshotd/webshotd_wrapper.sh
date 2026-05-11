@@ -222,5 +222,5 @@ if (( cleanup_cgroup_layout != 0 )); then
 fi
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
-unset CPU_LIMIT DEPLOY_VCPU_LIMIT VCPU_LIMIT
+unset DEPLOY_VCPU_LIMIT VCPU_LIMIT
 exec "$script_dir/webshotd" "$@"
