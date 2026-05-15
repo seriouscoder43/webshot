@@ -9,6 +9,9 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "${root}"
 
 nix_flake_args=(--extra-experimental-features 'nix-command flakes')
+if [[ -n ${GITHUB_ACTIONS:-} ]]; then
+  nix_flake_args+=(--option accept-flake-config true)
+fi
 devenv_pin_expr=$'let\n  lock = builtins.fromJSON (builtins.readFile ./devenv.lock);\n  locked = lock.nodes.devenv.locked or (throw "devenv.lock is missing nodes.devenv.locked");\n  get = name: if builtins.hasAttr name locked then builtins.getAttr name locked else "";\nin builtins.concatStringsSep "\\n" [ (get "owner") (get "repo") (get "rev") (get "narHash") ]'
 mapfile -t devenv_pin < <(nix "${nix_flake_args[@]}" eval --impure --raw --expr "${devenv_pin_expr}")
 

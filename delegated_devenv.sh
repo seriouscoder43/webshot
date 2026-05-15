@@ -64,6 +64,7 @@ if [[ -n ${GITHUB_ACTIONS:-} ]]; then
     --description="webshot delegated devenv" \
     env \
       WEBSHOT_DELEGATED_DEVENV=1 \
+      GITHUB_ACTIONS="${GITHUB_ACTIONS}" \
       PATH="${PATH}" \
       HOME="${HOME}" \
       TMPDIR="${TMPDIR:-/tmp}" \
