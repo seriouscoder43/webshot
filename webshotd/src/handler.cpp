@@ -80,7 +80,7 @@ std::string CaptureByLinkHandler::HandleRequestThrowRatelimitedDeadlined(
                 response, kForbidden, AccessDecisionMessage(decision->reason)
             );
 
-        auto job = crud_.CreateCaptureJob(std::move(*parsed));
+        auto job = crud_.MakeCaptureJob(std::move(*parsed));
         if (!job)
             return httpu::RespondError(response, kInternalServerError, "internal server error"_t);
         return httpu::RespondJson(response, kAccepted, *job);

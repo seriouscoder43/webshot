@@ -601,7 +601,7 @@ Expected<void, CdpError> CdpClient::Stop()
 }
 
 Expected<std::unique_ptr<CdpSession>, CdpError>
-CdpClient::CreateSession(String session_id, String target_id)
+CdpClient::MakeSession(String session_id, String target_id)
 {
     auto session_state = std::make_shared<CdpSessionState>();
     {

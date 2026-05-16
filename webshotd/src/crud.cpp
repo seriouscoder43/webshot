@@ -1262,7 +1262,7 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
     return {};
 }
 
-Expected<dto::UuidWithTimeLink, errors::CaptureError> Crud::CreateCapture(Link link)
+Expected<dto::UuidWithTimeLink, errors::CaptureError> Crud::MakeCapture(Link link)
 {
     auto *impl_ptr = impl_.get();
     auto id = us::utils::generators::GenerateBoostUuid();
@@ -1272,7 +1272,7 @@ Expected<dto::UuidWithTimeLink, errors::CaptureError> Crud::CreateCapture(Link l
     ).Get();
 }
 
-Expected<dto::CaptureJob, errors::CreateJobError> Crud::CreateCaptureJob(Link link)
+Expected<dto::CaptureJob, errors::CreateJobError> Crud::MakeCaptureJob(Link link)
 {
     using enum errors::CreateJobError;
 

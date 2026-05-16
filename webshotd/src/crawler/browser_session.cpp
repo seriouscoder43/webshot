@@ -191,7 +191,7 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
     return {};
 }
 
-[[nodiscard]] std::vector<std::string> BuildChromiumArgs(
+[[nodiscard]] std::vector<std::string> MakeChromiumArgs(
     const std::string &user_data_dir, const std::string &netlog_path,
     bool use_local_fixture_trust_db
 )
@@ -320,7 +320,7 @@ struct [[nodiscard]] BrowserPaths final {
 };
 
 [[nodiscard]] BrowserPaths
-CreateBrowserPaths(eng::TaskProcessor &fs_task_processor, std::string_view browser_runs_root)
+MakeBrowserPaths(eng::TaskProcessor &fs_task_processor, std::string_view browser_runs_root)
 {
     auto temp_root = NormalizeDirPath(std::string(browser_runs_root));
     us::fs::CreateDirectories(fs_task_processor, temp_root);
@@ -587,7 +587,7 @@ ReadWebsocketPathFile(eng::TaskProcessor &fs_task_processor, const std::string &
     const i64 memory_bytes{cgroup_limits ? cgroup_limits->memory_bytes : 0_i64};
     const auto cgroup_name = std::format("{}_{}", cgroup_name_prefix, paths.run_id);
 
-    auto chromium_args = BuildChromiumArgs(
+    auto chromium_args = MakeChromiumArgs(
         BrowserSandboxPath("profile"), BrowserSandboxPath("netlog.json"), use_local_fixture_trust_db
     );
     std::vector<std::string> bwrap_args{
@@ -724,7 +724,7 @@ BrowserCgroupPath(const BrowserPaths &paths, const BrowserSessionConfig &config)
 )
 {
     auto run_dir_fd = TRY(OpenBrowserRunDir(fs_task_processor, paths));
-    return EgressProxy::Create(
+    return EgressProxy::Make(
         EgressProxyConfig{
             BrowserRunFdPath(run_dir_fd, kProxySocketFileName),
             paths.run_id,
@@ -788,7 +788,7 @@ struct BrowserSession::Impl final {
 
     [[nodiscard]] Expected<void, String> Start()
     {
-        paths = CreateBrowserPaths(fs_task_processor, config.browser_runs_root_);
+        paths = MakeBrowserPaths(fs_task_processor, config.browser_runs_root_);
         TRY(StageLocalFixtureTrustDbIfNeeded(fs_task_processor, paths, config));
 
         MarkPhase("start_browser");
@@ -806,7 +806,7 @@ struct BrowserSession::Impl final {
             config.metrics->RegisterBrowserCgroup(*registered_cgroup_path);
         }
         websocket_path = TRY_MAP_ERR(WaitForDevtoolsPath(devtools_deadline), [this](auto detail) {
-            return BuildErrorDetail(std::move(detail));
+            return MakeErrorDetail(std::move(detail));
         });
         return {};
     }
@@ -862,7 +862,7 @@ struct BrowserSession::Impl final {
         );
     }
 
-    [[nodiscard]] String BuildErrorDetail(const String &message)
+    [[nodiscard]] String MakeErrorDetail(const String &message)
     {
         String diagnostics{};
 
@@ -1019,7 +1019,7 @@ BrowserSession::BrowserSession(
 
 BrowserSession::~BrowserSession() = default;
 
-Expected<std::unique_ptr<BrowserSession>, String> BrowserSession::Create(
+Expected<std::unique_ptr<BrowserSession>, String> BrowserSession::Make(
     us::clients::dns::Resolver &dns_resolver, eng::subprocess::ProcessStarter &process_starter,
     eng::TaskProcessor &fs_task_processor, BrowserSessionConfig config
 )
@@ -1046,9 +1046,9 @@ void BrowserSession::MarkPhase(std::string_view phase) const { impl_->MarkPhase(
 
 std::string BrowserSession::CurrentStartLogs() const { return impl_->CurrentStartLogs(); }
 
-String BrowserSession::BuildErrorDetail(const String &message)
+String BrowserSession::MakeErrorDetail(const String &message)
 {
-    return impl_->BuildErrorDetail(message);
+    return impl_->MakeErrorDetail(message);
 }
 
 i64 BrowserSession::ProxyDownBytes() const noexcept { return impl_->ProxyDownBytes(); }
@@ -1084,7 +1084,7 @@ SendCdpVoid(auto &cdp_endpoint, const String &method, Args &&...args)
 
 BrowserPageSession::BrowserPageSession(CdpClient &cdp_client) : cdp_client_(cdp_client) {}
 
-Expected<void, String> BrowserPageSession::CreateBrowserContext()
+Expected<void, String> BrowserPageSession::MakeBrowserContext()
 {
     const auto browser_context = TRY(
         SendCdp<dto::TargetCreateBrowserContextResult>(cdp_client_, "Target.createBrowserContext"_t)
@@ -1097,7 +1097,7 @@ Expected<void, String> BrowserPageSession::CreateBrowserContext()
     return {};
 }
 
-Expected<void, String> BrowserPageSession::CreateBlankTarget()
+Expected<void, String> BrowserPageSession::MakeBlankTarget()
 {
     Invariant(browser_context_id_, "browser context must exist before creating a target"_t);
 
@@ -1130,7 +1130,7 @@ Expected<void, String> BrowserPageSession::AttachToTarget()
         )
     );
     auto session_id = *String::FromBytes(attached.sessionId);
-    auto cdp_session = cdp_client_.CreateSession(session_id, *target_id_);
+    auto cdp_session = cdp_client_.MakeSession(session_id, *target_id_);
     if (!cdp_session)
         return Unex(FormatCdpError("failed to register cdp target session"_t, cdp_session.Error()));
     session_id_ = std::move(session_id);
@@ -1146,9 +1146,9 @@ Expected<void, String>
 BrowserPageSession::AttachFreshTarget(const std::function<void(std::string_view)> &mark_phase)
 {
     mark_phase("create_browser_context");
-    TRY(CreateBrowserContext());
+    TRY(MakeBrowserContext());
     mark_phase("create_target");
-    TRY(CreateBlankTarget());
+    TRY(MakeBlankTarget());
     mark_phase("attach_target");
     TRY(AttachToTarget());
     return {};
@@ -1258,7 +1258,7 @@ const String &BrowserPageSession::SessionId() const
     return *session_id_;
 }
 
-std::string BuildBrowserRunsRoot(std::string state_dir)
+std::string MakeBrowserRunsRoot(std::string state_dir)
 {
     auto root = NormalizeDirPath(std::move(state_dir));
     if (root == "/")

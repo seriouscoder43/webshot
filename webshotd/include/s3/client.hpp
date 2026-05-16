@@ -161,7 +161,7 @@ private:
     [[nodiscard]] detail::BuiltUrl
     MakePathStyleUrl(String path, std::optional<String> protocol_override) const;
     [[nodiscard]] detail::BuiltUrl MakeVirtualHostUrl(String path, String protocol) const;
-    [[nodiscard]] String BuildRawPath(String path, IncludeBucket include_bucket) const;
+    [[nodiscard]] String MakeRawPath(String path, IncludeBucket include_bucket) const;
     String PresignVirtualHost(
         String method, String path, const std::chrono::system_clock::time_point &expires_at,
         String protocol, std::optional<httpc::Headers> extra_headers
@@ -170,7 +170,7 @@ private:
         String method, String path, const std::chrono::system_clock::time_point &expires_at,
         String protocol
     ) const;
-    String BuildPresignedUrl(
+    String MakePresignedUrl(
         String method, const detail::BuiltUrl &built,
         const std::chrono::system_clock::time_point &now,
         const std::chrono::system_clock::time_point &expires_at, const SigParams &params,

@@ -19,12 +19,12 @@ using namespace ws;
 
 using namespace std::chrono_literals;
 using ws::s3::AccessKeyId;
-using ws::s3::BuildCanonicalRequest;
 using ws::s3::CanonicalRequestParts;
 using ws::s3::Client;
 using ws::s3::Config;
 using ws::s3::Credentials;
 using ws::s3::EncodeSlash;
+using ws::s3::MakeCanonicalRequest;
 using ws::s3::PercentEncode;
 using ws::s3::SecretAccessKey;
 using ws::s3::SignHeaders;
@@ -40,7 +40,7 @@ UTEST(Sig, PercentEncodeBasicCharacters)
     EXPECT_EQ(PercentEncode("/"_t, EncodeSlash::kNo), "/"_t);
 }
 
-UTEST(Sig, BuildCanonicalRequestEncodesAndSortsQuery)
+UTEST(Sig, MakeCanonicalRequestEncodesAndSortsQuery)
 {
     std::vector<std::pair<std::string, std::string>> query;
     query.emplace_back("Param", "value value");
@@ -50,7 +50,7 @@ UTEST(Sig, BuildCanonicalRequestEncodesAndSortsQuery)
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("host", "examplebucket.s3.amazonaws.com");
 
-    CanonicalRequestParts parts = BuildCanonicalRequest(
+    CanonicalRequestParts parts = MakeCanonicalRequest(
         "GET", "/", query, headers, "UNSIGNED-PAYLOAD"
     );
 

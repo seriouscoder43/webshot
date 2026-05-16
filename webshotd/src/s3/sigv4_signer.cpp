@@ -105,7 +105,7 @@ SigParams::SigParams(
 {
 }
 
-std::string BuildScope(const SigParams &params)
+std::string MakeScope(const SigParams &params)
 {
     return std::format("{}/{}/{}/aws4_request", params.date, params.region, params.service);
 }
@@ -144,7 +144,7 @@ String PercentEncode(const String &s, EncodeSlash encode_slash)
     return *String::FromBytes(PercentEncodeBytes(s.View(), encode_slash));
 }
 
-CanonicalRequestParts BuildCanonicalRequest(
+CanonicalRequestParts MakeCanonicalRequest(
     std::string_view method, std::string_view canonical_uri,
     const std::vector<std::pair<std::string, std::string>> &query,
     const std::vector<std::pair<std::string, std::string>> &headers_lowercase_trimmed_sorted,
@@ -194,7 +194,7 @@ PrepareSignedHeaders(std::string host, const httpc::Headers &extra)
     return v;
 }
 
-std::string BuildSignedHeaders(
+std::string MakeSignedHeaders(
     const std::vector<std::pair<std::string, std::string>> &headers_lowercase_trimmed_sorted
 )
 {
@@ -222,11 +222,11 @@ std::unordered_map<std::string, std::string> SignHeaders(
         headers.emplace_back(name, value);
     std::ranges::sort(headers, {}, &std::pair<std::string, std::string>::first);
 
-    const auto cr = BuildCanonicalRequest(
+    const auto cr = MakeCanonicalRequest(
         method.View(), canonical_uri.View(), query_utf8, headers, payload_hex
     );
 
-    auto scope = BuildScope(p);
+    auto scope = MakeScope(p);
     auto string_to_sign = std::format(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}", p.amz_date, scope, Sha256Hex(cr.canonical_request)
     );

@@ -57,7 +57,7 @@ struct [[nodiscard]] BrowserSessionConfig final {
 
 class [[nodiscard]] BrowserSession final {
 public:
-    [[nodiscard]] static Expected<std::unique_ptr<BrowserSession>, String> Create(
+    [[nodiscard]] static Expected<std::unique_ptr<BrowserSession>, String> Make(
         us::clients::dns::Resolver &dns_resolver, eng::subprocess::ProcessStarter &process_starter,
         eng::TaskProcessor &fs_task_processor, BrowserSessionConfig config
     );
@@ -73,7 +73,7 @@ public:
     [[nodiscard]] std::pair<std::string, std::string> DrainBrowserLogs() const;
     void MarkPhase(std::string_view phase) const;
     [[nodiscard]] std::string CurrentStartLogs() const;
-    [[nodiscard]] String BuildErrorDetail(const String &message);
+    [[nodiscard]] String MakeErrorDetail(const String &message);
     [[nodiscard]] i64 ProxyDownBytes() const noexcept;
     [[nodiscard]] const std::string &RunId() const noexcept;
     [[nodiscard]] std::optional<String> ProxyErrorReason() const noexcept;
@@ -97,8 +97,8 @@ public:
     BrowserPageSession &operator=(const BrowserPageSession &) = delete;
     BrowserPageSession &operator=(BrowserPageSession &&) = delete;
 
-    [[nodiscard]] Expected<void, String> CreateBrowserContext();
-    [[nodiscard]] Expected<void, String> CreateBlankTarget();
+    [[nodiscard]] Expected<void, String> MakeBrowserContext();
+    [[nodiscard]] Expected<void, String> MakeBlankTarget();
     [[nodiscard]] Expected<void, String> AttachToTarget();
     [[nodiscard]] Expected<void, String>
     AttachFreshTarget(const std::function<void(std::string_view)> &mark_phase);
@@ -123,7 +123,7 @@ private:
     std::optional<String> session_id_;
 };
 
-[[nodiscard]] std::string BuildBrowserRunsRoot(std::string state_dir);
+[[nodiscard]] std::string MakeBrowserRunsRoot(std::string state_dir);
 [[nodiscard]] std::string ResolveDelegatedCgroupRootPath(eng::TaskProcessor &fs_task_processor);
 [[nodiscard]] std::string LocalFixtureTrustDbSourcePath(std::string_view state_dir);
 

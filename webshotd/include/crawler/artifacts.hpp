@@ -84,16 +84,16 @@ struct [[nodiscard]] WarcBuildOutput {
     std::vector<WarcCdxRecord> cdx_records;
 };
 
-[[nodiscard]] std::string BuildPagesJsonl(const CapturedExchange &exchange);
+[[nodiscard]] std::string MakePagesJsonl(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactError> BuildSuccessStdoutLog(
+[[nodiscard]] Expected<std::string, ArtifactError> MakeSuccessStdoutLog(
     const RunRequest &run, const CapturedExchange &exchange, i64 browser_pid,
     ReusedBrowser reused_browser
 );
 
-[[nodiscard]] Expected<WarcBuildOutput, ArtifactError> BuildWarc(const CapturedExchange &exchange);
+[[nodiscard]] Expected<WarcBuildOutput, ArtifactError> MakeWarc(const CapturedExchange &exchange);
 
-[[nodiscard]] Expected<std::string, ArtifactError> BuildWacz(
+[[nodiscard]] Expected<std::string, ArtifactError> MakeWacz(
     const RunRequest &run, const std::string &pages_jsonl, const WarcBuildOutput &warc,
     const std::string &stdout_log, const std::string &stderr_log
 );

@@ -517,7 +517,7 @@ ParseHttpRequestTarget(const ParsedRequest &req)
     return i64{*content_length};
 }
 
-[[nodiscard]] std::string BuildForwardRequest(const ParsedRequest &req, std::string_view path)
+[[nodiscard]] std::string MakeForwardRequest(const ParsedRequest &req, std::string_view path)
 {
     std::string out;
     out.reserve(NumericCast<size_t>(req.header_bytes + 64_uz + unsize(path)));
@@ -862,7 +862,7 @@ struct EgressProxy::Impl final {
         }
 
         auto upstream_socket = GrabValueOf(upstream);
-        const auto request = BuildForwardRequest(req, target->path);
+        const auto request = MakeForwardRequest(req, target->path);
         if (!SendAll(upstream_socket, request, deadline)) {
             NoteError("send upstream failed"_t);
             Send502(client, "send upstream failed", deadline);
@@ -990,7 +990,7 @@ EgressProxy::EgressProxy(EgressProxyConfig config)
 EgressProxy::~EgressProxy() noexcept { Stop(); }
 
 Expected<std::unique_ptr<EgressProxy>, String>
-EgressProxy::Create(EgressProxyConfig config, dns::Resolver &resolver, eng::Deadline deadline)
+EgressProxy::Make(EgressProxyConfig config, dns::Resolver &resolver, eng::Deadline deadline)
 {
     Invariant(deadline.IsReachable(), "proxy start deadline must be reachable"_t);
 

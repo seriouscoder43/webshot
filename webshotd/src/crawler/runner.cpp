@@ -249,7 +249,7 @@ DecodeCdpBody(const dto::NetworkGetResponseBodyResult &body)
     return exchange.status_code >= 200_i64 && exchange.status_code < 400_i64;
 }
 
-[[nodiscard]] std::optional<String> BuildUrlOrigin(const String &url_text)
+[[nodiscard]] std::optional<String> MakeUrlOrigin(const String &url_text)
 {
     const auto maybe_url = TRY(Url::FromText(url_text));
     if (!maybe_url.IsHttpOrHttps())
@@ -277,7 +277,7 @@ DecodeCdpBody(const dto::NetworkGetResponseBodyResult &body)
     if (const auto absolute_location = Url::FromText(*location))
         return CanonicalizeCapturedUrl(absolute_location->Href());
 
-    const auto origin = BuildUrlOrigin(base_text);
+    const auto origin = MakeUrlOrigin(base_text);
     if (!origin)
         return CanonicalizeCapturedUrl(request_text);
 
@@ -360,7 +360,7 @@ EvaluateAccessPolicy(AccessPolicyStore &access_policy, const Config &config, con
     );
 }
 
-[[nodiscard]] std::vector<dto::FetchHeaderEntry> BuildBlockedFetchHeaders(usize body_bytes)
+[[nodiscard]] std::vector<dto::FetchHeaderEntry> MakeBlockedFetchHeaders(usize body_bytes)
 {
     std::vector<dto::FetchHeaderEntry> headers;
     headers.push_back(
@@ -679,7 +679,7 @@ public:
         return resources;
     }
 
-    [[nodiscard]] crawler::CapturedExchange BuildExchange(
+    [[nodiscard]] crawler::CapturedExchange MakeExchange(
         String final_url, std::optional<String> title, std::string body,
         std::vector<crawler::CapturedResource> resources
     ) const
@@ -690,7 +690,7 @@ public:
         exchange.page_id = state->page_id;
         exchange.final_url = std::move(final_url);
         ApplyMainResponse(*state, exchange, exchange.final_url);
-        exchange.redirect_chain = BuildRedirectChainForExchange(*state, exchange.final_url);
+        exchange.redirect_chain = MakeRedirectChainForExchange(*state, exchange.final_url);
         exchange.main_document_redirects = state->main_document_redirects;
         exchange.body = std::move(body);
         exchange.resources = std::move(resources);
@@ -741,7 +741,7 @@ private:
     }
 
     [[nodiscard]] static std::vector<String>
-    BuildRedirectChainForExchange(const Data &state, const String &final_url)
+    MakeRedirectChainForExchange(const Data &state, const String &final_url)
     {
         if (!state.redirect_chain.empty())
             return state.redirect_chain;
@@ -1163,14 +1163,14 @@ public:
     {
         auto started = Start();
         if (!started) {
-            auto error_detail = browser_->BuildErrorDetail(started.Error());
+            auto error_detail = browser_->MakeErrorDetail(started.Error());
             StopCdpForError();
             return Unex(CaptureError{std::move(error_detail), {}});
         }
 
         auto captured = CaptureAttachedTarget();
         if (!captured) {
-            auto error_detail = browser_->BuildErrorDetail(captured.Error());
+            auto error_detail = browser_->MakeErrorDetail(captured.Error());
             if (tracker_) {
                 const auto tracker_error = tracker_->ErrorReason();
                 if (tracker_error)
@@ -1461,7 +1461,7 @@ private:
             "captureViaProxy building exchange for {} (body_bytes={}, resources={})", run_.seed_url,
             body.size(), resources.size()
         );
-        auto exchange = GetPageTracker().BuildExchange(
+        auto exchange = GetPageTracker().MakeExchange(
             std::move(dom_state.final_url), std::move(dom_state.title), std::move(body),
             std::move(resources)
         );
@@ -1643,7 +1643,7 @@ private:
         dto::FetchFulfillRequestParams params{
             .requestId = paused->requestId,
             .responseCode = 403,
-            .responseHeaders = BuildBlockedFetchHeaders(body.SizeBytes()),
+            .responseHeaders = MakeBlockedFetchHeaders(body.SizeBytes()),
             .body = us::crypto::base64::Base64Encode(body.ToBytes()),
             .responsePhrase = "Forbidden",
         };
@@ -1685,7 +1685,7 @@ private:
 )
 {
     auto browser = TRY_MAP_ERR(
-        crawler::BrowserSession::Create(
+        crawler::BrowserSession::Make(
             dns_resolver, process_starter, fs_task_processor,
             crawler::BrowserSessionConfig{
                 .url_bytes_max = url_bytes_max,
@@ -1810,11 +1810,11 @@ private:
             "crawler captureViaProxy finished for {} with status={}", run.seed_url,
             exchange.status_code
         );
-        auto pages = crawler::BuildPagesJsonl(exchange);
+        auto pages = crawler::MakePagesJsonl(exchange);
         LOG_INFO() << std::format("crawler buildPagesJsonl finished for {}", run.seed_url);
         out.content_sha256 = crawler::ComputeContentSha256(exchange);
         {
-            auto log = crawler::BuildSuccessStdoutLog(
+            auto log = crawler::MakeSuccessStdoutLog(
                 run, exchange, 0_i64, crawler::ReusedBrowser::kNo
             );
             if (!log)
@@ -1822,11 +1822,11 @@ private:
             out.stdout_log = GrabValueOf(log);
         }
         out.stderr_log.clear();
-        auto warc = crawler::BuildWarc(exchange);
+        auto warc = crawler::MakeWarc(exchange);
         if (!warc)
             return fail_artifact(warc.Error());
         LOG_INFO() << std::format("crawler buildWarc finished for {}", run.seed_url);
-        auto wacz = crawler::BuildWacz(
+        auto wacz = crawler::MakeWacz(
             run, pages, GrabValueOf(warc), out.stdout_log, out.stderr_log
         );
         if (!wacz)
@@ -1954,7 +1954,7 @@ CrawlerRunner::CrawlerRunner(
     : access_policy_(access_policy), config_(config), dns_resolver_(dns_resolver),
       process_starter_(process_starter), fs_task_processor_(fs_task_processor),
       run_timeout_(run_timeout),
-      browser_runs_root_(crawler::BuildBrowserRunsRoot(std::move(state_dir))),
+      browser_runs_root_(crawler::MakeBrowserRunsRoot(std::move(state_dir))),
       cgroup_root_path_(
           limits ? crawler::ResolveDelegatedCgroupRootPath(fs_task_processor) : std::string()
       ),

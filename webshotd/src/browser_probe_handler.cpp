@@ -352,13 +352,13 @@ void CleanupProbeSession(
 RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng::Deadline deadline)
 {
     auto browser = TRY(
-        crawler::BrowserSession::Create(
+        crawler::BrowserSession::Make(
             config.dns_resolver_, config.process_starter_, config.fs_task_processor_,
             crawler::BrowserSessionConfig{
                 .url_bytes_max = config.svc_config.UrlBytesMax(),
                 .proxy_down_bytes_max = config.cdp_max_remote_payload_bytes * 4_i64,
                 .browser_runs_root_ =
-                    crawler::BuildBrowserRunsRoot(std::string(config.svc_config.StateDir())),
+                    crawler::MakeBrowserRunsRoot(std::string(config.svc_config.StateDir())),
                 .cgroup_root_path_ =
                     crawler::ResolveDelegatedCgroupRootPath(config.fs_task_processor_),
                 .cgroup_limits_ = {},
@@ -384,7 +384,7 @@ RunProbe(const dto::BrowserProbeRequest &request, const ProbeConfig &config, eng
     std::vector<String> page_errors;
 
     const auto decorate_error = [ptr = browser.get()](auto detail) {
-        return ptr->BuildErrorDetail(std::move(detail));
+        return ptr->MakeErrorDetail(std::move(detail));
     };
     const auto result = [&]() -> Expected<dto::BrowserProbeResponse, String> {
         const auto mark_phase = [ptr = browser.get()](std::string_view phase) {

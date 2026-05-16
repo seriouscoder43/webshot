@@ -130,7 +130,7 @@ public:
     }
 
     [[nodiscard]] Expected<std::unique_ptr<class CdpSession>, CdpError>
-    CreateSession(String session_id, String target_id);
+    MakeSession(String session_id, String target_id);
 
     Expected<void, CdpError> Stop();
 

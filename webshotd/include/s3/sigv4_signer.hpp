@@ -51,7 +51,7 @@ struct [[nodiscard]] SigParams {
 };
 
 // Utilities
-[[nodiscard]] std::string BuildScope(const SigParams &params);
+[[nodiscard]] std::string MakeScope(const SigParams &params);
 [[nodiscard]] std::string
 ComputeSignature(const SigParams &params, std::string_view string_to_sign);
 /** @return AMZ date stamp for the given time point (UTC). */
@@ -73,12 +73,12 @@ CanonicalizeQuery(const std::vector<std::pair<std::string, std::string>> &decode
 PrepareSignedHeaders(std::string host, const httpc::Headers &extra);
 
 /** Join header names (already lowercase/sorted) with semicolons. */
-[[nodiscard]] std::string BuildSignedHeaders(
+[[nodiscard]] std::string MakeSignedHeaders(
     const std::vector<std::pair<std::string, std::string>> &headers_lowercase_trimmed_sorted
 );
 
 /** Build the canonical request string used by Sig. */
-[[nodiscard]] CanonicalRequestParts BuildCanonicalRequest(
+[[nodiscard]] CanonicalRequestParts MakeCanonicalRequest(
     std::string_view method, std::string_view canonical_uri,
     const std::vector<std::pair<std::string, std::string>>
         &query, // already key/value, will encode/sort

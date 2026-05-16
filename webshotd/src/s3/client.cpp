@@ -336,7 +336,7 @@ void Client::SignRequest(
         headers[name] = value;
 }
 
-String Client::BuildRawPath(String path, IncludeBucket include_bucket) const
+String Client::MakeRawPath(String path, IncludeBucket include_bucket) const
 {
     const auto base_path = endpoint_.base_path.ToBytes();
     const auto bucket = bucket_name_.ToBytes();
@@ -366,7 +366,7 @@ String Client::BuildRawPath(String path, IncludeBucket include_bucket) const
 detail::BuiltUrl
 Client::MakePathStyleUrl(String path, std::optional<String> protocol_override) const
 {
-    auto raw_path = BuildRawPath(std::move(path), IncludeBucket::kYes);
+    auto raw_path = MakeRawPath(std::move(path), IncludeBucket::kYes);
 
     auto url = protocol_override ? endpoint_.url.WithProtocol(*protocol_override) : endpoint_.url;
     url = url.WithPathname(raw_path).Stripped(Url::StripOptions::kHash | Url::StripOptions::kQuery);
@@ -383,7 +383,7 @@ detail::BuiltUrl Client::MakeVirtualHostUrl(String path, String protocol) const
     const auto bucket_validated = detail::ValidateVirtualHostBucketName(bucket_name_);
     Invariant(bucket_validated, "presign requires non-empty bucket"_t);
 
-    auto raw_path = BuildRawPath(std::move(path), IncludeBucket::kNo);
+    auto raw_path = MakeRawPath(std::move(path), IncludeBucket::kNo);
     const auto hostname = text::Format("{}.{}", bucket_name_, endpoint_.hostname);
     auto url = endpoint_.url.WithProtocol(protocol).WithHostname(hostname).WithPort(endpoint_.port);
     url = url.WithPathname(raw_path).Stripped(Url::StripOptions::kHash | Url::StripOptions::kQuery);
@@ -408,7 +408,7 @@ String Client::PresignVirtualHost(
     auto prepared = PrepareSignedHeaders(built.host.ToBytes(), extra);
     const auto headers_text = *text::StringPairs(prepared);
 
-    return BuildPresignedUrl(method, built, now, expires_at, params, headers_text);
+    return MakePresignedUrl(method, built, now, expires_at, params, headers_text);
 }
 
 String Client::PresignPathStyle(
@@ -422,16 +422,16 @@ String Client::PresignPathStyle(
     auto prepared = PrepareSignedHeaders(built.host.ToBytes(), httpc::Headers{});
     const auto headers_text = *text::StringPairs(prepared);
 
-    return BuildPresignedUrl(method, built, now, expires_at, params, headers_text);
+    return MakePresignedUrl(method, built, now, expires_at, params, headers_text);
 }
 
-String Client::BuildPresignedUrl(
+String Client::MakePresignedUrl(
     String method, const detail::BuiltUrl &built, const std::chrono::system_clock::time_point &now,
     const std::chrono::system_clock::time_point &expires_at, const SigParams &params,
     const std::vector<std::pair<String, String>> &headers
 ) const
 {
-    const std::string scope = BuildScope(params);
+    const std::string scope = MakeScope(params);
     std::vector<std::pair<std::string, std::string>> query;
     query.emplace_back("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
     query.emplace_back(
@@ -441,12 +441,12 @@ String Client::BuildPresignedUrl(
     query.emplace_back("X-Amz-Expires", std::to_string(ComputePresignTtl(now, expires_at).count()));
 
     const auto headers_utf8 = text::ToBytesPairs(headers);
-    const std::string signed_headers = BuildSignedHeaders(headers_utf8);
+    const std::string signed_headers = MakeSignedHeaders(headers_utf8);
     query.emplace_back("X-Amz-SignedHeaders", signed_headers);
     if (params.session_token)
         query.emplace_back("X-Amz-Security-Token", params.session_token->GetUnderlying().ToBytes());
 
-    const auto cr = BuildCanonicalRequest(
+    const auto cr = MakeCanonicalRequest(
         method.View(), built.raw_path.View(), query, headers_utf8, "UNSIGNED-PAYLOAD"
     );
     const std::string string_to_sign = std::format(

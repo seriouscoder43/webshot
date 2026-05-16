@@ -56,7 +56,7 @@ public:
      * On success returns a single capture descriptor including UUID, creation
      * time and normalized link.
      */
-    [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CaptureError> CreateCapture(Link link);
+    [[nodiscard]] Expected<dto::UuidWithTimeLink, errors::CaptureError> MakeCapture(Link link);
 
     /**
      * @brief Enqueue a crawl job for the given link and return its job descriptor.
@@ -65,7 +65,7 @@ public:
      * succeeds. Job execution is scheduled asynchronously; callers should poll
      * job status via findCaptureJob().
      */
-    [[nodiscard]] Expected<dto::CaptureJob, errors::CreateJobError> CreateCaptureJob(Link link);
+    [[nodiscard]] Expected<dto::CaptureJob, errors::CreateJobError> MakeCaptureJob(Link link);
     /** @brief Acquire per-IP ratelimit for an HTTP CRUD operation. */
     [[nodiscard]] Expected<std::optional<ClientIpRatelimit>, errors::CrudError>
     AcquireClientIpRatelimit(String client_ip);

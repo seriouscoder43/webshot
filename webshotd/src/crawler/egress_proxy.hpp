@@ -41,7 +41,7 @@ struct [[nodiscard]] EgressProxyConfig final {
 class [[nodiscard]] EgressProxy final {
 public:
     [[nodiscard]] static Expected<std::unique_ptr<EgressProxy>, String>
-    Create(EgressProxyConfig config, us::clients::dns::Resolver &resolver, eng::Deadline deadline);
+    Make(EgressProxyConfig config, us::clients::dns::Resolver &resolver, eng::Deadline deadline);
     ~EgressProxy() noexcept;
 
     EgressProxy(const EgressProxy &) = delete;
