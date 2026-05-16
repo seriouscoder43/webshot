@@ -847,7 +847,7 @@ Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::LoadJob(Uuid id)
         .Transform([](auto row_opt) -> std::optional<dto::CaptureJob> {
             if (!row_opt)
                 return {};
-            return MakeCaptureJob(GrabValueOf(row_opt));
+            return ::MakeCaptureJob(GrabValueOf(row_opt));
         });
 }
 
@@ -918,7 +918,7 @@ Crud::Impl::FindLatestJobForLink(const String &link)
         .Transform([](auto row_opt) -> std::optional<dto::CaptureJob> {
             if (!row_opt)
                 return {};
-            return MakeCaptureJob(GrabValueOf(row_opt));
+            return ::MakeCaptureJob(GrabValueOf(row_opt));
         });
 }
 
@@ -938,7 +938,7 @@ Crud::Impl::GetOrCreateCaptureJobLocked(const String &normalized_link)
             auto latest_job_row_opt = trx.Execute(sql::kSelectLatestCrawlJobByLink, normalized_link)
                                           .template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
             if (latest_job_row_opt) {
-                auto job = MakeCaptureJob(GrabValueOf(latest_job_row_opt));
+                auto job = ::MakeCaptureJob(GrabValueOf(latest_job_row_opt));
                 const auto now = datetime::Now();
                 const auto last_created = job.created_at.GetTimePoint();
                 const auto ratelimit_until = last_created + link_ratelimit;

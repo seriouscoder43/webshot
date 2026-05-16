@@ -66,8 +66,15 @@ components_manager:
         port: 8081
         task_processor: main-task-processor
     congestion-control:
-      fake-mode: false
+      # Testsuite sets config var `testsuite-enabled: true`; default to false for
+      # non-testsuite runs without requiring it in config_vars.
+      fake-mode: $testsuite-enabled
+      fake-mode#fallback: false
       load-enabled: true
+      # Don't require explicit container CPU limit; allow CC to run even when it
+      # cannot reliably determine CPU quota.
+      min-cpu: 0
+      only-rtc: false
     task-processors-load-monitor: {}
     metrics: {}
     logging:
