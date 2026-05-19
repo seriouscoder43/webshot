@@ -25,9 +25,11 @@ struct [[nodiscard]] ClientIpRatelimit final {
     std::chrono::milliseconds retry_after;
 };
 
+struct ClientIpLimiter;
+
 class [[nodiscard]] ClientIpRatelimiter final
     : public us::cache::LruCacheComponent<
-          Ip, std::shared_ptr<struct IpLimiter>, IpHash, std::equal_to<Ip>> {
+          Ip, std::shared_ptr<ClientIpLimiter>, IpHash, std::equal_to<Ip>> {
 public:
     static constexpr std::string_view kName = "client_ip_ratelimiter";
 
@@ -44,9 +46,9 @@ public:
 
 private:
     using Base = us::cache::LruCacheComponent<
-        Ip, std::shared_ptr<struct IpLimiter>, IpHash, std::equal_to<Ip>>;
+        Ip, std::shared_ptr<ClientIpLimiter>, IpHash, std::equal_to<Ip>>;
 
-    [[nodiscard]] std::shared_ptr<struct IpLimiter> DoGetByKey(const Ip &client_ip) override;
+    [[nodiscard]] std::shared_ptr<ClientIpLimiter> DoGetByKey(const Ip &client_ip) override;
 
     const std::chrono::milliseconds interval;
 };

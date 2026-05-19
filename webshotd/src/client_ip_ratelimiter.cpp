@@ -9,9 +9,9 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 
 #include <userver/cache/expirable_lru_cache.hpp>
+#include <userver/concurrent/variable.hpp>
 #include <userver/engine/mutex.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/token_bucket.hpp>
@@ -20,8 +20,9 @@
 namespace ws {
 
 namespace us = userver;
-namespace datetime = us::utils::datetime;
+namespace concurrent = us::concurrent;
 namespace eng = us::engine;
+namespace datetime = us::utils::datetime;
 namespace chrono = std::chrono;
 
 using namespace std::chrono_literals;
@@ -29,15 +30,21 @@ using namespace text::literals;
 
 using us::utils::TokenBucket;
 
-struct [[nodiscard]] IpLimiter final {
-    eng::Mutex mutex;
+namespace {
+
+struct [[nodiscard]] ClientIpLimiterState final {
     TokenBucket bucket;
     TokenBucket::TimePoint last_allow;
+};
 
-    IpLimiter(TokenBucket &&bucket, TokenBucket::TimePoint last_allow)
-        : bucket(std::move(bucket)), last_allow(last_allow)
-    {
-    }
+} // namespace
+
+struct ClientIpLimiter final {
+    concurrent::Variable<ClientIpLimiterState, eng::Mutex> state;
+
+    explicit ClientIpLimiter(ClientIpLimiterState state) : state(std::move(state)) {}
+
+    [[nodiscard]] auto UniqueLock() { return state.UniqueLock(); }
 };
 
 ClientIpRatelimiter::ClientIpRatelimiter(
@@ -63,17 +70,18 @@ properties:
 )");
 }
 
-std::shared_ptr<IpLimiter> ClientIpRatelimiter::DoGetByKey(const Ip &)
+std::shared_ptr<ClientIpLimiter> ClientIpRatelimiter::DoGetByKey(const Ip &)
 {
-    return std::make_shared<IpLimiter>(
-        TokenBucket{
-            1,
-            TokenBucket::RefillPolicy{
-                .amount = 1, .interval = chrono::duration_cast<TokenBucket::Duration>(interval)
-            }
-        },
-        datetime::SteadyNow()
-    );
+    return std::make_shared<ClientIpLimiter>(ClientIpLimiterState{
+        .bucket =
+            TokenBucket{
+                1,
+                TokenBucket::RefillPolicy{
+                    .amount = 1, .interval = chrono::duration_cast<TokenBucket::Duration>(interval)
+                }
+            },
+        .last_allow = datetime::SteadyNow(),
+    });
 }
 
 std::optional<ClientIpRatelimit> ClientIpRatelimiter::Acquire(const Ip &client_ip) noexcept
@@ -82,19 +90,17 @@ std::optional<ClientIpRatelimit> ClientIpRatelimiter::Acquire(const Ip &client_i
         return {};
 
     auto cache = GetCache();
-    std::shared_ptr<IpLimiter> limiter = cache.Get(client_ip);
+    std::shared_ptr<ClientIpLimiter> limiter = cache.Get(client_ip);
     Invariant(limiter, "failed to allocate per-IP ratelimit entry"_t);
 
     auto now_tp = datetime::SteadyNow();
-    std::unique_lock<eng::Mutex> lock{limiter->mutex};
+    auto lock = limiter->UniqueLock();
 
-    if (limiter->bucket.Obtain()) {
-        limiter->last_allow = now_tp;
+    if (lock->bucket.Obtain()) {
+        lock->last_allow = now_tp;
         return {};
     }
-    chrono::milliseconds elapsed{
-        chrono::duration_cast<chrono::milliseconds>(now_tp - limiter->last_allow)
-    };
+    auto elapsed = chrono::duration_cast<chrono::milliseconds>(now_tp - lock->last_allow);
     auto retry_after = 0ms;
     if (elapsed < interval)
         retry_after = interval - elapsed;
