@@ -6,6 +6,7 @@
 #include "allowlist_handler.hpp"
 #include "by_id_handler.hpp"
 #include "by_prefix_handler.hpp"
+#include "capture_meta_repo.hpp"
 #include "client_ip_ratelimiter.hpp"
 #include "config.hpp"
 #include "crud.hpp"
@@ -16,6 +17,8 @@
 #include "handler.hpp"
 #include "job_handler.hpp"
 #include "metrics.hpp"
+#include "postgres_db_component.hpp"
+#include "shared_state_repo.hpp"
 #include "test_only_components.hpp"
 #include "ui_replay_handler.hpp"
 
@@ -30,7 +33,6 @@
 #include <userver/server/handlers/http_handler_static.hpp>
 #include <userver/server/handlers/server_monitor.hpp>
 #include <userver/server/middlewares/http_middleware_base.hpp>
-#include <userver/storages/postgres/component.hpp>
 #include <userver/storages/secdist/component.hpp>
 #include <userver/storages/secdist/provider_component.hpp>
 #include <userver/testsuite/testsuite_support.hpp>
@@ -54,13 +56,15 @@ int main(int argc, char *argv[])
             .Append<us::components::DefaultSecdistProvider>()
             .Append<us::components::ProcessStarter>()
             .Append<us::components::TestsuiteSupport>()
-            .Append<us::components::Postgres>("capture_meta_db")
-            .Append<us::components::Postgres>("shared_state_db")
+            .Append<ws::PostgresDbComponent>("capture_meta_db")
+            .Append<ws::PostgresDbComponent>("shared_state_db")
             .Append<us::congestion_control::Component>()
             .Append<eng::TaskProcessorsLoadMonitor>()
-            .Append<ws::AccessPolicyStore>()
             .Append<ws::Config>()
             .Append<ws::Metrics>()
+            .Append<ws::CaptureMetaRepo>()
+            .Append<ws::SharedStateRepo>()
+            .Append<ws::AccessPolicyStore>()
             .Append<ws::ClientIpRatelimiter>()
             .Append<ws::Crud>()
             .Append<us::server::middlewares::SimpleHttpMiddlewareFactory<

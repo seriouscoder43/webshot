@@ -335,4 +335,6 @@ components_manager:
     shared_state_db:
       dbconnection: $pg_shared_state_db_dsn
       blocking_task_processor: fs-task-processor
+    capture_meta_repo: {}
+    shared_state_repo: {}
     access_policy: {}
