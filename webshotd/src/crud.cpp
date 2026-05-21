@@ -28,7 +28,6 @@
 #include "server_errors.hpp"
 #include "shared_state_repo.hpp"
 #include "text.hpp"
-#include "text_postgres_formatter.hpp"
 #include "try.hpp"
 
 #include <algorithm>

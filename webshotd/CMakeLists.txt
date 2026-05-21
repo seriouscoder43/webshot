@@ -56,6 +56,8 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 set(${PROJECT_NAME}_headers
     src/postgres_db_component.hpp
+    src/integers_postgres_formatter.hpp
+    src/integers_postgres_formatter.cpp
     include/database.hpp
     src/capture_meta_repo.hpp
     src/shared_state_repo.hpp

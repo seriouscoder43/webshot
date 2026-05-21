@@ -1,8 +1,9 @@
 #include "capture_meta_repo.hpp"
 
+#include "integers_postgres_formatter.hpp" // IWYU pragma: keep
 #include "metrics.hpp"
 #include "postgres_db_component.hpp"
-#include "text_postgres_formatter.hpp"
+#include "text_postgres_formatter.hpp" // IWYU pragma: keep
 #include "try.hpp"
 
 #include <webshot/sql_queries.hpp>
@@ -95,16 +96,15 @@ Expected<std::optional<CaptureMetaByIdRow>, PgError> CaptureMetaRepo::FindCaptur
         std::string link;
         std::string replay_url;
     };
-    auto row_opt = TRY(impl_->RunReadonly(
+    auto opt = TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsOptionalSingleRow<Row>(pg::kRowTag); },
         sql::kSelectCapture, uuid
     ));
-    if (!row_opt)
-        return {};
+    auto row = TRY(opt);
     return CaptureMetaByIdRow{
-        .created_at = row_opt->created_at,
-        .link = std::move(row_opt->link),
-        .replay_url = std::move(row_opt->replay_url),
+        .created_at = row.created_at,
+        .link = std::move(row.link),
+        .replay_url = std::move(row.replay_url),
     };
 }
 
@@ -117,7 +117,7 @@ CaptureMetaRepo::GetCapturesByLinkFirst(const String &link_key, i64 limit) const
     };
     auto rows = TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-        sql::kSelectCaptureByLinkFirst, link_key, Raw(limit)
+        sql::kSelectCaptureByLinkFirst, link_key, limit
     ));
     std::vector<CaptureMetaIdRow> out;
     out.reserve(rows.size());
@@ -136,7 +136,7 @@ Expected<std::vector<CaptureMetaIdRow>, PgError> CaptureMetaRepo::GetCapturesByL
     };
     auto rows = TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-        sql::kSelectCaptureByLinkNext, link_key, Raw(limit), created_at, id
+        sql::kSelectCaptureByLinkNext, link_key, limit, created_at, id
     ));
     std::vector<CaptureMetaIdRow> out;
     out.reserve(rows.size());
@@ -155,7 +155,7 @@ Expected<std::vector<CaptureMetaIdRow>, PgError> CaptureMetaRepo::GetCapturesByL
     };
     auto rows = TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-        sql::kSelectCaptureByLinkPrev, link_key, Raw(limit), created_at, id
+        sql::kSelectCaptureByLinkPrev, link_key, limit, created_at, id
     ));
     std::vector<CaptureMetaIdRow> out;
     out.reserve(rows.size());
@@ -170,7 +170,7 @@ Expected<std::vector<String>, PgError> CaptureMetaRepo::GetDistinctLinksByPrefix
 {
     return TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-        sql::kSelectDistinctLinksByPrefixFirst, prefix_inclusive, upper_exclusive, Raw(limit)
+        sql::kSelectDistinctLinksByPrefixFirst, prefix_inclusive, upper_exclusive, limit
     ));
 }
 
@@ -181,8 +181,7 @@ Expected<std::vector<String>, PgError> CaptureMetaRepo::GetDistinctLinksByPrefix
 {
     return TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-        sql::kSelectDistinctLinksByPrefixNext, prefix_inclusive, upper_exclusive, from_link,
-        Raw(limit)
+        sql::kSelectDistinctLinksByPrefixNext, prefix_inclusive, upper_exclusive, from_link, limit
     ));
 }
 
@@ -193,8 +192,7 @@ Expected<std::vector<String>, PgError> CaptureMetaRepo::GetDistinctLinksByPrefix
 {
     return TRY(impl_->RunReadonly(
         [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-        sql::kSelectDistinctLinksByPrefixPrev, prefix_inclusive, upper_exclusive, from_link,
-        Raw(limit)
+        sql::kSelectDistinctLinksByPrefixPrev, prefix_inclusive, upper_exclusive, from_link, limit
     ));
 }
 
@@ -226,7 +224,7 @@ CaptureMetaRepo::GetCaptureIdsByPrefixTree(std::string_view prefix_tree, i64 lim
                 ids_out.emplace_back(row[0].template As<Uuid>());
             return ids_out;
         },
-        sql::kSelectIdsByDenyPrefixPaged, prefix_tree, Raw(limit)
+        sql::kSelectIdsByDenyPrefixPaged, prefix_tree, limit
     ));
 }
 

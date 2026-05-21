@@ -3,6 +3,7 @@
 #include <webshot/sql_queries.hpp>
 
 #include "grab_value.hpp"
+#include "integers_postgres_formatter.hpp"
 #include "metrics.hpp"
 #include "postgres_db_component.hpp"
 #include "text_postgres_formatter.hpp"
