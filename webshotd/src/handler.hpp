@@ -24,7 +24,7 @@ class Metrics;
  * - POST to enqueue a capture job for the provided link.
  * - GET to list captures for the exact normalized `link` query parameter.
  */
-class [[nodiscard]] CaptureByLinkHandler : public RatelimitedDeadlinedHttpHandler {
+class [[nodiscard]] CaptureByLinkHandler : public DeadlinedHttpHandler {
 public:
     static constexpr std::string_view kName = "handler";
     explicit CaptureByLinkHandler(
@@ -33,11 +33,13 @@ public:
     );
 
     [[nodiscard]]
-    std::string HandleRequestThrowRatelimitedDeadlined(
+    std::string HandleRequestThrowDeadlined(
         const server::http::HttpRequest &request, server::request::RequestContext &
     ) const final;
 
 private:
+    Crud &crud_;
+    const Config &config_;
     AccessPolicyStore &access_policy_;
     Metrics &metrics_;
 };

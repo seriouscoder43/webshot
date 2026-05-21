@@ -36,39 +36,16 @@ namespace server = us::server;
 
 using namespace ws;
 using namespace text::literals;
-using namespace std::chrono_literals;
-
-namespace {
-
-[[nodiscard]] std::string RespondJobPollRatelimit(
-    server::http::HttpResponse &response, const Uuid &uuid, std::chrono::milliseconds retry_after
-)
-{
-    using enum server::http::HttpStatus;
-
-    const auto retry_after_seconds = std::max(
-        1s, std::chrono::ceil<std::chrono::seconds>(retry_after)
-    );
-    dto::CaptureJobRatelimitResponse body{
-        .uuid = uuid,
-        .retry_after_sec = i64{retry_after_seconds.count()},
-        .error = dto::CaptureJobRatelimitResponse::Error{"client IP rate limited"},
-    };
-
-    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count()));
-    return httpu::RespondJson(response, kTooManyRequests, body);
-}
-
-} // namespace
 
 JobHandler::JobHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : RatelimitedDeadlinedHttpHandler(config, context)
+    : DeadlinedHttpHandler(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>())
 {
 }
 
-std::string JobHandler::HandleRequestThrowRatelimitedDeadlined(
+std::string JobHandler::HandleRequestThrowDeadlined(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -89,23 +66,4 @@ std::string JobHandler::HandleRequestThrowRatelimitedDeadlined(
     if (!*job)
         return httpu::RespondError(response, kNotFound, "job not found"_t);
     return httpu::RespondJson(response, kOk, **job);
-}
-
-std::string JobHandler::RespondClientIpRatelimit(
-    const server::http::HttpRequest &request, std::chrono::milliseconds retry_after
-) const
-{
-    using enum server::http::HttpStatus;
-    using namespace text::literals;
-
-    auto &response = request.GetHttpResponse();
-    HandlerRequestSupport request_support{config_};
-
-    const auto uuid = request_support.ParseRequiredPathParamUuid(request, "uuid"_t);
-    if (!uuid)
-        return httpu::RespondParamError(
-            response, kBadRequest, uuid.Error().name, uuid.Error().message
-        );
-
-    return RespondJobPollRatelimit(response, *uuid, retry_after);
 }

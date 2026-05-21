@@ -92,8 +92,6 @@ set(${PROJECT_NAME}_headers
     include/config.hpp
     src/crawler/error.hpp
     include/crawler/fallback.hpp
-    include/client_ip.hpp
-    src/client_ip_ratelimiter.hpp
     include/error_utils.hpp
     include/http.hpp
     include/ip.hpp
@@ -122,7 +120,6 @@ add_library(
   src/crud.cpp
   src/capture_meta_repo.cpp
   src/shared_state_repo.cpp
-  src/client_ip_ratelimiter.cpp
   src/metrics.cpp
   src/url.cpp
   src/crawler/runner.cpp

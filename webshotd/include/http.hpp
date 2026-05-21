@@ -1,13 +1,9 @@
 #pragma once
 /**
  * @file
- * @brief HTTP helpers: JSON responses, request deadlines, and ratelimits for handlers.
+ * @brief HTTP helpers: JSON responses and request deadlines for handlers.
  */
 
-#include "client_ip.hpp"
-#include "client_ip_ratelimiter.hpp"
-#include "config.hpp"
-#include "crud.hpp"
 #include "deadline_utils.hpp"
 #include "error_utils.hpp"
 #include "text.hpp"
@@ -38,9 +34,6 @@ namespace eng = us::engine;
 namespace httpu {
 [[nodiscard]] std::string
 RespondError(server::http::HttpResponse &resp, server::http::HttpStatus status, String message);
-
-[[nodiscard]] std::string
-RespondClientIpRatelimit(server::http::HttpResponse &resp, std::chrono::milliseconds retry_after);
 } // namespace httpu
 
 // Handler base that enforces per-handler request deadlines.
@@ -89,82 +82,6 @@ private:
     const std::chrono::milliseconds request_timeout_;
 };
 
-// Handler base that enforces per-handler request deadlines and per-request client IP ratelimits.
-class [[nodiscard]] RatelimitedDeadlinedHttpHandler : public DeadlinedHttpHandler {
-public:
-    explicit RatelimitedDeadlinedHttpHandler(
-        const us::components::ComponentConfig &config,
-        const us::components::ComponentContext &context
-    )
-        : DeadlinedHttpHandler(config, context), crud_(context.FindComponent<Crud>()),
-          config_(context.FindComponent<Config>()),
-          ratelimiter_(context.FindComponent<ClientIpRatelimiter>())
-    {
-    }
-
-    [[nodiscard]] static us::yaml_config::Schema GetStaticConfigSchema()
-    {
-        return us::yaml_config::MergeSchemas<DeadlinedHttpHandler>(R"(
-type: object
-description: Handler static config
-additionalProperties: false
-properties: {}
-)");
-    }
-
-    [[nodiscard]]
-    std::string HandleRequestThrowDeadlined(
-        const server::http::HttpRequest &request, server::request::RequestContext &context
-    ) const final
-    {
-        auto client_ip = client::ip::Resolve(request, config_);
-        if (!client_ip)
-            return RespondInvalidClientIp(request);
-
-        const auto ratelimit = ratelimiter_.Acquire(*client_ip);
-        if (ratelimit)
-            return RespondClientIpRatelimit(request, ratelimit->retry_after);
-
-        return HandleRequestThrowRatelimitedDeadlined(request, context);
-    }
-
-protected:
-    [[nodiscard]]
-    virtual std::string HandleRequestThrowRatelimitedDeadlined(
-        const server::http::HttpRequest &request, server::request::RequestContext &context
-    ) const = 0;
-
-    [[nodiscard]] virtual std::string RespondClientIpRatelimit(
-        const server::http::HttpRequest &request, std::chrono::milliseconds retry_after
-    ) const
-    {
-        return httpu::RespondClientIpRatelimit(request.GetHttpResponse(), retry_after);
-    }
-
-    [[nodiscard]] virtual std::string
-    RespondInvalidClientIp(const server::http::HttpRequest &request) const
-    {
-        using namespace text::literals;
-        return httpu::RespondError(
-            request.GetHttpResponse(), server::http::HttpStatus::kBadRequest, "invalid client IP"_t
-        );
-    }
-
-    [[nodiscard]] virtual std::string
-    RespondRatelimitInternalError(const server::http::HttpRequest &request) const
-    {
-        using namespace text::literals;
-        return httpu::RespondError(
-            request.GetHttpResponse(), server::http::HttpStatus::kInternalServerError,
-            "internal server error"_t
-        );
-    }
-
-    Crud &crud_;
-    const Config &config_;
-    ClientIpRatelimiter &ratelimiter_;
-};
-
 namespace httpu {
 
 namespace json = us::formats::json;
@@ -198,18 +115,6 @@ RespondError(server::http::HttpResponse &resp, server::http::HttpStatus status, 
 )
 {
     return RespondJson(resp, status, ws::errors::MakeParamError(param_name, message));
-}
-
-[[nodiscard]] inline std::string
-RespondClientIpRatelimit(server::http::HttpResponse &resp, std::chrono::milliseconds retry_after)
-{
-    using namespace text::literals;
-
-    const auto retry_after_seconds = std::chrono::ceil<std::chrono::seconds>(retry_after);
-    resp.SetHeader(us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count()));
-    return RespondError(
-        resp, server::http::HttpStatus::kTooManyRequests, "client IP rate limited"_t
-    );
 }
 
 } // namespace httpu

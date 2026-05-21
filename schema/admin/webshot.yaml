@@ -197,23 +197,6 @@ paths:
                   value:
                     error:
                       message: invalid parameter
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
-              examples:
-                ip_ratelimit:
-                  value:
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:

@@ -12,10 +12,6 @@
 
 namespace ws {
 namespace us = userver;
-enum class ClientIpSource {
-    kPeer,
-    kTrustedHeader,
-};
 
 enum class Mode {
     kLocal,
@@ -50,15 +46,6 @@ public:
     /** @return Runner-owned state directory for webshotd instance. */
     [[nodiscard]] std::string_view StateDir() const noexcept { return state_dir_; }
 
-    /** @return Source used for client IP ratelimit identity. */
-    [[nodiscard]] ClientIpSource ClientIpSource() const noexcept { return client_ip_source_; }
-
-    /** @return Trusted header name for client IP ratelimit identity. */
-    [[nodiscard]] std::string_view ClientIpHeaderName() const noexcept
-    {
-        return client_ip_header_name_;
-    }
-
     /** @name S3 parameters */
     ///@{
     [[nodiscard]] Mode S3Mode() const noexcept { return s3_mode_; }
@@ -77,8 +64,6 @@ private:
     bool allowlist_only_;
     bool https_only_;
     std::string state_dir_;
-    enum ClientIpSource client_ip_source_;
-    std::string client_ip_header_name_;
     enum Mode s3_mode_;
     String s3_bucket_name_;
     String s3_endpoint_url_;

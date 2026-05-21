@@ -42,13 +42,14 @@ using namespace text::literals;
 CaptureByLinkHandler::CaptureByLinkHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : RatelimitedDeadlinedHttpHandler(config, context),
+    : DeadlinedHttpHandler(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>()),
       access_policy_(context.FindComponent<AccessPolicyStore>()),
       metrics_(context.FindComponent<Metrics>())
 {
 }
 
-std::string CaptureByLinkHandler::HandleRequestThrowRatelimitedDeadlined(
+std::string CaptureByLinkHandler::HandleRequestThrowDeadlined(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {

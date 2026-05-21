@@ -10,10 +10,7 @@
     lib.optionalAttrs (value != null) {
       ${name} = value;
     };
-  unitName =
-    if cfg.s3Mode == "local"
-    then "webshot-local-s3"
-    else "webshot";
+  unitName = "webshot";
   unitFile = "${unitName}.service";
   configVars =
     optionalValue "pg_mode" cfg.pgMode
@@ -25,8 +22,6 @@
     }
     // optionalValue "allowlist_only" cfg.allowlistOnly
     // optionalValue "https_only" cfg.httpsOnly
-    // optionalValue "client_ip_source" cfg.clientIpSource
-    // optionalValue "client_ip_header_name" cfg.clientIpHeaderName
     // lib.optionalAttrs (cfg.pgMode == "external") (
       optionalValue "pg_capture_meta_db_dsn" cfg.pgCaptureMetaDbDsn
       // optionalValue "pg_shared_state_db_dsn" cfg.pgSharedStateDbDsn
@@ -39,6 +34,36 @@
     // lib.optionalAttrs (cfg.s3Mode == "external" && cfg.s3UseSts == true) (
       optionalValue "s3_credentials_endpoint" cfg.s3CredentialsEndpoint
     );
+
+  ncfg = cfg.nginx;
+  storagePrefix = "/webshot/";
+  proto =
+    if ncfg.forceSSL
+    then "https"
+    else "http";
+  rateLimitZone =
+    lib.optionalString ncfg.rateLimit.enable
+    "limit_req_zone $binary_remote_addr zone=webshot:10m rate=${ncfg.rateLimit.rate};";
+  rateLimitDirective =
+    lib.optionalString ncfg.rateLimit.enable
+    "limit_req zone=webshot burst=${toString ncfg.rateLimit.burst} nodelay;";
+
+  pkg =
+    if cfg.package != null && cfg.s3Mode == "local"
+    then
+      pkgs.symlinkJoin {
+        name = "webshot";
+        paths = [cfg.package];
+        postBuild = ''
+          rm $out/lib/systemd/system/webshot.service
+          substitute ${cfg.package}/lib/systemd/system/webshot.service \
+            $out/lib/systemd/system/webshot.service \
+            --replace-fail \
+              '--config-vars-source /etc/webshot/config_vars.yaml' \
+              '--config-vars-source /etc/webshot/config_vars.yaml --seaweedfs-s3-config ''${CREDENTIALS_DIRECTORY}/seaweedfs_s3_config.json'
+        '';
+      }
+    else cfg.package;
 in {
   options.services.webshot = {
     enable = lib.mkEnableOption "webshot";
@@ -137,7 +162,7 @@ in {
     seaweedfsS3ConfigPath = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "Path to the SeaweedFS S3 config JSON file (required when s3Mode is local).";
+      description = "Path to the SeaweedFS S3 config JSON file; required when s3Mode is local.";
     };
 
     allowlistOnly = lib.mkOption {
@@ -152,40 +177,86 @@ in {
       description = "Whether capture links must use HTTPS.";
     };
 
-    clientIpSource = lib.mkOption {
-      type = lib.types.nullOr (lib.types.enum ["peer" "trusted_header"]);
-      default = null;
-      description = "Source of the client IP used by webshot.";
-    };
-
-    clientIpHeaderName = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "Trusted header name used when clientIpSource is trusted_header.";
+    nginx = lib.mkOption {
+      type = lib.types.submodule {
+        options = {
+          hostName = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Hostname for the managed Nginx virtual host.";
+          };
+          enableACME = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Whether to enable ACME, Let's Encrypt, for the managed vhost.";
+          };
+          forceSSL = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Whether to force SSL, HTTP to HTTPS redirect, on the managed vhost.";
+          };
+          openFirewall = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Whether to open firewall ports for the managed Nginx; 80 always, 443 when enableACME or forceSSL is enabled.";
+          };
+          rateLimit = lib.mkOption {
+            type = lib.types.submodule {
+              options = {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = true;
+                  description = "Whether to enable rate limiting on the managed vhost.";
+                };
+                rate = lib.mkOption {
+                  type = lib.types.str;
+                  default = "1r/s";
+                  description = "Rate limit for all proxied endpoints.";
+                };
+                burst = lib.mkOption {
+                  type = lib.types.ints.unsigned;
+                  default = 15;
+                  description = "Burst allowance for the rate limit.";
+                };
+              };
+            };
+            default = {};
+            description = "Rate limiting configuration for the managed vhost.";
+          };
+        };
+      };
+      default = {};
+      description = "Managed Nginx configuration.";
     };
   };
 
   config = lib.mkIf cfg.enable {
-    users.groups = lib.mkIf (cfg.package != null) {
+    assertions = [
+      {
+        assertion = ncfg.hostName != null;
+        message = "services.webshot.nginx.hostName is required when services.webshot.enable is true.";
+      }
+    ];
+
+    users.groups = lib.mkIf (pkg != null) {
       ${cfg.group} = {};
     };
-    users.users = lib.mkIf (cfg.package != null) {
+    users.users = lib.mkIf (pkg != null) {
       ${cfg.user} = {
         isSystemUser = true;
         group = cfg.group;
       };
     };
 
-    systemd.packages = lib.optional (cfg.package != null) cfg.package;
+    systemd.packages = lib.optional (pkg != null) pkg;
 
     environment.etc."webshot/config_vars.yaml".source =
       configVarsFormat.generate "webshot-config-vars.yaml" configVars;
 
-    systemd.targets.multi-user.wants = lib.optional (cfg.package != null) unitFile;
+    systemd.targets.multi-user.wants = lib.optional (pkg != null) unitFile;
 
-    systemd.services.${unitName} = lib.mkIf (cfg.package != null) {
+    systemd.services.${unitName} = lib.mkIf (pkg != null) {
       serviceConfig = {
-        # Override the unit's DynamicUser=yes to avoid UID churn breaking embedded Postgres.
         DynamicUser = lib.mkForce false;
         User = cfg.user;
         Group = cfg.group;
@@ -197,5 +268,63 @@ in {
           "seaweedfs_s3_config.json:${cfg.seaweedfsS3ConfigPath}";
       };
     };
+
+    services.nginx = {
+      enable = true;
+      recommendedProxySettings = lib.mkDefault true;
+      commonHttpConfig = rateLimitZone;
+      virtualHosts =
+        if ncfg.hostName == null
+        then {}
+        else {
+          ${ncfg.hostName} = {
+            enableACME = ncfg.enableACME;
+            forceSSL = ncfg.forceSSL;
+            extraConfig = ''
+              # Convert nginx-generated rate limit responses into the JSON error envelope
+              # expected by the web UI client-side templates.
+              error_page 429 = @webshot_rate_limited_429;
+              error_page 503 = @webshot_rate_limited_503;
+
+              location @webshot_rate_limited_429 {
+                internal;
+                default_type application/json;
+                return 429 '{"error":{"message":"client IP rate limited"}}';
+              }
+
+              location @webshot_rate_limited_503 {
+                internal;
+                default_type application/json;
+                return 503 '{"error":{"message":"client IP rate limited"}}';
+              }
+            '';
+            locations =
+              {
+                "= /v1/capture" = {
+                  proxyPass = "http://127.0.0.1:8080";
+                  extraConfig = rateLimitDirective;
+                };
+                "/" = {
+                  proxyPass = "http://127.0.0.1:8080";
+                  extraConfig = rateLimitDirective;
+                };
+              }
+              // lib.optionalAttrs (cfg.s3Mode == "local") {
+                "^~ ${storagePrefix}" = {
+                  proxyPass = "http://127.0.0.1:8333";
+                  extraConfig = rateLimitDirective;
+                };
+              };
+          };
+        };
+    };
+
+    networking.firewall.allowedTCPPorts = lib.mkIf ncfg.openFirewall (
+      [80] ++ lib.optional (ncfg.enableACME || ncfg.forceSSL) 443
+    );
+
+    services.webshot.publicBaseUrl =
+      lib.mkIf (cfg.s3Mode == "local" && ncfg.hostName != null)
+      (lib.mkDefault "${proto}://${ncfg.hostName}${storagePrefix}");
   };
 }

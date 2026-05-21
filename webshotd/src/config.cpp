@@ -34,16 +34,7 @@ Config::Config(
       url_bytes_max_(usize{config["url_bytes_max"].As<size_t>()}),
       allowlist_only_(config["allowlist_only"].As<bool>()),
       https_only_(config["https_only"].As<bool>()),
-      state_dir_(config["state_dir"].As<std::string>()), client_ip_source_([&config]() {
-          const auto source = config["client_ip_source"].As<std::string>();
-          if (source == "peer")
-              return ClientIpSource::kPeer;
-          if (source == "trusted_header")
-              return ClientIpSource::kTrustedHeader;
-          Invariant("client_ip_source must be peer or trusted_header"_t);
-      }()),
-      client_ip_header_name_(config["client_ip_header_name"].As<std::string>()),
-      s3_mode_([&config]() {
+      state_dir_(config["state_dir"].As<std::string>()), s3_mode_([&config]() {
           const auto mode = config["s3_mode"].As<std::string>();
           if (mode == "local")
               return Mode::kLocal;
@@ -58,10 +49,6 @@ Config::Config(
       s3_timeout_duration_(config["s3_timeout_ms"].As<int>() * 1ms)
 {
     Invariant(!state_dir_.empty(), "state_dir must not be empty"_t);
-    Invariant(
-        client_ip_source_ != ClientIpSource::kTrustedHeader || !client_ip_header_name_.empty(),
-        "client_ip_header_name must be set when client_ip_source is trusted_header"_t
-    );
 }
 
 us::yaml_config::Schema Config::GetStaticConfigSchema()
@@ -85,13 +72,6 @@ properties:
   state_dir:
     type: string
     description: Runner-owned state directory for this webshotd instance
-  client_ip_source:
-    type: string
-    enum: [peer, trusted_header]
-    description: Source used for per-IP ratelimit identity
-  client_ip_header_name:
-    type: string
-    description: Trusted header containing a single client IP literal when client_ip_source is trusted_header
   s3_bucket:
     type: string
     description: Target bucket name

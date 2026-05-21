@@ -18,7 +18,7 @@ class Crud;
 /**
  * @brief HTTP handler for polling crawl job status by UUID.
  */
-class [[nodiscard]] JobHandler : public RatelimitedDeadlinedHttpHandler {
+class [[nodiscard]] JobHandler : public DeadlinedHttpHandler {
 public:
     static constexpr std::string_view kName = "job_handler";
     explicit JobHandler(
@@ -27,13 +27,12 @@ public:
     );
 
     [[nodiscard]]
-    std::string HandleRequestThrowRatelimitedDeadlined(
+    std::string HandleRequestThrowDeadlined(
         const server::http::HttpRequest &request, server::request::RequestContext &
     ) const final;
 
-protected:
-    [[nodiscard]] std::string RespondClientIpRatelimit(
-        const server::http::HttpRequest &request, std::chrono::milliseconds retry_after
-    ) const override;
+private:
+    Crud &crud_;
+    const Config &config_;
 };
 } // namespace ws

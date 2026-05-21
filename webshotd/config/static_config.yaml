@@ -48,22 +48,12 @@ components_manager:
       allowlist_only: $allowlist_only
       https_only: $https_only
       state_dir: $state_dir
-      client_ip_source: $client_ip_source
-      client_ip_header_name: $client_ip_header_name
       s3_mode: $s3_mode
       s3_bucket: $s3_bucket
       s3_endpoint: $s3_endpoint
       s3_region: $s3_region
       public_base_url: $public_base_url
       s3_timeout_ms: 3000
-    client_ip_ratelimiter:
-      interval_ms: $interval_ms
-      size: $client_ip_ratelimiter.size
-      size#fallback: 10000
-      ways: 1
-      lifetime: "0"
-      background-update: false
-      config-settings: false
     dns-client:
       fs-task-processor: fs-task-processor
     server:
