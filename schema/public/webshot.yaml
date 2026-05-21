@@ -55,23 +55,6 @@ paths:
                   value:
                     error:
                       message: "page_token: invalid page_token"
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
-              examples:
-                ip_ratelimit:
-                  value:
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:
@@ -142,23 +125,6 @@ paths:
                   value:
                     error:
                       message: link not in allowlist
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
-              examples:
-                ip_ratelimit:
-                  value:
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:
@@ -216,23 +182,6 @@ paths:
                   value:
                     error:
                       message: "page_token: invalid page_token"
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
-              examples:
-                ip_ratelimit:
-                  value:
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:
@@ -280,25 +229,6 @@ paths:
                   value:
                     error:
                       message: job not found
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CaptureJobRatelimitResponse'
-              examples:
-                ip_ratelimit:
-                  value:
-                    uuid: 123e4567-e89b-12d3-a456-426614174000
-                    retry_after_sec: 1
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:
@@ -347,23 +277,6 @@ paths:
                   value:
                     error:
                       message: capture not found
-        '429':
-          description: Client IP is rate limited.
-          headers:
-            Retry-After:
-              description: Seconds until this client IP may perform another operation.
-              schema:
-                type: integer
-                minimum: 1
-          content:
-            application/json:
-              schema:
-                $ref: '../common/common.yaml#/components/schemas/ErrorEnvelope'
-              examples:
-                ip_ratelimit:
-                  value:
-                    error:
-                      message: client IP rate limited
         '500':
           description: Internal server error.
           content:
@@ -391,29 +304,6 @@ components:
           type: string
           enum: [next, previous]
           description: Direction to page from the cursor item
-    CaptureJobRatelimitResponse:
-      type: object
-      additionalProperties: false
-      required: [uuid, retry_after_sec, error]
-      properties:
-        uuid:
-          type: string
-          format: uuid
-        retry_after_sec:
-          type: integer
-          minimum: 1
-        error:
-          type: object
-          additionalProperties: false
-          required: [message]
-          properties:
-            message:
-              type: string
-      example:
-        uuid: 123e4567-e89b-12d3-a456-426614174000
-        retry_after_sec: 1
-        error:
-          message: client IP rate limited
     CreateCaptureRequest:
       type: object
       additionalProperties: false

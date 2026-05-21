@@ -249,8 +249,6 @@ def snapshot_runtime_config_vars(ctx: RuntimeUpContext) -> None:
 
     raw_vars.setdefault("allowlist_only", True)
     raw_vars.setdefault("https_only", True)
-    raw_vars.setdefault("client_ip_source", "trusted_header")
-    raw_vars.setdefault("client_ip_header_name", "X-Forwarded-For")
 
     raw_vars.setdefault("crawler_run_timeout_sec", 15)
     raw_vars.setdefault("crawler_cpu_cores", 1)
@@ -270,7 +268,6 @@ def snapshot_runtime_config_vars(ctx: RuntimeUpContext) -> None:
     raw_vars.setdefault("crawler_browser_stop_timeout_ms", 1500)
     raw_vars.setdefault("crawler_proxy_stop_timeout_ms", 500)
     raw_vars.setdefault("link_ratelimit_sec", 0)
-    raw_vars.setdefault("interval_ms", 500)
 
     raw_vars.setdefault("s3_use_sts", False)
     if "s3_credentials_endpoint" not in raw_vars:

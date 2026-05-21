@@ -7,7 +7,6 @@
 #include "by_id_handler.hpp"
 #include "by_prefix_handler.hpp"
 #include "capture_meta_repo.hpp"
-#include "client_ip_ratelimiter.hpp"
 #include "config.hpp"
 #include "crud.hpp"
 #include "deny_and_purge_handler.hpp"
@@ -65,7 +64,6 @@ int main(int argc, char *argv[])
             .Append<ws::CaptureMetaRepo>()
             .Append<ws::SharedStateRepo>()
             .Append<ws::AccessPolicyStore>()
-            .Append<ws::ClientIpRatelimiter>()
             .Append<ws::Crud>()
             .Append<us::server::middlewares::SimpleHttpMiddlewareFactory<
                 ws::ExceptionHandlingMiddleware>>()

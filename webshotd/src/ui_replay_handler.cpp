@@ -26,7 +26,6 @@
 
 using namespace ws;
 using namespace text::literals;
-using namespace std::chrono_literals;
 
 namespace {
 
@@ -116,11 +115,12 @@ namespace server = us::server;
 UiReplayHandler::UiReplayHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : RatelimitedDeadlinedHttpHandler(config, context)
+    : DeadlinedHttpHandler(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>())
 {
 }
 
-std::string UiReplayHandler::HandleRequestThrowRatelimitedDeadlined(
+std::string UiReplayHandler::HandleRequestThrowDeadlined(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {
@@ -161,45 +161,6 @@ std::string UiReplayHandler::HandleRequestThrowRatelimitedDeadlined(
     }
     response.SetHeader(us::http::headers::kLocation, *replay_location);
     return {};
-}
-
-std::string UiReplayHandler::RespondClientIpRatelimit(
-    const server::http::HttpRequest &request, std::chrono::milliseconds retry_after
-) const
-{
-    using namespace text::literals;
-    using enum server::http::HttpStatus;
-
-    auto &response = request.GetHttpResponse();
-    response.SetContentType("text/html; charset=utf-8");
-
-    const auto retry_after_seconds = std::chrono::ceil<std::chrono::seconds>(retry_after);
-    response.SetStatus(kTooManyRequests);
-    response.SetHeader(us::http::headers::kRetryAfter, std::to_string(retry_after_seconds.count()));
-    return RenderErrorPage("client IP rate limited"_t);
-}
-
-std::string UiReplayHandler::RespondInvalidClientIp(const server::http::HttpRequest &request) const
-{
-    using namespace text::literals;
-    using enum server::http::HttpStatus;
-
-    auto &response = request.GetHttpResponse();
-    response.SetContentType("text/html; charset=utf-8");
-    response.SetStatus(kBadRequest);
-    return RenderErrorPage("invalid client IP"_t);
-}
-
-std::string
-UiReplayHandler::RespondRatelimitInternalError(const server::http::HttpRequest &request) const
-{
-    using namespace text::literals;
-    using enum server::http::HttpStatus;
-
-    auto &response = request.GetHttpResponse();
-    response.SetContentType("text/html; charset=utf-8");
-    response.SetStatus(kInternalServerError);
-    return RenderErrorPage("internal server error"_t);
 }
 
 } // namespace ws

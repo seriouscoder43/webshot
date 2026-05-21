@@ -37,11 +37,12 @@ using namespace text::literals;
 ByPrefixHandler::ByPrefixHandler(
     const us::components::ComponentConfig &config, const us::components::ComponentContext &context
 )
-    : RatelimitedDeadlinedHttpHandler(config, context)
+    : DeadlinedHttpHandler(config, context), crud_(context.FindComponent<Crud>()),
+      config_(context.FindComponent<Config>())
 {
 }
 
-std::string ByPrefixHandler::HandleRequestThrowRatelimitedDeadlined(
+std::string ByPrefixHandler::HandleRequestThrowDeadlined(
     const server::http::HttpRequest &request, server::request::RequestContext &
 ) const
 {

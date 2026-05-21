@@ -331,32 +331,17 @@ in {
                 install_systemd_unit() {
                   local unit_name="$1"
                   local description="$2"
-                  local conflicts="$3"
-                  local local_s3_assert="$4"
-                  local exec_start_extra="$5"
                   local unit_path="$out/lib/systemd/system/$unit_name"
 
           install -Dm0644 ${./systemd/webshot.service.in} "$unit_path"
           substituteInPlace "$unit_path" \
             --replace-fail '@description@' "$description" \
-            --replace-fail '@conflicts@' "$conflicts" \
-            --replace-fail '@localS3Assert@' "$local_s3_assert" \
-            --replace-fail '@out@' "$out" \
-            --replace-fail '@execStartExtra@' "$exec_start_extra"
+            --replace-fail '@out@' "$out"
         }
 
                 install_systemd_unit \
                   webshot.service \
-                  "webshot stack" \
-                  webshot-local-s3.service \
-                  "" \
-                  ""
-                install_systemd_unit \
-                  webshot-local-s3.service \
-                  "webshot stack (local S3)" \
-                  webshot.service \
-                  "" \
-                  ' --seaweedfs-s3-config ${"$"}{CREDENTIALS_DIRECTORY}/seaweedfs_s3_config.json'
+                  "webshot stack"
       '';
     };
 }
