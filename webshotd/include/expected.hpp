@@ -27,6 +27,9 @@ template <typename T> using RemoveCvref = std::remove_cvref_t<T>;
 template <typename U, typename T>
 concept SameUncvref = std::same_as<RemoveCvref<U>, T>;
 
+// helper trait to disambiguate TryExpectedError operations
+template <typename> struct IsExpectedValueCtorAllowed : std::true_type {};
+
 [[noreturn]] inline void AbortExpected(std::string_view message) noexcept
 {
     us::utils::AbortWithStacktrace(message);
@@ -122,9 +125,10 @@ public:
 
     template <typename U>
         requires(
-            !detail::SameUncvref<U, T> && !detail::SameUncvref<U, Self> &&
-            !detail::SameUncvref<U, StdExpected> && !detail::SameUncvref<U, std::unexpected<E>> &&
-            !detail::SameUncvref<U, Unex<E>> && std::constructible_from<T, U>
+            detail::IsExpectedValueCtorAllowed<U>::value && !detail::SameUncvref<U, T> &&
+            !detail::SameUncvref<U, Self> && !detail::SameUncvref<U, StdExpected> &&
+            !detail::SameUncvref<U, std::unexpected<E>> && !detail::SameUncvref<U, Unex<E>> &&
+            std::constructible_from<T, U>
         )
     constexpr Expected(U &&value) noexcept(std::is_nothrow_constructible_v<T, U>)
         : inner_(T(std::forward<U>(value)))

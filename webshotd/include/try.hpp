@@ -18,6 +18,11 @@ struct IsTrySupported
 
 struct TryEmptyReturn final {
     template <typename T> constexpr operator std::optional<T>() const noexcept { return {}; }
+    template <typename T, typename E>
+    constexpr operator Expected<std::optional<T>, E>() const noexcept
+    {
+        return Expected<std::optional<T>, E>{std::optional<T>{}};
+    }
 };
 
 template <typename E> struct TryExpectedError final {
@@ -34,6 +39,11 @@ template <typename E> struct TryExpectedError final {
 
     E error;
 };
+
+// try(exp<T,E>) -> empty opt<T>
+//               -> E for exp<opt<T>,E>
+template <typename E> struct IsExpectedValueCtorAllowed<TryExpectedError<E>> : std::false_type {};
+template <> struct IsExpectedValueCtorAllowed<TryEmptyReturn> : std::false_type {};
 
 template <typename T, typename E>
 [[nodiscard]] constexpr bool TryHasValue(const Expected<T, E> &expected) noexcept
@@ -169,21 +179,20 @@ template <typename T, typename F>
 #error "ENSURE is already defined"
 #endif
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 #define TRY(...)                                                                                   \
     WS_TRY_DIAGNOSTIC_PUSH WS_TRY_DIAGNOSTIC_IGNORE({                                              \
-        auto &&_temporaryTryResult = (__VA_ARGS__);                                                \
+        auto &&_temporary_try_result = (__VA_ARGS__);                                              \
         static_assert(                                                                             \
-            ::ws::detail::IsTrySupported<decltype(_temporaryTryResult)>::value,                    \
+            ::ws::detail::IsTrySupported<decltype(_temporary_try_result)>::value,                  \
             "TRY only supports ws::Expected and std::optional"                                     \
         );                                                                                         \
-        if (!::ws::detail::TryHasValue(_temporaryTryResult)) [[unlikely]] {                        \
+        if (!::ws::detail::TryHasValue(_temporary_try_result)) [[unlikely]] {                      \
             return ::ws::detail::TryError(                                                         \
-                std::forward<decltype(_temporaryTryResult)>(_temporaryTryResult)                   \
+                std::forward<decltype(_temporary_try_result)>(_temporary_try_result)               \
             );                                                                                     \
         }                                                                                          \
         ::ws::detail::TryExtract(                                                                  \
-            std::forward<decltype(_temporaryTryResult)>(_temporaryTryResult)                       \
+            std::forward<decltype(_temporary_try_result)>(_temporary_try_result)                   \
         );                                                                                         \
     }) WS_TRY_DIAGNOSTIC_POP
 
