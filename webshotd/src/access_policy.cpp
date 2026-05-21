@@ -3,10 +3,8 @@
  * @file
  * @brief Link prefix access policy checks and persistence backed by Postgres.
  */
-#include <webshot/sql_queries.hpp>
-
-#include "database.hpp"
 #include "prefix_utils.hpp"
+#include "shared_state_repo.hpp"
 #include "text_postgres_formatter.hpp"
 #include "try.hpp"
 
@@ -16,15 +14,11 @@
 
 #include <userver/components/component.hpp>
 #include <userver/logging/log.hpp>
-#include <userver/storages/postgres/cluster.hpp>
-#include <userver/storages/postgres/component.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 namespace ws {
 namespace us = userver;
-namespace pg = us::storages::postgres;
 using namespace text::literals;
-namespace sql = webshot::sql;
 
 String AccessDecisionMessage(AccessDecisionReason reason)
 {
@@ -56,29 +50,10 @@ struct AccessPolicyStore::Impl {
     explicit Impl(
         const us::components::ComponentConfig &, const us::components::ComponentContext &context
     )
-        : cluster(context.FindComponent<us::components::Postgres>("shared_state_db").GetCluster())
+        : repo(context.FindComponent<SharedStateRepo>())
     {
     }
-
-    template <pg::ClusterHostType Host, typename F, typename... Ts>
-    [[nodiscard]] auto ExecDb(F &&f, Ts &&...args) const
-    {
-        return pgx::Execute<Host>(cluster, std::forward<F>(f), std::forward<Ts>(args)...);
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto Readonly(F &&f, Ts &&...args) const
-    {
-        return ExecDb<pg::ClusterHostType::kSlaveOrMaster>(
-            std::forward<F>(f), std::forward<Ts>(args)...
-        );
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto Readwrite(F &&f, Ts &&...args) const
-    {
-        return ExecDb<pg::ClusterHostType::kMaster>(std::forward<F>(f), std::forward<Ts>(args)...);
-    }
-
-    pg::ClusterPtr cluster;
+    SharedStateRepo &repo;
 };
 
 AccessPolicyStore::AccessPolicyStore(
@@ -98,9 +73,7 @@ Expected<bool, AccessPolicyError> AccessPolicyStore::IsAllowedPrefix(const Strin
 Expected<bool, AccessPolicyError> AccessPolicyStore::IsDeniedPrefix(const String &prefix_key)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
-    auto denied = impl_->Readonly(
-        [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckDenylistTree, tree
-    );
+    auto denied = impl_->repo.CheckDenylistTree(tree);
     if (!denied)
         LOG_ERROR() << std::format("access policy check failed: {}", denied.Error().what);
     return TRY_ERR_AS(std::move(denied), AccessPolicyError::kDbError);
@@ -109,9 +82,7 @@ Expected<bool, AccessPolicyError> AccessPolicyStore::IsDeniedPrefix(const String
 Expected<bool, AccessPolicyError> AccessPolicyStore::IsAllowlistedPrefix(const String &prefix_key)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
-    auto allowlisted = impl_->Readonly(
-        [&](auto &res) { return res.template AsSingleRow<bool>(); }, sql::kCheckAllowlistTree, tree
-    );
+    auto allowlisted = impl_->repo.CheckAllowlistTree(tree);
     if (!allowlisted)
         LOG_ERROR() << std::format("allowlist check failed: {}", allowlisted.Error().what);
     return TRY_ERR_AS(std::move(allowlisted), AccessPolicyError::kDbError);
@@ -148,10 +119,7 @@ Expected<void, AccessPolicyError>
 AccessPolicyStore::InsertPrefix(const String &prefix_key, const String &reason)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
-    const auto inserted = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertDenylistPrefix, prefix_key, tree,
-        reason
-    );
+    const auto inserted = impl_->repo.InsertDenylistPrefix(prefix_key, tree, reason);
     if (!inserted) {
         LOG_CRITICAL() << std::format(
             "denylist insert failed for {}: {}", prefix_key, inserted.Error().what
@@ -165,10 +133,7 @@ Expected<void, AccessPolicyError>
 AccessPolicyStore::InsertAllowlistPrefix(const String &prefix_key, const String &reason)
 {
     const auto tree = prefix::MakePrefixTree(prefix_key);
-    const auto inserted = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kInsertAllowlistPrefix, prefix_key, tree,
-        reason
-    );
+    const auto inserted = impl_->repo.InsertAllowlistPrefix(prefix_key, tree, reason);
     if (!inserted) {
         LOG_ERROR() << std::format(
             "allowlist insert failed for {}: {}", prefix_key, inserted.Error().what
@@ -180,9 +145,7 @@ AccessPolicyStore::InsertAllowlistPrefix(const String &prefix_key, const String 
 
 Expected<void, AccessPolicyError> AccessPolicyStore::RemoveAllowlistPrefix(const String &prefix_key)
 {
-    const auto removed = impl_->Readwrite(
-        [&](auto &res) { static_cast<void>(res); }, sql::kDeleteAllowlistPrefix, prefix_key
-    );
+    const auto removed = impl_->repo.DeleteAllowlistPrefix(prefix_key);
     if (!removed) {
         LOG_ERROR() << std::format(
             "allowlist remove failed for {}: {}", prefix_key, removed.Error().what

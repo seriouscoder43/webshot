@@ -55,6 +55,10 @@ endif()
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 set(${PROJECT_NAME}_headers
+    src/postgres_db_component.hpp
+    include/database.hpp
+    src/capture_meta_repo.hpp
+    src/shared_state_repo.hpp
     include/integers.hpp
     include/s3/credentials_types.hpp
     include/s3/sts_client.hpp
@@ -114,6 +118,8 @@ add_library(
   src/exception_handling_middleware.cpp
   src/ui_replay_handler.cpp
   src/crud.cpp
+  src/capture_meta_repo.cpp
+  src/shared_state_repo.cpp
   src/client_ip_ratelimiter.cpp
   src/metrics.cpp
   src/url.cpp

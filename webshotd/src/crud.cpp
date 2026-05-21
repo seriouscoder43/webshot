@@ -7,10 +7,10 @@
  * metadata writes, and various paged queries.
  */
 #include "access_policy.hpp"
+#include "capture_meta_repo.hpp"
 #include "config.hpp"
 #include "crawler/error.hpp"
 #include "crawler/runner.hpp"
-#include "database.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "invariant.hpp"
@@ -26,11 +26,10 @@
 #include "schema/common/common.hpp"
 #include "schema/public/webshot.hpp"
 #include "server_errors.hpp"
+#include "shared_state_repo.hpp"
 #include "text.hpp"
 #include "text_postgres_formatter.hpp"
 #include "try.hpp"
-
-#include <webshot/sql_queries.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -60,8 +59,6 @@
 #include <userver/formats/json.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/rcu/rcu.hpp>
-#include <userver/storages/postgres/cluster.hpp>
-#include <userver/storages/postgres/component.hpp>
 #include <userver/storages/postgres/io/bytea.hpp>
 #include <userver/storages/postgres/io/chrono.hpp>
 #include <userver/storages/postgres/io/row_types.hpp>
@@ -88,7 +85,6 @@ namespace pg = us::storages::postgres;
 namespace httpc = us::clients::http;
 namespace rcu = us::rcu;
 namespace chrono = std::chrono;
-namespace sql = webshot::sql;
 } // namespace ws
 
 using namespace ws;
@@ -101,18 +97,7 @@ namespace {
 constexpr auto kCrawlerSeedAttemptsMax = 2;
 constexpr i64 kGiB = 1024_i64 * 1024_i64 * 1024_i64;
 
-struct [[nodiscard]] CaptureJobRow final {
-    Uuid uuid;
-    String link;
-    std::string status;
-    std::optional<std::string> error_category;
-    std::optional<std::string> error_message;
-    pg::TimePointTz created_at;
-    std::optional<pg::TimePointTz> started_at;
-    std::optional<pg::TimePointTz> finished_at;
-    std::optional<pg::TimePointTz> result_created_at;
-    std::optional<Uuid> result_capture_id;
-};
+using CaptureJobRow = SharedCrawlJobRow;
 
 enum class JobStatus {
     kPending,
@@ -127,11 +112,6 @@ enum class JobErrorKind {
     kS3Upload,
     kDbInsert,
     kInternalServer,
-};
-
-struct [[nodiscard]] CreateCaptureJobResult final {
-    dto::CaptureJob job;
-    bool created;
 };
 
 [[nodiscard]] String MakeCaptureObjectKey(const String &bucket, Uuid id)
@@ -244,7 +224,7 @@ ParseJobErrorKind(const std::optional<std::string> &error_category)
         .uuid = row.uuid,
         .link = row.link.ToBytes(),
         .status = ToDtoJobStatus(status),
-        .created_at = datetime::TimePointTz(row.created_at.GetUnderlying()),
+        .created_at = datetime::TimePointTz{row.created_at.GetUnderlying()},
     };
     if (row.started_at)
         job.started_at = datetime::TimePointTz(row.started_at->GetUnderlying());
@@ -441,8 +421,8 @@ public:
     const i64 purge_delete_batch_size;
     const Config &svc_cfg;
     Metrics &metrics;
-    pg::ClusterPtr cluster;
-    pg::ClusterPtr shared_cluster;
+    CaptureMetaRepo &capture_meta_repo;
+    SharedStateRepo &shared_state_repo;
     httpc::Client &http_client_;
     us::clients::dns::Resolver &dns_resolver_;
     eng::subprocess::ProcessStarter &process_starter_;
@@ -472,8 +452,8 @@ public:
     [[nodiscard]] Expected<datetime::TimePointTz, PgError> InsertJob(Uuid id, String link);
     [[nodiscard]] Expected<std::optional<dto::CaptureJob>, PgError>
     FindLatestJobForLink(const String &link);
-    [[nodiscard]] Expected<CreateCaptureJobResult, PgError>
-    GetOrCreateCaptureJobLocked(const String &normalized_link);
+    [[nodiscard]] Expected<SharedStateRepo::MakeOrReuseCrawlJobResult, PgError>
+    MakeOrReuseCaptureJobLocked(const String &normalized_link);
     [[nodiscard]] Expected<void, PgError> MarkJobRunning(Uuid id);
     [[nodiscard]] Expected<chrono::milliseconds, PgError>
     MarkJobSucceeded(Uuid id, Uuid result_capture_id, const datetime::TimePointTz &created_at);
@@ -540,10 +520,8 @@ public:
           purge_job_timeout(cfg["purge_job_timeout_sec"].As<int64_t>() * 1s),
           purge_delete_batch_size(cfg["purge_delete_batch_size"].As<int64_t>()),
           svc_cfg(ctx.FindComponent<Config>()), metrics(ctx.FindComponent<Metrics>()),
-          cluster(ctx.FindComponent<us::components::Postgres>("capture_meta_db").GetCluster()),
-          shared_cluster(
-              ctx.FindComponent<us::components::Postgres>("shared_state_db").GetCluster()
-          ),
+          capture_meta_repo(ctx.FindComponent<CaptureMetaRepo>()),
+          shared_state_repo(ctx.FindComponent<SharedStateRepo>()),
           http_client_(ctx.FindComponent<us::components::HttpClient>().GetHttpClient()),
           dns_resolver_(ctx.FindComponent<us::clients::dns::Component>().GetResolver()),
           process_starter_(ctx.FindComponent<us::components::ProcessStarter>().Get()),
@@ -628,43 +606,6 @@ public:
         s3_state.Assign(initial_state);
         StartCrawlJobCleanupTask();
     }
-
-    template <pg::ClusterHostType Host, Metrics::Error ErrorMetric, typename F, typename... Ts>
-    [[nodiscard]] auto ExecDb(pg::ClusterPtr &cluster_in, F &&f, Ts &&...args)
-    {
-        auto out = pgx::Execute<Host>(cluster_in, std::forward<F>(f), std::forward<Ts>(args)...);
-        if (!out)
-            metrics.AccountError(ErrorMetric);
-        return out;
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto Readonly(F &&f, Ts &&...args)
-    {
-        return ExecDb<pg::ClusterHostType::kSlaveOrMaster, Metrics::Error::kDbCaptureMetaRead>(
-            cluster, std::forward<F>(f), std::forward<Ts>(args)...
-        );
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto Readwrite(F &&f, Ts &&...args)
-    {
-        return ExecDb<pg::ClusterHostType::kMaster, Metrics::Error::kDbCaptureMetaWrite>(
-            cluster, std::forward<F>(f), std::forward<Ts>(args)...
-        );
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto SharedReadonly(F &&f, Ts &&...args)
-    {
-        return ExecDb<pg::ClusterHostType::kSlaveOrMaster, Metrics::Error::kDbSharedStateRead>(
-            shared_cluster, std::forward<F>(f), std::forward<Ts>(args)...
-        );
-    }
-
-    template <typename F, typename... Ts> [[nodiscard]] auto SharedReadwrite(F &&f, Ts &&...args)
-    {
-        return ExecDb<pg::ClusterHostType::kMaster, Metrics::Error::kDbSharedStateWrite>(
-            shared_cluster, std::forward<F>(f), std::forward<Ts>(args)...
-        );
-    }
 };
 
 Crud::Crud(
@@ -735,64 +676,32 @@ Crud::Impl::RunCrawlJob(Uuid id, Link link)
 
 Expected<datetime::TimePointTz, PgError> Crud::Impl::InsertJob(Uuid id, String link)
 {
-    struct Row {
-        pg::TimePointTz created_at;
-    };
-    auto row = TRY(SharedReadwrite(
-        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); }, sql::kInsertCrawlJob,
-        id, link
-    ));
-    return datetime::TimePointTz(row.created_at.GetUnderlying());
+    return shared_state_repo.InsertCrawlJob(id, link);
 }
 
 Expected<void, PgError> Crud::Impl::MarkJobRunning(Uuid id)
 {
-    return SharedReadwrite([](auto &) {}, sql::kUpdateCrawlJobRunning, id);
+    return shared_state_repo.MarkCrawlJobRunning(id);
 }
 
 Expected<chrono::milliseconds, PgError> Crud::Impl::MarkJobSucceeded(
     Uuid id, Uuid result_capture_id, const datetime::TimePointTz &created_at
 )
 {
-    struct Row {
-        Uuid id;
-        int64_t duration_ms;
-    };
-    auto row = TRY(SharedReadwrite(
-        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
-        sql::kUpdateCrawlJobSucceeded, id, pg::TimePointTz(created_at.GetTimePoint()),
-        result_capture_id
-    ));
-    return row.duration_ms * 1ms;
+    return shared_state_repo.MarkCrawlJobSucceeded(id, result_capture_id, created_at);
 }
 
 Expected<chrono::milliseconds, PgError>
 Crud::Impl::MarkJobFailed(Uuid id, const String &error_category, const String &error_message)
 {
-    struct Row {
-        Uuid id;
-        int64_t duration_ms;
-    };
-    auto row = TRY(SharedReadwrite(
-        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
-        sql::kUpdateCrawlJobFailed, id, error_category, error_message
-    ));
-    return row.duration_ms * 1ms;
+    return shared_state_repo.MarkCrawlJobFailed(id, error_category, error_message);
 }
 
 Expected<std::optional<dto::CaptureJob>, PgError> Crud::Impl::LoadJob(Uuid id)
 {
-    return SharedReadonly(
-               [&](auto &res) {
-                   return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
-               },
-               sql::kSelectCrawlJob, id
-    )
-        .Transform([](auto row_opt) -> std::optional<dto::CaptureJob> {
-            if (!row_opt)
-                return {};
-            return ::MakeCaptureJob(GrabValueOf(row_opt));
-        });
+    auto row_opt = TRY(shared_state_repo.LoadCrawlJob(id));
+    auto row = TRY(row_opt);
+    return ::MakeCaptureJob(std::move(row));
 }
 
 Expected<Crud::Impl::S3ClientState, std::string> Crud::Impl::FetchS3ClientStateFromSts()
@@ -853,61 +762,17 @@ Expected<void, std::string> Crud::Impl::DeleteCaptureObject(String key)
 Expected<std::optional<dto::CaptureJob>, PgError>
 Crud::Impl::FindLatestJobForLink(const String &link)
 {
-    return SharedReadonly(
-               [&](auto &res) {
-                   return res.template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
-               },
-               sql::kSelectLatestCrawlJobByLink, link
-    )
-        .Transform([](auto row_opt) -> std::optional<dto::CaptureJob> {
-            if (!row_opt)
-                return {};
-            return ::MakeCaptureJob(GrabValueOf(row_opt));
-        });
+    auto row_opt = TRY(shared_state_repo.FindLatestCrawlJobForLink(link));
+    auto row = TRY(row_opt);
+    return ::MakeCaptureJob(std::move(row));
 }
 
-Expected<CreateCaptureJobResult, PgError>
-Crud::Impl::GetOrCreateCaptureJobLocked(const String &normalized_link)
+Expected<SharedStateRepo::MakeOrReuseCrawlJobResult, PgError>
+Crud::Impl::MakeOrReuseCaptureJobLocked(const String &normalized_link)
 {
-    struct Row {
-        pg::TimePointTz created_at;
-    };
-
-    auto result = pgx::ReadwriteTransaction(shared_cluster, [&](auto &trx) {
-        if (link_ratelimit > 0s) {
-            trx.Execute(sql::kLockCrawlJobLink, text::Format("link:{}", normalized_link));
-        }
-
-        if (link_ratelimit > 0s) {
-            auto latest_job_row_opt = trx.Execute(sql::kSelectLatestCrawlJobByLink, normalized_link)
-                                          .template AsOptionalSingleRow<CaptureJobRow>(pg::kRowTag);
-            if (latest_job_row_opt) {
-                auto job = ::MakeCaptureJob(GrabValueOf(latest_job_row_opt));
-                const auto now = datetime::Now();
-                const auto last_created = job.created_at.GetTimePoint();
-                const auto ratelimit_until = last_created + link_ratelimit;
-                if (now < ratelimit_until) {
-                    trx.Commit();
-                    return CreateCaptureJobResult{.job = std::move(job), .created = false};
-                }
-            }
-        }
-
-        auto id = us::utils::generators::GenerateBoostUuid();
-        auto row = trx.Execute(sql::kInsertCrawlJob, id, normalized_link)
-                       .template AsSingleRow<Row>(pg::kRowTag);
-        trx.Commit();
-
+    auto result = TRY(shared_state_repo.MakeOrReuseCrawlJobLocked(normalized_link, link_ratelimit));
+    if (result.created)
         metrics.AccountCaptureJobCreated();
-        return CreateCaptureJobResult{
-            .job = MakePendingCaptureJob(
-                id, normalized_link, datetime::TimePointTz(row.created_at.GetUnderlying())
-            ),
-            .created = true,
-        };
-    });
-    if (!result)
-        metrics.AccountError(Metrics::Error::kDbSharedStateWrite);
     return result;
 }
 
@@ -969,11 +834,9 @@ void Crud::Impl::StartCrawlJobCleanupTask()
 
 void Crud::Impl::CleanupOldJobs()
 {
-    const auto now = datetime::Now();
-    const auto cutoff = now - crawl_job_retention;
-    const auto deleted = SharedReadwrite(
-        [](auto &) {}, sql::kDeleteCrawlJobsExpired, pg::TimePointTz(cutoff)
-    );
+    auto now = datetime::Now();
+    auto cutoff = now - crawl_job_retention;
+    auto deleted = shared_state_repo.DeleteCrawlJobsExpired(datetime::TimePointTz{cutoff});
     if (!deleted) {
         LOG_ERROR() << std::format("Failed to delete old crawl jobs: {}", deleted.Error().what);
     }
@@ -1087,14 +950,8 @@ std::optional<StoredCapture> Crud::Impl::PersistMetadataForContext(CrawlContext 
     Invariant(ctx.content_sha256, "persistMetadataForContext called without content hash"_t);
     Invariant(ssize(*ctx.content_sha256) == 32_i64, "content hash must be 32 bytes"_t);
 
-    struct ExistingRow {
-        Uuid id;
-        pg::TimePointTz created_at;
-    };
-    auto existing = Readonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<ExistingRow>(pg::kRowTag); },
-        sql::kSelectCaptureByLinkHash, ctx.link.Normalized(),
-        pg::Bytea(std::string_view{*ctx.content_sha256})
+    auto existing = capture_meta_repo.FindCaptureByLinkHash(
+        ctx.link.Normalized(), std::string_view{*ctx.content_sha256}
     );
     if (!existing) {
         LOG_ERROR() << std::format(
@@ -1104,10 +961,10 @@ std::optional<StoredCapture> Crud::Impl::PersistMetadataForContext(CrawlContext 
         return {};
     }
     if (*existing) {
-        auto row = GrabValueOf(GrabValueOf(existing));
+        auto row = **existing;
         return StoredCapture{
-            .id = row.id,
-            .created_at = datetime::TimePointTz(row.created_at.GetUnderlying()),
+            .id = row.uuid,
+            .created_at = datetime::TimePointTz{row.created_at.GetUnderlying()},
         };
     }
 
@@ -1118,14 +975,9 @@ std::optional<StoredCapture> Crud::Impl::PersistMetadataForContext(CrawlContext 
         return {};
     }
 
-    struct Row {
-        Uuid id;
-        pg::TimePointTz created_at;
-    };
-    auto row = Readwrite(
-        [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); }, sql::kInsertCapture,
+    auto row = capture_meta_repo.InsertCapture(
         ctx.id, ctx.link.Normalized(), prefix_key, prefix_tree,
-        pg::Bytea(std::string_view{*ctx.content_sha256}), ctx.replay_url->Href()
+        std::string_view{*ctx.content_sha256}, ctx.replay_url->Href()
     );
     if (!row) {
         const auto deleted = DeleteCaptureObject(ctx.s3_key);
@@ -1138,7 +990,7 @@ std::optional<StoredCapture> Crud::Impl::PersistMetadataForContext(CrawlContext 
     }
     return StoredCapture{
         .id = ctx.id,
-        .created_at = datetime::TimePointTz(row->created_at.GetUnderlying()),
+        .created_at = datetime::TimePointTz{row->created_at.GetUnderlying()},
     };
 }
 
@@ -1148,16 +1000,7 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
 
     const auto tree = prefix::MakePrefixTree(prefix_key);
     while (true) {
-        auto ids = Readonly(
-            [&](auto &res) {
-                std::vector<Uuid> ids_out;
-                ids_out.reserve(res.Size());
-                for (auto row : res)
-                    ids_out.emplace_back(row[0].template As<Uuid>());
-                return ids_out;
-            },
-            sql::kSelectIdsByDenyPrefixPaged, tree, Raw(purge_delete_batch_size)
-        );
+        auto ids = capture_meta_repo.GetCaptureIdsByPrefixTree(tree, purge_delete_batch_size);
         if (!ids) {
             LOG_ERROR() << std::format(
                 "access policy purge failed for {}: {}", prefix_key, ids.Error().what
@@ -1183,7 +1026,7 @@ Expected<void, errors::CrudError> Crud::Impl::PurgePrefix(const String &prefix_k
 
             single.clear();
             single.emplace_back(id);
-            auto db_deleted = Readwrite([](auto &) {}, sql::kDeleteCapturesByIds, single);
+            auto db_deleted = capture_meta_repo.DeleteCapturesByIds(single);
             if (!db_deleted) {
                 LOG_ERROR() << std::format(
                     "access policy purge failed for {}: {}", prefix_key, db_deleted.Error().what
@@ -1215,14 +1058,14 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::MakeCaptureJob(Link link
     Uuid id;
 
     if (impl_ptr->link_ratelimit > 0s) {
-        auto capture_job_result = impl_ptr->GetOrCreateCaptureJobLocked(normalized_link);
+        auto capture_job_result = impl_ptr->MakeOrReuseCaptureJobLocked(normalized_link);
         if (!capture_job_result)
             LOG_ERROR() << std::format(
                 "Failed to create or reuse crawl job for {}: {}", normalized_link,
                 capture_job_result.Error().what
             );
         auto result = TRY_ERR_AS(std::move(capture_job_result), kDbError);
-        job = std::move(result.job);
+        job = ::MakeCaptureJob(std::move(result.job));
         if (!result.created)
             return job;
         id = job.uuid;
@@ -1323,15 +1166,7 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::FindCapture(Uuid
 {
     using enum errors::CrudError;
 
-    struct Row {
-        pg::TimePointTz created_at;
-        std::string link;
-        std::string replay_url;
-    };
-    auto capture = impl_->Readonly(
-        [&](auto &res) { return res.template AsOptionalSingleRow<Row>(pg::kRowTag); },
-        sql::kSelectCapture, uuid
-    );
+    auto capture = impl_->capture_meta_repo.FindCapture(uuid);
     if (!capture) {
         LOG_ERROR() << std::format(
             "DB select capture failed for {}: {}", uuid, capture.Error().what
@@ -1349,7 +1184,7 @@ Expected<std::optional<CaptureRecord>, errors::CrudError> Crud::FindCapture(Uuid
     auto replay_url = *Url::FromText(replay_url_text);
     return {CaptureRecord{
         .uuid = uuid,
-        .created_at = datetime::TimePointTz(row.created_at.GetUnderlying()),
+        .created_at = datetime::TimePointTz{row.created_at.GetUnderlying()},
         .link = link_text,
         .replay_url = replay_url,
     }};
@@ -1373,11 +1208,6 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
     namespace crud = ws::crud;
     using enum errors::CapturePageError;
 
-    struct Row {
-        Uuid uuid;
-        pg::TimePointTz timepoint;
-    };
-
     const auto limit = impl_->page_max + 1_i64;
     std::optional<crud::Cursor> cur;
     if (!page_token.Empty()) {
@@ -1386,26 +1216,18 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
             return Unex(kInvalidPageToken);
     }
 
-    Expected<std::vector<Row>, PgError> rows = [&]() {
+    Expected<std::vector<CaptureMetaIdRow>, PgError> rows = [&]() {
         if (!cur) {
-            return impl_->Readonly(
-                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-                sql::kSelectCaptureByLinkFirst, link.Normalized(), Raw(limit)
-            );
+            return impl_->capture_meta_repo.GetCapturesByLinkFirst(link.Normalized(), limit);
         }
         if (cur->direction == crud::PageDirection::kPrevious) {
-            return impl_->Readonly(
-                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-                sql::kSelectCaptureByLinkPrev, link.Normalized(), Raw(limit),
-                pg::TimePointTz(cur->created_at), cur->id
+            return impl_->capture_meta_repo.GetCapturesByLinkPrev(
+                link.Normalized(), limit, pg::TimePointTz{cur->created_at}, cur->id
             );
         }
-        auto rows = impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkNext, link.Normalized(), Raw(limit),
-            pg::TimePointTz(cur->created_at), cur->id
+        return impl_->capture_meta_repo.GetCapturesByLinkNext(
+            link.Normalized(), limit, pg::TimePointTz{cur->created_at}, cur->id
         );
-        return rows;
     }();
 
     if (!rows) {
@@ -1428,7 +1250,7 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
     std::vector<dto::UuidWithTime> items;
     items.reserve(db_rows.size());
     for (const auto &row : db_rows) {
-        items.emplace_back(row.uuid, datetime::TimePointTz(row.timepoint.GetUnderlying()));
+        items.emplace_back(row.uuid, datetime::TimePointTz{row.created_at.GetUnderlying()});
     }
 
     std::optional<std::string> next;
@@ -1474,39 +1296,26 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
     const std::string upper = crud::UpperExclusiveBound(normalized_prefix);
     const auto links_per_page = impl_->links_per_page_max;
 
-    struct Row {
-        Uuid uuid;
-        pg::TimePointTz tp;
-    };
-
     auto select_links_first = [&](i64 limit) {
-        return impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-            sql::kSelectDistinctLinksByPrefixFirst, normalized_prefix, upper, Raw(limit)
+        return impl_->capture_meta_repo.GetDistinctLinksByPrefixFirst(
+            normalized_prefix, upper, limit
         );
     };
-    auto select_links_next = [&](String from_link, i64 limit) {
-        return impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-            sql::kSelectDistinctLinksByPrefixNext, normalized_prefix, upper, from_link, Raw(limit)
+    auto select_links_next = [&](const String &from_link, i64 limit) {
+        return impl_->capture_meta_repo.GetDistinctLinksByPrefixNext(
+            normalized_prefix, upper, from_link, limit
         );
     };
-    auto select_links_previous = [&](String from_link, i64 limit) {
-        return impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<String>>(); },
-            sql::kSelectDistinctLinksByPrefixPrev, normalized_prefix, upper, from_link, Raw(limit)
+    auto select_links_previous = [&](const String &from_link, i64 limit) {
+        return impl_->capture_meta_repo.GetDistinctLinksByPrefixPrev(
+            normalized_prefix, upper, from_link, limit
         );
     };
     auto has_rows_before_in_link =
         [&](const String &link, const crud::PrefixCursor &cursor) -> Expected<bool, PgError> {
-        auto rows = impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkPrev, link, Raw(1_i64), pg::TimePointTz(*cursor.created_at),
-            *cursor.id
+        return impl_->capture_meta_repo.HasRowsBeforeInLink(
+            link, pg::TimePointTz{*cursor.created_at}, *cursor.id
         );
-        if (!rows)
-            return Unex(rows.Error());
-        return !rows->empty();
     };
 
     std::vector<String> links;
@@ -1596,24 +1405,17 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         const auto link_limit = impl_->per_link_max + 1_i64;
         if (cur && cur->created_at && cur->id && cur->direction == crud::PageDirection::kPrevious &&
             link == cur->link) {
-            return impl_->Readonly(
-                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-                sql::kSelectCaptureByLinkPrev, link, Raw(link_limit),
-                pg::TimePointTz(*cur->created_at), *cur->id
+            return impl_->capture_meta_repo.GetCapturesByLinkPrev(
+                link, link_limit, pg::TimePointTz{*cur->created_at}, *cur->id
             );
         }
         if (idx == 0_i64 && cur && cur->created_at && cur->id &&
             cur->direction == crud::PageDirection::kNext) {
-            return impl_->Readonly(
-                [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-                sql::kSelectCaptureByLinkNext, link, Raw(link_limit),
-                pg::TimePointTz(*cur->created_at), *cur->id
+            return impl_->capture_meta_repo.GetCapturesByLinkNext(
+                link, link_limit, pg::TimePointTz{*cur->created_at}, *cur->id
             );
         }
-        return impl_->Readonly(
-            [&](auto &res) { return res.template AsContainer<std::vector<Row>>(pg::kRowTag); },
-            sql::kSelectCaptureByLinkFirst, link, Raw(link_limit)
-        );
+        return impl_->capture_meta_repo.GetCapturesByLinkFirst(link, link_limit);
     };
 
     const auto link_count = ssize(links);
@@ -1641,7 +1443,9 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         if (is_previous_cursor_link)
             std::ranges::reverse(db_rows);
         for (auto &&r : db_rows) {
-            items.emplace_back(r.uuid, datetime::TimePointTz(r.tp.GetUnderlying()), link.ToBytes());
+            items.emplace_back(
+                r.uuid, datetime::TimePointTz{r.created_at.GetUnderlying()}, link.ToBytes()
+            );
         }
     }
 
