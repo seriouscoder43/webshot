@@ -559,7 +559,7 @@ public:
         }
 
         if (state->main_request_id || state->main_request_error || state->loaded)
-            return crawler::SeedProbe{.status = Raw(0_i64), .load_state = Raw(0_i64)};
+            return crawler::SeedProbe{.status = 0, .load_state = 0};
 
         return {};
     }
