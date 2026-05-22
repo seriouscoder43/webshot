@@ -6,6 +6,7 @@
  * Contains helpers to sanitize user input, enforce scheme/host rules, and
  * produce a stable scheme-less key for storage and lookups.
  */
+#include "character_type.hpp"
 #include "ip.hpp"
 #include "text.hpp"
 
@@ -13,7 +14,6 @@
 #include <string>
 #include <string_view>
 
-#include <absl/strings/ascii.h>
 #include <absl/strings/strip.h>
 
 namespace {
@@ -21,11 +21,10 @@ namespace {
 /** RFC 3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) */
 static bool IsValidScheme(std::string_view sv) noexcept
 {
-    if (sv.empty() || !absl::ascii_isalpha(static_cast<unsigned char>(sv.front())))
+    if (sv.empty() || !ws::ctype::IsAsciiAlpha(sv.front()))
         return false;
     for (const char c : sv.substr(1)) {
-        if (!(absl::ascii_isalnum(static_cast<unsigned char>(c)) || c == '+' || c == '-' ||
-              c == '.'))
+        if (!(ws::ctype::IsAsciiAlnum(c) || c == '+' || c == '-' || c == '.'))
             return false;
     }
     return true;

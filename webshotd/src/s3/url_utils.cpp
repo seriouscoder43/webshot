@@ -1,8 +1,8 @@
 #include "s3/url_utils.hpp"
 
+#include "character_type.hpp"
 #include "try.hpp"
 
-#include <cctype>
 #include <stddef.h>
 #include <string>
 
@@ -19,10 +19,10 @@ namespace {
     const auto scheme_pos = text.find("://");
     if (scheme_pos == std::string_view::npos || scheme_pos == 0)
         return false;
-    if (!std::isalpha(static_cast<unsigned char>(text.front())))
+    if (!ctype::IsAsciiAlpha(text.front()))
         return false;
     for (const char c : text.substr(1, scheme_pos - 1)) {
-        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '+' || c == '-' || c == '.'))
+        if (!(ctype::IsAsciiAlnum(c) || c == '+' || c == '-' || c == '.'))
             return false;
     }
     return true;

@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <exception>
