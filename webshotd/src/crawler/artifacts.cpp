@@ -119,7 +119,7 @@ struct [[nodiscard]] SerializableResponse {
 [[nodiscard]] SerializableResponse
 MakeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 {
-    return SerializableResponse{
+    return {
         .response_url = redirect.redirect_url,
         .method = "GET"_t,
         .page_id = {},
@@ -134,7 +134,7 @@ MakeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 
 [[nodiscard]] SerializableResponse MakeMainDocumentResponse(const CapturedExchange &exchange)
 {
-    return SerializableResponse{
+    return {
         .response_url = exchange.final_url,
         .method = "GET"_t,
         .page_id = exchange.page_id,
@@ -149,7 +149,7 @@ MakeRedirectResponse(const CapturedMainDocumentRedirect &redirect)
 
 [[nodiscard]] SerializableResponse MakeResourceResponse(const CapturedResource &resource)
 {
-    return SerializableResponse{
+    return {
         .response_url = resource.resource_url,
         .method = resource.method,
         .page_id = {},
@@ -439,7 +439,7 @@ SerializeRecordPair(const SerializableResponse &response)
 [[nodiscard]] dto::WaczResource
 MakeWaczResource(std::string_view name, std::string_view path, std::string_view body)
 {
-    return dto::WaczResource{
+    return {
         .name = std::string(name),
         .path = std::string(path),
         .hash = Sha256PrefixedHex(body, "sha256:"),
@@ -463,7 +463,7 @@ MakeWaczResource(std::string_view name, std::string_view path, std::string_view 
 MakeWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resources)
 {
     const auto created = datetime::TimePointTz(datetime::Now());
-    return dto::WaczDataPackage{
+    return {
         .profile = "data-package",
         .resources = std::move(resources),
         .wacz_version = "1.1.1",

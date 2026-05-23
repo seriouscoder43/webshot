@@ -371,7 +371,7 @@ Client::MakePathStyleUrl(String path, std::optional<String> protocol_override) c
     auto url = protocol_override ? endpoint_.url.WithProtocol(*protocol_override) : endpoint_.url;
     url = url.WithPathname(raw_path).Stripped(Url::StripOptions::kHash | Url::StripOptions::kQuery);
 
-    return detail::BuiltUrl{
+    return {
         .href = url.Href(),
         .host = endpoint_.host,
         .raw_path = std::move(raw_path),
@@ -387,7 +387,7 @@ detail::BuiltUrl Client::MakeVirtualHostUrl(String path, String protocol) const
     const auto hostname = text::Format("{}.{}", bucket_name_, endpoint_.hostname);
     auto url = endpoint_.url.WithProtocol(protocol).WithHostname(hostname).WithPort(endpoint_.port);
     url = url.WithPathname(raw_path).Stripped(Url::StripOptions::kHash | Url::StripOptions::kQuery);
-    return detail::BuiltUrl{
+    return {
         .href = url.Href(),
         .host = url.Host(),
         .raw_path = std::move(raw_path),

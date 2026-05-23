@@ -12,7 +12,7 @@ namespace {
 
 [[nodiscard]] CrawlerError MakeNavigationError(std::optional<SeedProbe> seed_probe)
 {
-    return CrawlerError{
+    return {
         .kind = CrawlerErrorKind::kNavigation,
         .detail = "navigation error"_t,
         .seed_probe = std::move(seed_probe),

@@ -307,12 +307,12 @@ ParseAuthority(std::string_view authority, u16 default_port, PortMode port_mode)
     if (addr.Domain() == eng::io::AddrDomain::kInet) {
         Ip4::BytesType bytes{};
         std::memcpy(bytes.data(), &addr.As<sockaddr_in>()->sin_addr.s_addr, bytes.size());
-        return Ip{Ip4{bytes}};
+        return Ip4{bytes};
     }
     if (addr.Domain() == eng::io::AddrDomain::kInet6) {
         Ip6::BytesType bytes{};
         std::memcpy(bytes.data(), addr.As<sockaddr_in6>()->sin6_addr.s6_addr, bytes.size());
-        return Ip{Ip6{bytes}};
+        return Ip6{bytes};
     }
     return {};
 }
@@ -613,7 +613,7 @@ struct EgressProxy::Impl final {
                 auto counter = down_bytes_.Lock();
                 *counter -= unused;
             }
-            return usize{sent};
+            return {sent};
         } catch (const std::exception &) {
             auto counter = down_bytes_.Lock();
             *counter -= max_claim;
@@ -1031,7 +1031,7 @@ void EgressProxy::Stop() noexcept { impl_->StopAll(); }
 i64 EgressProxy::DownBytes() const noexcept
 {
     auto locked = impl_->down_bytes_.Lock();
-    return i64{*locked};
+    return {*locked};
 }
 
 std::optional<String> EgressProxy::ErrorReason() const noexcept

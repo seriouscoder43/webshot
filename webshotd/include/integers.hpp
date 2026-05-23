@@ -203,7 +203,7 @@ struct SSizeFn {
         requires requires(const C &c) { c.size(); }
     [[nodiscard]] constexpr i64 operator()(const C &c) const noexcept
     {
-        return i64{c.size()};
+        return {c.size()};
     }
 };
 
@@ -212,7 +212,7 @@ struct USizeFn {
         requires requires(const C &c) { c.size(); }
     [[nodiscard]] constexpr usize operator()(const C &c) const noexcept
     {
-        return usize{c.size()};
+        return {c.size()};
     }
 };
 
@@ -242,7 +242,7 @@ template <typename T> [[nodiscard]] std::optional<T> Parse(std::string_view byte
     const auto result = std::from_chars(begin, end, parsed);
     if (result.ec != std::errc{} || result.ptr != end)
         return {};
-    return T{parsed};
+    return {parsed};
 }
 
 } // namespace integers

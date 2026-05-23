@@ -144,7 +144,7 @@ UTEST(StsClient, InvalidEndpointReturnsError)
         [](const String &, const String &, const httpc::Headers &,
            std::chrono::milliseconds) -> ws::Expected<std::string, ws::StsError> {
         ADD_FAILURE() << "executor should not be called for invalid endpoint";
-        return std::string{};
+        return {};
     };
 
     const auto parsed = ws::detail::FetchStsWithExecutor(

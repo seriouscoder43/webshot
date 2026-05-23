@@ -102,9 +102,9 @@ CanonicalIpTextFromBytes(int family, const void *source) noexcept
     if (text.Empty())
         return {};
     if (auto addr = ParseIp4(text))
-        return Ip{*addr};
+        return {*addr};
     if (auto addr = ParseIp6(text))
-        return Ip{*addr};
+        return {*addr};
     return {};
 }
 

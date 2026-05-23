@@ -55,7 +55,7 @@ struct MoveOnly final {
 {
     if (!ok)
         return ws::Unex(TestError::kBeta);
-    return MoveOnly{33};
+    return {33};
 }
 
 [[nodiscard]] ws::Expected<int, TestError> DoubleExpected(bool ok)

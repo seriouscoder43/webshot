@@ -145,7 +145,7 @@ template <typename F> [[nodiscard]] Expected<void, std::string> RunS3Operation(F
 [[nodiscard]] dto::CaptureJob
 MakePendingCaptureJob(Uuid uuid, const String &link, const datetime::TimePointTz &created_at)
 {
-    return dto::CaptureJob{
+    return {
         .uuid = uuid,
         .link = link.ToBytes(),
         .status = dto::CaptureJob::Status::kPending,
@@ -865,7 +865,7 @@ CrawlerRunArtifacts Crud::Impl::RunCrawlerAttempt(const String &seed_url)
     using enum crawler::CrawlerErrorKind;
     using enum errors::CaptureErrorKind;
 
-    return errors::CaptureError{
+    return {
         .kind = error.kind == kArchiveSizeLimit ? kSizeLimit : kCrawler,
         .detail = crawler::FormatCrawlerError(error),
     };
