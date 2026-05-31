@@ -22,6 +22,15 @@
   };
   inherit (userverDeps) userverBuildPython userverLibs;
 
+  seaweedfs = let
+    seaweedfsPkgs = import inputs.seaweedfsNixpkgs.outPath {
+      system = nix.stdenv.hostPlatform.system;
+      config = {};
+      overlays = [];
+    };
+  in
+    seaweedfsPkgs.seaweedfs;
+
   repoPython = callPkg ./pkg/repo_python.nix {
     inherit s6Src srcs;
     python = nix.python3;
@@ -33,9 +42,6 @@
   pgmigrate = callSrcPkg ./pkg/pgmigrate.nix "pgmigrate" {};
   testsuite = callSrcPkg ./pkg/testsuite.nix "testsuite" {
     inherit pgmigrate;
-  };
-  seaweedfs = callPkg ./pkg/seaweedfs.nix {
-    inherit inputs;
   };
   includeWhatYouUse = callPkg ./pkg/include-what-you-use.nix {};
   boostSml = callSrcPkg ./pkg/boost-sml.nix "boostsml" {};
