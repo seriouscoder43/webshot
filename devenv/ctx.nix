@@ -212,7 +212,17 @@
       local destination="$2"
 
       mkdir -p "$(dirname "$destination")"
-      rsync -a --delete "$source"/ "$destination"/
+      mkdir -p "$destination"
+      chmod u+rwx "$destination"
+      rsync \
+        --recursive \
+        --copy-links \
+        --delete \
+        --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
+        "$source"/ \
+        "$destination"/
+      find "$destination" -type d -exec chmod 755 '{}' +
+      find "$destination" -type f -exec chmod 644 '{}' +
     }
     ${lib.concatMapStrings stageDir runtimeAssetDirs}
   '';
