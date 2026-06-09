@@ -246,13 +246,13 @@
       </div>
       {% else %}
       <div class="prefix-groups">
-        {% for item in items %}
-        {% if loop.first or item.link != items[loop.index0 - 1].link %}
-        <div class="prefix-group-link mono">{{ item.link }}</div>
         <div class="prefix-capture-head">
           <div>UUID</div>
           <div>Created</div>
         </div>
+        {% for item in items %}
+        {% if loop.first or item.link != items[loop.index0 - 1].link %}
+        <div class="prefix-group-link mono">{{ item.link }}</div>
         {% endif %}
         <div class="prefix-capture-row">
           <div><a class="mono" href="/vendor/replaywebpage/replay/{{ item.uuid }}">{{ item.uuid }}</a></div>

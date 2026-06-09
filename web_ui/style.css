@@ -152,12 +152,9 @@ button {
 .prefix-group-link {
   padding: 8px;
   background: #f8f8f8;
+  border-top: 1px solid #ddd;
   font-weight: 600;
   overflow-wrap: anywhere;
-}
-
-.prefix-group-link:not(:first-child) {
-  border-top: 1px solid #ddd;
 }
 
 .prefix-capture-head,
@@ -169,6 +166,8 @@ button {
 }
 
 .prefix-capture-head {
+  background: #fff;
+  border-bottom: 1px solid #ddd;
   font-weight: 600;
 }
 
