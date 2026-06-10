@@ -34,6 +34,7 @@ Config::Config(
       url_bytes_max_(usize{config["url_bytes_max"].As<size_t>()}),
       allowlist_only_(config["allowlist_only"].As<bool>()),
       https_only_(config["https_only"].As<bool>()),
+      crawler_assert_url_is_text_page_(config["crawler_assert_url_is_text_page"].As<bool>()),
       state_dir_(config["state_dir"].As<std::string>()), s3_mode_([&config]() {
           auto mode = config["s3_mode"].As<std::string>();
           if (mode == "local")
@@ -69,6 +70,9 @@ properties:
   https_only:
     type: boolean
     description: Whether crawler egress is restricted to HTTPS and WSS URLs
+  crawler_assert_url_is_text_page:
+    type: boolean
+    description: Whether the crawler rejects non-UTF-8 main document bodies
   state_dir:
     type: string
     description: Runner-owned state directory for this webshotd instance

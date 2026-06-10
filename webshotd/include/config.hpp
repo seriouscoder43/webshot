@@ -43,6 +43,12 @@ public:
     /** @return Whether crawler egress is restricted to HTTPS/WSS. */
     [[nodiscard]] bool HttpsOnly() const noexcept { return https_only_; }
 
+    /** @return Whether the crawler should reject non-UTF-8 main document bodies. */
+    [[nodiscard]] bool CrawlerAssertUrlIsTextPage() const noexcept
+    {
+        return crawler_assert_url_is_text_page_;
+    }
+
     /** @return Runner-owned state directory for webshotd instance. */
     [[nodiscard]] std::string_view StateDir() const noexcept { return state_dir_; }
 
@@ -63,6 +69,7 @@ private:
     usize url_bytes_max_;
     bool allowlist_only_;
     bool https_only_;
+    bool crawler_assert_url_is_text_page_;
     std::string state_dir_;
     enum Mode s3_mode_;
     String s3_bucket_name_;

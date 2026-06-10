@@ -57,6 +57,7 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
+#include <userver/utils/text_light.hpp>
 namespace chrono = ws::chrono;
 using namespace ws::chrono_literals;
 using namespace text::literals;
@@ -222,6 +223,13 @@ RetainBody(const std::string &body, RetainedBodyBudget &budget)
         );
     budget.retained_bytes = next_retained_bytes;
     return body;
+}
+
+[[nodiscard]] Expected<void, String> AssertTextPageBody(std::string_view body)
+{
+    if (!us::utils::text::IsUtf8(body))
+        return Unex("main document body is not valid UTF-8"_t);
+    return {};
 }
 
 [[nodiscard]] std::optional<std::string>
@@ -580,11 +588,9 @@ public:
 
     [[nodiscard]] Expected<std::string, String> ReadBody(
         crawler::CdpSession &cdp_session, RetainedBodyBudget &budget,
-        const std::string &fallback_body
+        const std::string &fallback_body, bool assert_url_is_text_page
     ) const
     {
-        if (!fallback_body.empty())
-            return RetainBody(fallback_body, budget);
         std::optional<String> body_request_id;
         {
             auto state = data_.Lock();
@@ -596,6 +602,24 @@ public:
         if (!body_request_id)
             return RetainBody(fallback_body, budget);
 
+        if (!fallback_body.empty()) {
+            if (!assert_url_is_text_page)
+                return RetainBody(fallback_body, budget);
+
+            dto::NetworkGetResponseBodyParams params;
+            params.requestId = body_request_id->ToBytes();
+            auto body = cdp_session.Send<dto::NetworkGetResponseBodyResult>(
+                "Network.getResponseBody"_t, params
+            );
+            if (!body)
+                return RetainBody(fallback_body, budget);
+            auto decoded_body = DecodeCdpBody(*body);
+            if (!decoded_body)
+                return RetainBody(fallback_body, budget);
+            TRY(AssertTextPageBody(*decoded_body));
+            return RetainBody(fallback_body, budget);
+        }
+
         dto::NetworkGetResponseBodyParams params;
         params.requestId = body_request_id->ToBytes();
         auto body = cdp_session.Send<dto::NetworkGetResponseBodyResult>(
@@ -606,6 +630,8 @@ public:
         auto decoded_body = DecodeCdpBody(*body);
         if (!decoded_body)
             return RetainBody(fallback_body, budget);
+        if (assert_url_is_text_page)
+            TRY(AssertTextPageBody(*decoded_body));
         return RetainBody(*decoded_body, budget);
     }
 
@@ -1447,7 +1473,11 @@ private:
         browser_->MarkPhase("read_dom_state_done");
         RetainedBodyBudget budget{max_archive_bytes_, 0_i64};
         browser_->MarkPhase("read_main_body");
-        auto body = TRY(GetPageTracker().ReadBody(GetSession(), budget, dom_state.html));
+        auto body = TRY(
+            GetPageTracker().ReadBody(
+                GetSession(), budget, dom_state.html, config_.CrawlerAssertUrlIsTextPage()
+            )
+        );
         browser_->MarkPhase("read_resources");
         auto resources = TRY(GetPageTracker().ReadResources(GetSession(), budget));
 

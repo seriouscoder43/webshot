@@ -303,3 +303,35 @@ async def test_cdp_ingest_caps_url_bytes_max(service_client, pgsql):
     with capture_meta_db.cursor() as cur:
         cur.execute("select 1 from capture where id = %s", (uuid.UUID(job_id),))
         assert cur.fetchone() is None
+
+
+@pytest.mark.asyncio
+async def test_capture_rejects_invalid_utf8_main_document(
+    service_client, pgsql, test_target_payload_dir
+):
+    payload_path = test_target_payload_dir / "invalid-utf8-main-document"
+    payload_path.write_bytes(
+        b"<!doctype html><html><head><title>bad</title></head><body>\xff</body></html>"
+    )
+    try:
+        link = f"https://{TEST_HOST}/invalid-utf8-main-document"
+        resp = await service_client.post("/v1/capture", json={"link": link})
+        assert resp.status == 202
+        job_id = resp.json()["uuid"]
+
+        job = await wait_for_job_status(service_client, job_id, expected_status="failed")
+        assert job["error"]["error"]["message"] == "capture failed"
+
+        db = pgsql["capture_meta_db"]
+        with db.cursor() as cur:
+            cur.execute(
+                "select error_message from crawl_job where id = %s",
+                (uuid.UUID(job_id),),
+            )
+            (error_message,) = cur.fetchone()
+        assert "main document body is not valid UTF-8" in error_message
+        with db.cursor() as cur:
+            cur.execute("select 1 from capture where id = %s", (uuid.UUID(job_id),))
+            assert cur.fetchone() is None
+    finally:
+        payload_path.unlink(missing_ok=True)

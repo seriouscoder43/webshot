@@ -48,6 +48,8 @@ components_manager:
       url_bytes_max#fallback: 32768
       allowlist_only: $allowlist_only
       https_only: $https_only
+      crawler_assert_url_is_text_page: $crawler_assert_url_is_text_page
+      crawler_assert_url_is_text_page#fallback: true
       state_dir: $state_dir
       s3_mode: $s3_mode
       s3_bucket: $s3_bucket
