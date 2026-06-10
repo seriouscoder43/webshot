@@ -54,7 +54,7 @@ UTEST(PrefixPagination, EncodeDecodeWithTimeAndIdRoundTrip)
 {
     const std::string prefix = "example.com/p/";
     const std::string link = "example.com/p/resource";
-    auto tp = Clock::time_point(std::chrono::microseconds(4242424242));
+    auto tp = Clock::time_point{chrono::microseconds{4242424242}};
     auto id = us::utils::generators::GenerateBoostUuid();
     auto prefix_text = *String::FromBytes(prefix);
     auto link_text = *String::FromBytes(link);

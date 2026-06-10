@@ -50,16 +50,16 @@ namespace {
     );
 }
 
-[[nodiscard]] Expected<std::chrono::system_clock::time_point, StsError>
+[[nodiscard]] Expected<chrono::SystemClock::time_point, StsError>
 ParseExpiration(const String &expiration)
 {
-    std::chrono::system_clock::time_point expires_at;
+    chrono::SystemClock::base::time_point expires_at;
     if (!cctz::parse(
             datetime::kRfc3339Format, expiration.ToBytes(), cctz::utc_time_zone(), &expires_at
         )) {
         return Unex(StsError::kInvalidExpiration);
     }
-    return expires_at;
+    return chrono::FromStdSystemTimePoint(expires_at);
 }
 
 } // namespace
@@ -86,7 +86,7 @@ Expected<StsCredentials, StsError> detail::FetchStsWithExecutor(
     const s3::AccessKeyId &static_access_key_id,
     const s3::SecretAccessKey &static_secret_access_key, const String &region,
     const String &role_arn, const String &role_session_name, const String &policy_json,
-    std::chrono::seconds duration, std::chrono::milliseconds timeout
+    chrono::seconds duration, chrono::milliseconds timeout
 )
 {
     const auto sts_url = TRY_OK_OR(
@@ -122,10 +122,9 @@ Expected<StsCredentials, StsError> detail::FetchStsWithExecutor(
 
     const String payload_hash = s3::Sha256Hex(body.View());
 
-    const auto now = datetime::Now();
-    s3::SigParams params(
-        region.ToBytes(), "sts", static_access_key_id, static_secret_access_key, {}, now
-    );
+    const auto now = chrono::Now();
+    s3::SigParams params{region.ToBytes(),         "sts", static_access_key_id,
+                         static_secret_access_key, {},    now};
 
     std::vector<std::pair<String, String>> headers_to_sign;
     headers_to_sign.emplace_back("host"_t, host);
@@ -149,13 +148,12 @@ Expected<StsCredentials, StsError> FetchStsCredentials(
     const s3::AccessKeyId &static_access_key_id,
     const s3::SecretAccessKey &static_secret_access_key, const String &region,
     const String &role_arn, const String &role_session_name, const String &policy_json,
-    std::chrono::seconds duration, std::chrono::milliseconds timeout
+    chrono::seconds duration, chrono::milliseconds timeout
 )
 {
     detail::StsExecutor exec = [&http_client](
                                    const String &url, const String &body,
-                                   const httpc::Headers &headers,
-                                   std::chrono::milliseconds timeout_ms
+                                   const httpc::Headers &headers, chrono::milliseconds timeout_ms
                                ) -> Expected<std::string, StsError> {
         auto url_bytes = url.ToBytes();
         auto body_bytes = body.ToBytes();

@@ -15,7 +15,7 @@
 namespace ws {
 namespace us = userver;
 using namespace text::literals;
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 
 namespace {
 
@@ -46,7 +46,7 @@ Config::Config(
       s3_endpoint_url_(ConfigText(config, "s3_endpoint")),
       s3_region_name_(ConfigText(config, "s3_region")),
       public_base_url_(ConfigText(config, "public_base_url")),
-      s3_timeout_duration_(config["s3_timeout_ms"].As<int>() * 1ms)
+      s3_timeout_duration_(config["s3_timeout_ms"].As<int>() * 1_ms)
 {
     Invariant(!state_dir_.empty(), "state_dir must not be empty"_t);
 }

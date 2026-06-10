@@ -24,7 +24,7 @@ using namespace text::literals;
 UTEST(Pagination, CursorRoundTrip)
 {
     Cursor cursor{
-        Clock::time_point(std::chrono::microseconds(987654321)),
+        Clock::time_point{chrono::microseconds{987654321}},
         us::utils::generators::GenerateBoostUuid(),
         PageDirection::kPrevious,
     };

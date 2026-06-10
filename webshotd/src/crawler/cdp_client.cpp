@@ -7,9 +7,9 @@
 #include "schema/cdp.hpp"
 #include "try.hpp"
 
+#include "chrono.hpp"
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -40,7 +40,7 @@
 #include <userver/utils/text_light.hpp>
 #include <userver/utils/underlying_value.hpp>
 #include <userver/websocket/connection.hpp>
-namespace chrono = std::chrono;
+namespace chrono = ws::chrono;
 
 namespace ws::crawler {
 namespace us = userver;
@@ -65,7 +65,7 @@ constexpr std::string_view kWebsocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B1
 
 [[nodiscard]] std::string CurrentTraceTimestamp()
 {
-    return datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format);
+    return chrono::UtcTimestring(chrono::Now(), datetime::kRfc3339Format);
 }
 
 struct HandshakeResponse final {
@@ -439,9 +439,7 @@ Expected<std::unique_ptr<CdpClient>, CdpError> CdpClient::Connect(
     auto trace_fd = TRY(OpenTraceFile(fs_task_processor, trace_path));
 
     eng::io::Socket socket{eng::io::AddrDomain::kUnix, eng::io::SocketType::kStream};
-    const auto handshake_deadline = PickEarlierDeadline(
-        overall_deadline, eng::Deadline::FromDuration(handshake_timeout)
-    );
+    const auto handshake_deadline = ClampDeadline(overall_deadline, handshake_timeout);
     auto address = eng::io::Sockaddr::MakeUnixSocketAddress(socket_path);
     TRY(ConnectCdpSocket(socket, address, handshake_deadline));
 
@@ -532,9 +530,7 @@ Expected<json::Value, CdpError> CdpClient::SendRaw(
         return Unex(error);
     }
 
-    const auto deadline = PickEarlierDeadline(
-        overall_deadline_, eng::Deadline::FromDuration(command_timeout_)
-    );
+    const auto deadline = ClampDeadline(overall_deadline_, command_timeout_);
     auto waiter_state = waiter->data.UniqueLock();
     const auto ready = [&waiter_state]() { return waiter_state->done; };
     if (!ready() && !waiter_state->cv.WaitUntil(waiter_state.GetLock(), deadline, ready)) {

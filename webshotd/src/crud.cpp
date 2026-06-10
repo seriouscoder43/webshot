@@ -11,6 +11,7 @@
 #include "config.hpp"
 #include "crawler/error.hpp"
 #include "crawler/runner.hpp"
+#include "deadline_utils.hpp"
 #include "grab_value.hpp"
 #include "integers.hpp"
 #include "invariant.hpp"
@@ -30,8 +31,8 @@
 #include "text.hpp"
 #include "try.hpp"
 
+#include "chrono.hpp"
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
 #include <exception>
 #include <format>
@@ -75,6 +76,8 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
+namespace chrono = ws::chrono;
+
 namespace ws {
 namespace us = userver;
 namespace eng = us::engine;
@@ -83,14 +86,13 @@ namespace concurrent = us::concurrent;
 namespace pg = us::storages::postgres;
 namespace httpc = us::clients::http;
 namespace rcu = us::rcu;
-namespace chrono = std::chrono;
 } // namespace ws
 
 using namespace ws;
 using namespace text::literals;
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 using Uuid = boost::uuids::uuid;
-using chrono::system_clock;
+using chrono::SystemClock;
 
 namespace {
 constexpr auto kCrawlerSeedAttemptsMax = 2;
@@ -430,7 +432,7 @@ public:
     CrawlerRunner crawler_runner;
     struct [[nodiscard]] S3ClientState {
         s3::Credentials creds;
-        system_clock::time_point expires_at;
+        SystemClock::time_point expires_at;
         std::shared_ptr<s3::Client> client;
     };
     rcu::Variable<S3ClientState> s3_state;
@@ -477,46 +479,46 @@ public:
         : page_max(cfg["captures_page_max"].As<int64_t>()),
           per_link_max(cfg["captures_per_link_max"].As<int64_t>()),
           links_per_page_max(cfg["captures_links_per_page_max"].As<int64_t>()),
-          crawler_run_timeout(cfg["crawler_run_timeout_sec"].As<int64_t>() * 1s),
+          crawler_run_timeout(cfg["crawler_run_timeout_sec"].As<int64_t>() * 1_s),
           crawler_cpu_cores(cfg["crawler_cpu_cores"].As<int64_t>()),
           crawler_memory_gib(cfg["crawler_memory_gib"].As<int64_t>()),
-          crawler_job_overhead_timeout(cfg["crawler_job_overhead_timeout_sec"].As<int64_t>() * 1s),
-          crawler_post_load_delay(cfg["crawler_post_load_delay_sec"].As<int64_t>() * 1s),
-          crawler_net_idle_wait(cfg["crawler_net_idle_wait_sec"].As<int64_t>() * 1s),
-          crawler_page_extra_delay(cfg["crawler_page_extra_delay_sec"].As<int64_t>() * 1s),
-          crawler_behavior_timeout(cfg["crawler_behavior_timeout_sec"].As<int64_t>() * 1s),
+          crawler_job_overhead_timeout(cfg["crawler_job_overhead_timeout_sec"].As<int64_t>() * 1_s),
+          crawler_post_load_delay(cfg["crawler_post_load_delay_sec"].As<int64_t>() * 1_s),
+          crawler_net_idle_wait(cfg["crawler_net_idle_wait_sec"].As<int64_t>() * 1_s),
+          crawler_page_extra_delay(cfg["crawler_page_extra_delay_sec"].As<int64_t>() * 1_s),
+          crawler_behavior_timeout(cfg["crawler_behavior_timeout_sec"].As<int64_t>() * 1_s),
           crawler_devtools_startup_timeout(
-              cfg["crawler_devtools_startup_timeout_sec"].As<int64_t>() * 1s
+              cfg["crawler_devtools_startup_timeout_sec"].As<int64_t>() * 1_s
           ),
           crawler_cdp_handshake_timeout(
-              cfg["crawler_cdp_handshake_timeout_sec"].As<int64_t>() * 1s
+              cfg["crawler_cdp_handshake_timeout_sec"].As<int64_t>() * 1_s
           ),
-          crawler_cdp_command_timeout(cfg["crawler_cdp_command_timeout_sec"].As<int64_t>() * 1s),
+          crawler_cdp_command_timeout(cfg["crawler_cdp_command_timeout_sec"].As<int64_t>() * 1_s),
           crawler_size_limit_mi_b(cfg["crawler_size_limit_mib"].As<int64_t>()),
           crawler_network_down_bytes_ratio_max(
               cfg["crawler_network_down_bytes_ratio_max"].As<int64_t>()
           ),
           crawler_local_fixture_rewrite(cfg["crawler_local_fixture_rewrite"].As<bool>()),
           crawler_devtools_poll_interval(
-              cfg["crawler_devtools_poll_interval_ms"].As<int64_t>() * 1ms
+              cfg["crawler_devtools_poll_interval_ms"].As<int64_t>() * 1_ms
           ),
-          crawler_browser_stop_timeout(cfg["crawler_browser_stop_timeout_ms"].As<int64_t>() * 1ms),
-          crawler_proxy_stop_timeout(cfg["crawler_proxy_stop_timeout_ms"].As<int64_t>() * 1ms),
-          link_ratelimit(cfg["link_ratelimit_sec"].As<int64_t>() * 1s),
-          crawl_job_retention(cfg["crawl_job_retention_sec"].As<int64_t>() * 1s),
-          crawl_job_cleanup_interval(cfg["crawl_job_cleanup_interval_sec"].As<int64_t>() * 1s),
+          crawler_browser_stop_timeout(cfg["crawler_browser_stop_timeout_ms"].As<int64_t>() * 1_ms),
+          crawler_proxy_stop_timeout(cfg["crawler_proxy_stop_timeout_ms"].As<int64_t>() * 1_ms),
+          link_ratelimit(cfg["link_ratelimit_sec"].As<int64_t>() * 1_s),
+          crawl_job_retention(cfg["crawl_job_retention_sec"].As<int64_t>() * 1_s),
+          crawl_job_cleanup_interval(cfg["crawl_job_cleanup_interval_sec"].As<int64_t>() * 1_s),
           s3_use_sts(cfg["s3_use_sts"].As<bool>()),
           s3_credentials_endpoint([&cfg] -> std::optional<String> {
               if (!cfg["s3_use_sts"].As<bool>())
                   return {};
               return *String::FromBytes(cfg["s3_credentials_endpoint"].As<std::string>());
           }()),
-          s3_credentials_duration(cfg["s3_credentials_duration_sec"].As<int64_t>() * 1s),
+          s3_credentials_duration(cfg["s3_credentials_duration_sec"].As<int64_t>() * 1_s),
           s3_credentials_refresh_margin(
-              cfg["s3_credentials_refresh_margin_sec"].As<int64_t>() * 1s
+              cfg["s3_credentials_refresh_margin_sec"].As<int64_t>() * 1_s
           ),
-          s3_credentials_refresh_retry(cfg["s3_credentials_refresh_retry_sec"].As<int64_t>() * 1s),
-          purge_job_timeout(cfg["purge_job_timeout_sec"].As<int64_t>() * 1s),
+          s3_credentials_refresh_retry(cfg["s3_credentials_refresh_retry_sec"].As<int64_t>() * 1_s),
+          purge_job_timeout(cfg["purge_job_timeout_sec"].As<int64_t>() * 1_s),
           purge_delete_batch_size(cfg["purge_delete_batch_size"].As<int64_t>()),
           svc_cfg(ctx.FindComponent<Config>()), metrics(ctx.FindComponent<Metrics>()),
           capture_meta_repo(ctx.FindComponent<CaptureMetaRepo>()),
@@ -592,13 +594,13 @@ public:
             );
             initial_state = S3ClientState{
                 .creds = static_creds,
-                .expires_at = system_clock::time_point::max(),
+                .expires_at = SystemClock::time_point::max(),
                 .client = std::make_shared<s3::Client>(
                     http_client_,
-                    s3::Config(
+                    s3::Config{
                         svc_cfg.S3Endpoint(), svc_cfg.S3Region(), svc_cfg.S3Timeout(), false
-                    ),
-                    static_creds, String{}
+                    },
+                    static_creds, String()
                 ),
             };
         }
@@ -645,7 +647,7 @@ Crud::Impl::RunCrawlJob(Uuid id, Link link)
 
     const auto total_crawl_timeout_budget = crawler_job_overhead_timeout +
                                             crawler_run_timeout * kCrawlerSeedAttemptsMax;
-    eng::current_task::SetDeadline(eng::Deadline::FromDuration(total_crawl_timeout_budget));
+    eng::current_task::SetDeadline(DeadlineAfter(total_crawl_timeout_budget));
 
     std::shared_lock<eng::CancellableSemaphore> slot_lock(crawl_slots);
 
@@ -736,7 +738,7 @@ Expected<Crud::Impl::S3ClientState, std::string> Crud::Impl::FetchS3ClientStateF
         .expires_at = sts->expires_at,
         .client = std::make_shared<s3::Client>(
             http_client_,
-            s3::Config(svc_cfg.S3Endpoint(), svc_cfg.S3Region(), svc_cfg.S3Timeout(), false), creds,
+            s3::Config{svc_cfg.S3Endpoint(), svc_cfg.S3Region(), svc_cfg.S3Timeout(), false}, creds,
             String()
         ),
     };
@@ -778,13 +780,13 @@ Crud::Impl::MakeOrReuseCaptureJobLocked(const String &normalized_link)
 void Crud::Impl::StartS3RefreshTask()
 {
     auto snapshot = s3_state.Read();
-    auto now = datetime::Now();
+    auto now = chrono::Now();
     auto delay = s3refresh::ComputeRefreshDelay(
         now, snapshot->expires_at, s3_credentials_refresh_margin
     );
 
     us::utils::PeriodicTask::Settings settings(
-        chrono::duration_cast<chrono::milliseconds>(delay), 0ms
+        chrono::DurationCast<chrono::milliseconds>(delay), 0_ms
     );
     settings.task_processor = &creds_refresh_task_processor;
 
@@ -802,13 +804,13 @@ void Crud::Impl::RefreshS3CredentialsTask()
         if (new_state) {
             s3_state.Assign(*new_state);
 
-            auto now = datetime::Now();
+            auto now = chrono::Now();
             auto next_delay = s3refresh::ComputeRefreshDelay(
                 now, new_state->expires_at, s3_credentials_refresh_margin
             );
 
             us::utils::PeriodicTask::Settings settings(
-                chrono::duration_cast<chrono::milliseconds>(next_delay), 0ms
+                chrono::DurationCast<chrono::milliseconds>(next_delay), 0_ms
             );
             settings.task_processor = &creds_refresh_task_processor;
             s3_refresh_task.SetSettings(settings);
@@ -825,7 +827,7 @@ void Crud::Impl::RefreshS3CredentialsTask()
 void Crud::Impl::StartCrawlJobCleanupTask()
 {
     auto interval = crawl_job_cleanup_interval;
-    us::utils::PeriodicTask::Settings settings(interval, 0ms);
+    us::utils::PeriodicTask::Settings settings(interval, 0_ms);
     settings.task_processor = &purge_task_processor;
 
     crawl_job_cleanup_task.Start("crawl_job_cleanup", settings, [this]() { CleanupOldJobs(); });
@@ -833,9 +835,9 @@ void Crud::Impl::StartCrawlJobCleanupTask()
 
 void Crud::Impl::CleanupOldJobs()
 {
-    auto now = datetime::Now();
+    auto now = chrono::Now();
     auto cutoff = now - crawl_job_retention;
-    auto deleted = shared_state_repo.DeleteCrawlJobsExpired(datetime::TimePointTz{cutoff});
+    auto deleted = shared_state_repo.DeleteCrawlJobsExpired(chrono::ToTimePointTz(cutoff));
     if (!deleted) {
         LOG_ERROR() << std::format("Failed to delete old crawl jobs: {}", deleted.Error().what);
     }
@@ -1055,7 +1057,7 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::MakeCaptureJob(Link link
     dto::CaptureJob job;
     Uuid id;
 
-    if (impl_ptr->link_ratelimit > 0s) {
+    if (impl_ptr->link_ratelimit > 0_s) {
         auto capture_job_result = impl_ptr->MakeOrReuseCaptureJobLocked(normalized_link);
         if (!capture_job_result)
             LOG_ERROR() << std::format(
@@ -1121,16 +1123,14 @@ Expected<dto::CaptureJob, errors::CreateJobError> Crud::MakeCaptureJob(Link link
             auto result = impl_ptr->RunCrawlJob(id, link);
             if (!result) {
                 using enum errors::CaptureErrorKind;
-                Expected<chrono::milliseconds, PgError> marked;
-                if (result.Error().kind == kSizeLimit) {
-                    marked = mark_failed("size_limit"_t, "capture exceeded archive size limit"_t);
-                } else if (result.Error().kind == kPersistMetadataFailed) {
-                    marked = mark_failed("internal_server_error"_t, "internal server error"_t);
-                } else if (result.Error().detail) {
-                    marked = mark_failed("crawler_failed"_t, *result.Error().detail);
-                } else {
-                    marked = mark_failed("crawler_failed"_t, "crawler error"_t);
-                }
+                auto marked =
+                    result.Error().kind == kSizeLimit
+                        ? mark_failed("size_limit"_t, "capture exceeded archive size limit"_t)
+                    : result.Error().kind == kPersistMetadataFailed
+                        ? mark_failed("internal_server_error"_t, "internal server error"_t)
+                    : result.Error().detail
+                        ? mark_failed("crawler_failed"_t, *result.Error().detail)
+                        : mark_failed("crawler_failed"_t, "crawler error"_t);
                 account_marked_error(marked);
                 return;
             }
@@ -1220,11 +1220,13 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
         }
         if (cur->direction == crud::PageDirection::kPrevious) {
             return impl_->capture_meta_repo.GetCapturesByLinkPrev(
-                link.ToKey(), limit, pg::TimePointTz{cur->created_at}, cur->id
+                link.ToKey(), limit, pg::TimePointTz{chrono::ToStdSystemTimePoint(cur->created_at)},
+                cur->id
             );
         }
         return impl_->capture_meta_repo.GetCapturesByLinkNext(
-            link.ToKey(), limit, pg::TimePointTz{cur->created_at}, cur->id
+            link.ToKey(), limit, pg::TimePointTz{chrono::ToStdSystemTimePoint(cur->created_at)},
+            cur->id
         );
     }();
 
@@ -1257,15 +1259,16 @@ Crud::FindCapturesByLinkPage(const Link &link, String page_token)
         if (has_previous) {
             const auto &first = items.front();
             previous = crud::EncodeCursor(
-                           first.created_at.GetTimePoint(), first.uuid,
-                           crud::PageDirection::kPrevious
+                           chrono::FromStdSystemTimePoint(first.created_at.GetTimePoint()),
+                           first.uuid, crud::PageDirection::kPrevious
             )
                            .ToBytes();
         }
         if (has_next) {
             const auto &last = items.back();
             next = crud::EncodeCursor(
-                       last.created_at.GetTimePoint(), last.uuid, crud::PageDirection::kNext
+                       chrono::FromStdSystemTimePoint(last.created_at.GetTimePoint()), last.uuid,
+                       crud::PageDirection::kNext
             )
                        .ToBytes();
         }
@@ -1312,7 +1315,7 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
     auto has_rows_before_in_link =
         [&](const String &link, const crud::PrefixCursor &cursor) -> Expected<bool, PgError> {
         return impl_->capture_meta_repo.HasRowsBeforeInLink(
-            link, pg::TimePointTz{*cursor.created_at}, *cursor.id
+            link, pg::TimePointTz{chrono::ToStdSystemTimePoint(*cursor.created_at)}, *cursor.id
         );
     };
 
@@ -1404,13 +1407,15 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
         if (cur && cur->created_at && cur->id && cur->direction == crud::PageDirection::kPrevious &&
             link == cur->link) {
             return impl_->capture_meta_repo.GetCapturesByLinkPrev(
-                link, link_limit, pg::TimePointTz{*cur->created_at}, *cur->id
+                link, link_limit, pg::TimePointTz{chrono::ToStdSystemTimePoint(*cur->created_at)},
+                *cur->id
             );
         }
         if (idx == 0_i64 && cur && cur->created_at && cur->id &&
             cur->direction == crud::PageDirection::kNext) {
             return impl_->capture_meta_repo.GetCapturesByLinkNext(
-                link, link_limit, pg::TimePointTz{*cur->created_at}, *cur->id
+                link, link_limit, pg::TimePointTz{chrono::ToStdSystemTimePoint(*cur->created_at)},
+                *cur->id
             );
         }
         return impl_->capture_meta_repo.GetCapturesByLinkFirst(link, link_limit);
@@ -1453,8 +1458,8 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
             const auto &first = items.front();
             previous = crud::EncodePrefixCursor(
                            normalized_prefix, *String::FromBytes(first.link),
-                           first.created_at.GetTimePoint(), first.uuid,
-                           crud::PageDirection::kPrevious
+                           chrono::FromStdSystemTimePoint(first.created_at.GetTimePoint()),
+                           first.uuid, crud::PageDirection::kPrevious
             )
                            .ToBytes();
         }
@@ -1464,8 +1469,9 @@ Crud::FindCapturesByPrefixPage(String normalized_prefix, String page_token)
             auto last_link = *String::FromBytes(last.link);
             if (has_next_within_link) {
                 next = crud::EncodePrefixCursor(
-                           normalized_prefix, last_link, last.created_at.GetTimePoint(), last.uuid,
-                           crud::PageDirection::kNext
+                           normalized_prefix, last_link,
+                           chrono::FromStdSystemTimePoint(last.created_at.GetTimePoint()),
+                           last.uuid, crud::PageDirection::kNext
                 )
                            .ToBytes();
             } else {
@@ -1495,9 +1501,7 @@ Expected<void, AccessPolicyError> Crud::DenyPrefixAndPurge(String prefix_key) no
     impl_->purge_background.AsyncDetach(
         "purge_prefix_lambda", [impl_ptr = impl_.get(), prefix_key]() {
             try {
-                eng::current_task::SetDeadline(
-                    eng::Deadline::FromDuration(impl_ptr->purge_job_timeout)
-                );
+                eng::current_task::SetDeadline(DeadlineAfter(impl_ptr->purge_job_timeout));
                 LOG_INFO() << std::format("Starting purge for denylisted prefix: {}", prefix_key);
                 auto purged = impl_ptr->PurgePrefix(prefix_key);
                 if (!purged) {

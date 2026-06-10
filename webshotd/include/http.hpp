@@ -8,7 +8,7 @@
 #include "error_utils.hpp"
 #include "text.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <format>
 
 #include <userver/components/component_config.hpp>
@@ -44,7 +44,7 @@ public:
         const us::components::ComponentContext &context
     )
         : HttpHandlerBase(config, context),
-          request_timeout_(std::chrono::milliseconds{config["request_timeout_ms"].As<int64_t>()})
+          request_timeout_(ws::chrono::milliseconds{config["request_timeout_ms"].As<int64_t>()})
     {
     }
 
@@ -79,7 +79,7 @@ protected:
     ) const = 0;
 
 private:
-    const std::chrono::milliseconds request_timeout_;
+    const ws::chrono::milliseconds request_timeout_;
 };
 
 namespace httpu {

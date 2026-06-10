@@ -20,11 +20,15 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/datetime/from_string_saturating.hpp>
+
+#include "chrono.hpp"
+
 namespace ws::crawler {
 namespace us = userver;
 namespace json = us::formats::json;
 namespace datetime = us::utils::datetime;
 namespace http = us::http;
+namespace chrono = ws::chrono;
 using namespace text::literals;
 
 namespace {
@@ -462,7 +466,7 @@ MakeWaczResource(std::string_view name, std::string_view path, std::string_view 
 [[nodiscard]] dto::WaczDataPackage
 MakeWaczDataPackage(const RunRequest &run, std::vector<dto::WaczResource> resources)
 {
-    auto created = datetime::TimePointTz(datetime::Now());
+    auto created = chrono::ToTimePointTz(chrono::Now());
     return {
         .profile = "data-package",
         .resources = std::move(resources),

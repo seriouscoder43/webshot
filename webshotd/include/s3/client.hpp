@@ -5,7 +5,7 @@
 #include "text.hpp"
 #include "url.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <optional>
 #include <string>
 #include <string_view>
@@ -50,7 +50,7 @@ ValidateVirtualHostBucketName(const String &bucket_name);
 struct [[nodiscard]] Config {
     String endpoint; // e.g. http://127.0.0.1:8333 or s3.amazonaws.com
     String region;   // e.g. us-east-1, local, etc.
-    std::chrono::milliseconds timeout;
+    ws::chrono::milliseconds timeout;
     bool virtual_hosted = false; // not used in ws; path-style addressing by default
 };
 
@@ -149,11 +149,11 @@ private:
         kYes,
     };
 
-    static std::chrono::seconds ComputePresignTtl(
-        const std::chrono::system_clock::time_point &now,
-        const std::chrono::system_clock::time_point &expires_at
+    static ws::chrono::seconds ComputePresignTtl(
+        const chrono::SystemClock::time_point &now,
+        const chrono::SystemClock::time_point &expires_at
     );
-    [[nodiscard]] SigParams MakeSigParams(const std::chrono::system_clock::time_point &now) const;
+    [[nodiscard]] SigParams MakeSigParams(const chrono::SystemClock::time_point &now) const;
     void SignRequest(
         String method, String canonical_uri, String host, httpc::Headers &headers,
         const String &payload_hash
@@ -163,17 +163,16 @@ private:
     [[nodiscard]] detail::BuiltUrl MakeVirtualHostUrl(String path, String protocol) const;
     [[nodiscard]] String MakeRawPath(String path, IncludeBucket include_bucket) const;
     String PresignVirtualHost(
-        String method, String path, const std::chrono::system_clock::time_point &expires_at,
+        String method, String path, const chrono::SystemClock::time_point &expires_at,
         String protocol, std::optional<httpc::Headers> extra_headers
     ) const;
     String PresignPathStyle(
-        String method, String path, const std::chrono::system_clock::time_point &expires_at,
+        String method, String path, const chrono::SystemClock::time_point &expires_at,
         String protocol
     ) const;
     String MakePresignedUrl(
-        String method, const detail::BuiltUrl &built,
-        const std::chrono::system_clock::time_point &now,
-        const std::chrono::system_clock::time_point &expires_at, const SigParams &params,
+        String method, const detail::BuiltUrl &built, const chrono::SystemClock::time_point &now,
+        const chrono::SystemClock::time_point &expires_at, const SigParams &params,
         const std::vector<std::pair<String, String>> &headers
     ) const;
 

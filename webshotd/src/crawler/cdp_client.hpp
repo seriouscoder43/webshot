@@ -10,7 +10,7 @@
 #include "text.hpp"
 #include "try.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <deque>
 #include <memory>
 #include <optional>
@@ -75,7 +75,7 @@ public:
     [[nodiscard]] static Expected<std::unique_ptr<CdpClient>, CdpError> Connect(
         std::string socket_path, String websocket_path, std::string trace_path,
         eng::TaskProcessor &fs_task_processor, eng::Deadline overall_deadline,
-        std::chrono::milliseconds handshake_timeout, std::chrono::milliseconds command_timeout,
+        ws::chrono::milliseconds handshake_timeout, ws::chrono::milliseconds command_timeout,
         i64 max_remote_payload_bytes
     );
 
@@ -152,7 +152,7 @@ private:
         std::string socket_path, String websocket_path,
         std::shared_ptr<us::websocket::WebSocketConnection> connection, std::string trace_path,
         us::fs::blocking::FileDescriptor trace_file, eng::TaskProcessor &fs_task_processor,
-        eng::Deadline overall_deadline, std::chrono::milliseconds command_timeout
+        eng::Deadline overall_deadline, ws::chrono::milliseconds command_timeout
     );
 
     friend class CdpSession;
@@ -194,7 +194,7 @@ private:
     us::fs::blocking::FileDescriptor trace_file_;
     eng::TaskProcessor &fs_task_processor_;
     eng::Deadline overall_deadline_;
-    std::chrono::milliseconds command_timeout_;
+    ws::chrono::milliseconds command_timeout_;
     eng::Task reader_task_;
 };
 

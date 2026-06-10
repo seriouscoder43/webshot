@@ -18,7 +18,7 @@
 
 - Exceptions are forbidden in new code; `throw` is not allowed, and catch-all exception handlers are not allowed. Use existing fail-fast primitives such as `Invariant`.
 - Standard library concurrency primitives are forbidden, except lock-guard style types and atomics.
-- Do not call `std::chrono::system_clock::now`; use `userver::utils::datetime::Now`.
+- Use `ws::chrono` instead of `std::chrono`.
 - No direct syscalls and C stdlib calls; non-userver I/O is not allowed.
 
 ## Text and casting

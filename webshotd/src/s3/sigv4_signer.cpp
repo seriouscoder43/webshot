@@ -11,6 +11,7 @@
 
 #include <cctz/time_zone.h>
 
+#include "chrono.hpp"
 #include "integers.hpp"
 
 #include <userver/crypto/hash.hpp>
@@ -21,6 +22,7 @@ namespace ws::s3 {
 
 namespace us = userver;
 namespace httpc = us::clients::http;
+namespace chrono = ws::chrono;
 
 namespace {
 
@@ -98,7 +100,7 @@ std::string CanonicalizeQueryImpl(const std::vector<std::pair<std::string, std::
 SigParams::SigParams(
     std::string region, std::string service, const AccessKeyId &access_key_id,
     const SecretAccessKey &secret_access_key, std::optional<SessionToken> session_token,
-    const std::chrono::system_clock::time_point &now
+    const chrono::SystemClock::time_point &now
 )
     : region(std::move(region)), service(std::move(service)), access_key_id(access_key_id),
       secret_access_key(secret_access_key), session_token(std::move(session_token)),
@@ -123,14 +125,14 @@ std::string ComputeSignature(const SigParams &params, std::string_view string_to
     return HmacSha256(signing, string_to_sign, OutputEncoding::kHex);
 }
 
-std::string ToAmzDateUtc(std::chrono::system_clock::time_point tp)
+std::string ToAmzDateUtc(chrono::SystemClock::time_point tp)
 {
-    return cctz::format("%Y%m%dT%H%M%SZ", tp, cctz::utc_time_zone());
+    return cctz::format("%Y%m%dT%H%M%SZ", chrono::ToStdSystemTimePoint(tp), cctz::utc_time_zone());
 }
 
-std::string ToDateStampUtc(std::chrono::system_clock::time_point tp)
+std::string ToDateStampUtc(chrono::SystemClock::time_point tp)
 {
-    return cctz::format("%Y%m%d", tp, cctz::utc_time_zone());
+    return cctz::format("%Y%m%d", chrono::ToStdSystemTimePoint(tp), cctz::utc_time_zone());
 }
 
 String Sha256Hex(std::string_view data)
@@ -212,7 +214,7 @@ std::unordered_map<std::string, std::string> SignHeaders(
     auto query_utf8 = text::ToBytesPairs(query);
     auto headers_utf8 = text::ToBytesPairs(headers_lower_trimmed);
     auto headers = headers_utf8;
-    std::unordered_map<std::string, std::string> out{};
+    std::unordered_map<std::string, std::string> out;
 
     auto payload_hex = payload_sha256_hex.ToBytes();
     out["x-amz-date"] = p.amz_date;

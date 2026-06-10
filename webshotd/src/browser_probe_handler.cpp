@@ -15,8 +15,8 @@
 #include "text.hpp"
 #include "try.hpp"
 
+#include "chrono.hpp"
 #include <algorithm>
-#include <chrono>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -40,20 +40,20 @@
 #include <userver/yaml_config/merge_schemas.hpp>
 
 using namespace text::literals;
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 
-namespace chrono = std::chrono;
-namespace ujson = userver::formats::json;
+namespace chrono = ws::chrono;
 
 namespace ws {
 namespace us = userver;
+namespace ujson = us::formats::json;
 namespace server = us::server;
 namespace eng = us::engine;
 namespace {
 
 using crawler::FormatCdpError;
 
-constexpr chrono::milliseconds kMinProbeSettleWindow = 250ms;
+constexpr chrono::milliseconds kMinProbeSettleWindow = 250_ms;
 
 struct [[nodiscard]] ProbeConfig final {
     const Config &svc_config;
@@ -249,11 +249,7 @@ void CleanupProbeSession(
         if (TRY(update_match_state()))
             return {};
 
-        auto event_deadline = eng::Deadline::FromDuration(
-            std::min(
-                chrono::duration_cast<chrono::milliseconds>(deadline.TimeLeft()), recheck_interval
-            )
-        );
+        auto event_deadline = ClampDeadline(deadline, recheck_interval);
         auto event = cdp_session.WaitEvent(event_deadline, "timed out waiting for expression"_t);
         if (!event) {
             if (event.Error().code == crawler::CdpErrorCode::kTimeout)
@@ -274,19 +270,12 @@ void CleanupProbeSession(
 )
 {
     auto settle_window = std::max(recheck_interval * 2, kMinProbeSettleWindow);
-    auto settle_deadline = PickEarlierDeadline(
-        deadline, eng::Deadline::FromDuration(settle_window)
-    );
+    auto settle_deadline = ClampDeadline(deadline, settle_window);
 
     while (!settle_deadline.IsReached()) {
         TRY(DrainProbeEvents(cdp_session, console, page_errors));
 
-        auto event_deadline = eng::Deadline::FromDuration(
-            std::min(
-                chrono::duration_cast<chrono::milliseconds>(settle_deadline.TimeLeft()),
-                recheck_interval
-            )
-        );
+        auto event_deadline = ClampDeadline(settle_deadline, recheck_interval);
         auto event = cdp_session.WaitEvent(event_deadline, "timed out waiting for probe settle"_t);
         if (!event) {
             if (event.Error().code == crawler::CdpErrorCode::kTimeout)
@@ -324,11 +313,7 @@ void CleanupProbeSession(
         if (auto frame = TRY(update_frame_state()))
             return *frame;
 
-        auto event_deadline = eng::Deadline::FromDuration(
-            std::min(
-                chrono::duration_cast<chrono::milliseconds>(deadline.TimeLeft()), recheck_interval
-            )
-        );
+        auto event_deadline = ClampDeadline(deadline, recheck_interval);
         auto event = cdp_session.WaitEvent(
             event_deadline, "timed out waiting for frame expression"_t
         );
@@ -475,13 +460,14 @@ BrowserProbeHandler::BrowserProbeHandler(
                       context.FindComponent<us::clients::dns::Component>().GetResolver(),
                   .process_starter_ = context.FindComponent<us::components::ProcessStarter>().Get(),
                   .fs_task_processor_ = context.GetTaskProcessor("fs-task-processor"),
-                  .request_timeout = config["request_timeout_ms"].As<int64_t>() * 1ms,
+                  .request_timeout = config["request_timeout_ms"].As<int64_t>() * 1_ms,
                   .devtools_startup_timeout = config["devtools_startup_timeout_ms"].As<int64_t>() *
-                                              1ms,
-                  .cdp_handshake_timeout = config["cdp_handshake_timeout_ms"].As<int64_t>() * 1ms,
-                  .cdp_command_timeout = config["cdp_command_timeout_ms"].As<int64_t>() * 1ms,
-                  .devtools_poll_interval = config["devtools_poll_interval_ms"].As<int64_t>() * 1ms,
-                  .browser_stop_timeout = config["browser_stop_timeout_ms"].As<int64_t>() * 1ms,
+                                              1_ms,
+                  .cdp_handshake_timeout = config["cdp_handshake_timeout_ms"].As<int64_t>() * 1_ms,
+                  .cdp_command_timeout = config["cdp_command_timeout_ms"].As<int64_t>() * 1_ms,
+                  .devtools_poll_interval = config["devtools_poll_interval_ms"].As<int64_t>() *
+                                            1_ms,
+                  .browser_stop_timeout = config["browser_stop_timeout_ms"].As<int64_t>() * 1_ms,
                   .cdp_max_remote_payload_bytes =
                       i64(config["cdp_max_remote_payload_bytes"].As<int64_t>()),
                   .local_fixture_rewrite = config["local_fixture_rewrite"].As<bool>(),
@@ -559,7 +545,7 @@ std::string BrowserProbeHandler::HandleRequestThrow(
         return httpu::RespondError(response, kBadRequest, probe_request.Error());
 
     auto timeout_budget = std::min(
-        impl_->probe_config.request_timeout, probe_request->timeout_ms * 1ms
+        impl_->probe_config.request_timeout, probe_request->timeout_ms * 1_ms
     );
     auto final_deadline = ComputeHandlerDeadline(request, timeout_budget);
     eng::current_task::SetDeadline(final_deadline);

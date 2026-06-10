@@ -1,4 +1,4 @@
-#include <chrono>
+#include "chrono.hpp"
 #include <string>
 
 #include <userver/clients/http/response.hpp>
@@ -14,7 +14,7 @@ namespace httpc = us::clients::http;
 
 using namespace ws;
 
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 using ws::StsCredentials;
 using namespace text::literals;
 
@@ -47,9 +47,11 @@ UTEST(StsClient, ParsesHappyPathXml)
     EXPECT_EQ(creds.secret_access_key.GetUnderlying(), "SECRET_TEST_KEY"_t);
     EXPECT_EQ(creds.session_token.GetUnderlying(), "TOKEN_TEST_VALUE"_t);
 
-    using std::chrono::system_clock;
-    auto expected = system_clock::from_time_t(1764547200); // 2025-12-01T00:00:00Z
-    EXPECT_EQ(system_clock::to_time_t(creds.expires_at), system_clock::to_time_t(expected));
+    auto expected = ws::chrono::SystemClock::FromTimeT(1764547200); // 2025-12-01T00:00:00Z
+    EXPECT_EQ(
+        ws::chrono::SystemClock::ToTimeT(creds.expires_at),
+        ws::chrono::SystemClock::ToTimeT(expected)
+    );
 }
 
 UTEST(StsClient, MissingTagThrows)
@@ -93,11 +95,11 @@ UTEST(StsClient, BuildsRequestWithExecutor)
     std::string captured_url;
     std::string captured_body;
     httpc::Headers captured_headers;
-    auto captured_timeout = 0ms;
+    auto captured_timeout = 0_ms;
 
     ws::detail::StsExecutor exec = [&](const String &url, const String &body,
                                        const httpc::Headers &headers,
-                                       std::chrono::milliseconds timeout) {
+                                       ws::chrono::milliseconds timeout) {
         captured_url = url.ToBytes();
         captured_body = body.ToBytes();
         captured_headers = headers;
@@ -109,8 +111,8 @@ UTEST(StsClient, BuildsRequestWithExecutor)
     const auto parsed = ws::detail::FetchStsWithExecutor(
         exec, *String::FromBytes(endpoint), ws::s3::AccessKeyId{"AKIA_STATIC"_t},
         ws::s3::SecretAccessKey{"SECRET"_t}, "us-east-1"_t,
-        "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900s,
-        1500ms
+        "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900_s,
+        1500_ms
     );
     ASSERT_TRUE(parsed);
     const auto &creds = *parsed;
@@ -124,7 +126,7 @@ UTEST(StsClient, BuildsRequestWithExecutor)
     EXPECT_TRUE(captured_headers.contains(amz_date_key));
     EXPECT_EQ(captured_headers.at(content_type_key), "application/x-www-form-urlencoded");
     EXPECT_EQ(captured_headers.at(host_key), std::string("sts.example.com"));
-    EXPECT_EQ(captured_timeout, 1500ms);
+    EXPECT_EQ(captured_timeout, 1500_ms);
 
     EXPECT_TRUE(captured_body.contains("Action=AssumeRole"));
     EXPECT_TRUE(captured_body.contains("Version=2011-06-15"));
@@ -142,7 +144,7 @@ UTEST(StsClient, InvalidEndpointReturnsError)
 {
     ws::detail::StsExecutor exec =
         [](const String &, const String &, const httpc::Headers &,
-           std::chrono::milliseconds) -> ws::Expected<std::string, ws::StsError> {
+           ws::chrono::milliseconds) -> ws::Expected<std::string, ws::StsError> {
         ADD_FAILURE() << "executor should not be called for invalid endpoint";
         return {};
     };
@@ -150,8 +152,8 @@ UTEST(StsClient, InvalidEndpointReturnsError)
     auto parsed = ws::detail::FetchStsWithExecutor(
         exec, "https://["_t, ws::s3::AccessKeyId{"AKIA_STATIC"_t},
         ws::s3::SecretAccessKey{"SECRET"_t}, "us-east-1"_t,
-        "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900s,
-        1500ms
+        "arn:aws:iam::123456789012:role/TestRole"_t, "session-name"_t, R"({"allow":true})"_t, 900_s,
+        1500_ms
     );
     ASSERT_FALSE(parsed);
     EXPECT_EQ(parsed.Error(), ws::StsError::kInvalidEndpoint);

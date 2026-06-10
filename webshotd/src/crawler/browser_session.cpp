@@ -5,6 +5,7 @@
 #include "crawler/cgroup_stats.hpp"
 #include "crawler/egress_proxy.hpp"
 #include "crawler/error.hpp"
+#include "deadline_utils.hpp"
 #include "grab_value.hpp"
 #include "invariant.hpp"
 #include "metrics.hpp"
@@ -14,9 +15,9 @@
 #include <generated/browser_sandbox_closure_paths.hpp>
 #include <generated/browser_sandbox_path.hpp>
 
+#include "chrono.hpp"
 #include <array>
 #include <cerrno>
-#include <chrono>
 #include <csignal>
 #include <format>
 #include <memory>
@@ -43,8 +44,8 @@
 #include <absl/strings/ascii.h>
 #include <seccomp.h>
 
-namespace chrono = std::chrono;
-using namespace std::chrono_literals;
+namespace chrono = ws::chrono;
+using namespace ws::chrono_literals;
 
 using namespace text::literals;
 namespace ws::crawler {
@@ -174,7 +175,7 @@ constexpr std::string_view kBrowserSandboxFontconfigFile{WEBSHOT_BROWSER_SANDBOX
 
 [[nodiscard]] String CurrentTimestamp()
 {
-    return *String::FromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format));
+    return *String::FromBytes(chrono::UtcTimestring(chrono::Now(), datetime::kRfc3339Format));
 }
 
 [[nodiscard]] Expected<void, String> CopyFileContents(
@@ -761,7 +762,7 @@ template <typename Process> void StopProcess(Process &process, chrono::milliseco
     if (!process)
         return;
 
-    if (!process->WaitFor(0ms)) {
+    if (!process->WaitFor(0_ms)) {
         process->SendSignal(SIGTERM);
         if (!process->WaitFor(timeout)) {
             process->SendSignal(SIGKILL);
@@ -792,7 +793,7 @@ struct BrowserSession::Impl final {
         TRY(StageLocalFixtureTrustDbIfNeeded(fs_task_processor, paths, config));
 
         MarkPhase("start_browser");
-        auto devtools_deadline = eng::Deadline::FromDuration(config.devtools_startup_timeout);
+        auto devtools_deadline = DeadlineAfter(config.devtools_startup_timeout);
         proxy = TRY(
             StartBrowserProxy(dns_resolver, fs_task_processor, paths, config, devtools_deadline)
         );
@@ -907,7 +908,7 @@ struct BrowserSession::Impl final {
         );
         AppendDiagnosticField(
             diagnostics, "browser_process_running"_t,
-            process && !process->WaitFor(0ms) ? "true"_t : "false"_t
+            process && !process->WaitFor(0_ms) ? "true"_t : "false"_t
         );
         AppendDiagnosticField(
             diagnostics, "cdp_socket_exists"_t,
@@ -963,7 +964,7 @@ struct BrowserSession::Impl final {
                                  us::fs::FileExists(
                                      fs_task_processor, paths.websocket_pathfile_path
                                  );
-            if (process && process->WaitFor(0ms)) {
+            if (process && process->WaitFor(0_ms)) {
                 return Unex(
                     text::Format(
                         "chromium exited before exposing devtools ({})", CurrentStartLogs()
@@ -977,7 +978,7 @@ struct BrowserSession::Impl final {
                 return GrabValueOf(websocket_pathfrom_file);
             eng::SleepFor(config.devtools_poll_interval);
         }
-        if (process && process->WaitFor(0ms)) {
+        if (process && process->WaitFor(0_ms)) {
             return Unex(
                 text::Format("chromium exited before exposing devtools ({})", CurrentStartLogs())
             );

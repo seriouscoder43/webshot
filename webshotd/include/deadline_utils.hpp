@@ -4,9 +4,8 @@
 #include "invariant.hpp"
 #include "try.hpp"
 
+#include "chrono.hpp"
 #include <algorithm>
-#include <chrono>
-#include <string_view>
 
 #include <userver/engine/deadline.hpp>
 #include <userver/engine/sleep.hpp>
@@ -18,10 +17,44 @@ namespace us = userver;
 namespace server = us::server;
 namespace eng = us::engine;
 using text::literals::operator""_t;
+using namespace ws::chrono_literals;
 
 enum class DeadlineError {
     kTimeout,
 };
+
+template <typename Rep, typename Period>
+[[nodiscard]] inline eng::Deadline DeadlineAfter(const std::chrono::duration<Rep, Period> &delay)
+{
+    return eng::Deadline::FromDuration(delay);
+}
+
+template <typename Clock, typename Duration>
+    requires requires { typename Clock::base::time_point; }
+[[nodiscard]] inline eng::Deadline DeadlineAt(const std::chrono::time_point<Clock, Duration> &when)
+{
+    return eng::Deadline::FromTimePoint(
+        ws::chrono::ToStdTimePoint<typename Clock::base::time_point>(when)
+    );
+}
+
+[[nodiscard]] inline ws::chrono::nanoseconds TimeLeftOrZero(eng::Deadline deadline) noexcept
+{
+    using namespace ws::chrono_literals;
+    using Ns = ws::chrono::nanoseconds;
+
+    if (!deadline.IsReachable())
+        return Ns::max();
+
+    auto left = deadline.TimeLeft();
+    if (left <= decltype(left)::zero())
+        return 0_ns;
+
+    auto left_ns = ws::chrono::DurationCast<Ns>(left);
+    if (left_ns <= 0_ns)
+        return 0_ns;
+    return left_ns;
+}
 
 [[nodiscard]] inline eng::Deadline PickEarlierDeadline(eng::Deadline a, eng::Deadline b)
 {
@@ -35,42 +68,46 @@ enum class DeadlineError {
     if (!a_reachable && !b_reachable)
         return a;
 
-    if (a.TimeLeft() <= b.TimeLeft())
+    auto a_left = TimeLeftOrZero(a);
+    auto b_left = TimeLeftOrZero(b);
+    if (a_left <= b_left)
         return a;
     return b;
 }
 
+template <typename Rep, typename Period>
+[[nodiscard]] inline eng::Deadline
+ClampDeadline(eng::Deadline deadline, const std::chrono::duration<Rep, Period> &max_wait)
+{
+    return PickEarlierDeadline(deadline, DeadlineAfter(max_wait));
+}
+
 [[nodiscard]] inline eng::Deadline ComputeHandlerDeadline(
-    const server::http::HttpRequest &request, std::chrono::milliseconds handler_timeout
+    const server::http::HttpRequest &request, ws::chrono::milliseconds handler_timeout
 )
 {
-    using eng::Deadline;
-
-    auto config_deadline = Deadline::FromTimePoint(request.GetStartTime() + handler_timeout);
+    auto request_start = ws::chrono::FromStdSteadyTimePoint(request.GetStartTime());
+    auto config_deadline = DeadlineAt(request_start + handler_timeout);
     auto inherited_deadline = server::request::GetTaskInheritedDeadline();
 
     return PickEarlierDeadline(config_deadline, inherited_deadline);
 }
 
-[[nodiscard]] inline std::chrono::milliseconds TimeLeftOrZeroMs(eng::Deadline deadline) noexcept
+[[nodiscard]] inline ws::chrono::milliseconds TimeLeftOrZeroMs(eng::Deadline deadline) noexcept
 {
-    using namespace std::chrono_literals;
-    using Ms = std::chrono::milliseconds;
+    using namespace ws::chrono_literals;
+    using Ms = ws::chrono::milliseconds;
 
     if (!deadline.IsReachable())
         return Ms::max();
 
-    auto left = deadline.TimeLeft();
-    if (left <= decltype(left)::zero())
-        return 0ms;
-
-    auto left_ms = std::chrono::duration_cast<Ms>(left);
-    if (left_ms <= 0ms)
-        return 0ms;
+    auto left_ms = ws::chrono::DurationCast<Ms>(TimeLeftOrZero(deadline));
+    if (left_ms <= 0_ms)
+        return 0_ms;
     return left_ms;
 }
 
-[[nodiscard]] inline Expected<std::chrono::milliseconds, DeadlineError>
+[[nodiscard]] inline Expected<ws::chrono::milliseconds, DeadlineError>
 TimeLeftMs(eng::Deadline deadline) noexcept
 {
     if (deadline.IsReachable() && deadline.IsReached())
@@ -79,11 +116,11 @@ TimeLeftMs(eng::Deadline deadline) noexcept
 }
 
 [[nodiscard]] inline Expected<void, DeadlineError>
-SleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
+SleepWithinDeadline(eng::Deadline deadline, ws::chrono::milliseconds delay)
 {
-    using namespace std::chrono_literals;
+    using namespace ws::chrono_literals;
 
-    if (delay <= 0ms)
+    if (delay <= 0_ms)
         return {};
 
     auto sleep_for = std::min(delay, TRY(TimeLeftMs(deadline)));
@@ -96,12 +133,12 @@ SleepWithinDeadline(eng::Deadline deadline, std::chrono::milliseconds delay)
 
 [[nodiscard]] inline Expected<void, DeadlineError> SleepUntilDeadline(eng::Deadline deadline)
 {
-    using namespace std::chrono_literals;
+    using namespace ws::chrono_literals;
 
     Invariant(deadline.IsReachable(), "sleepUntilDeadline requires a reachable deadline"_t);
 
     auto remaining = TRY(TimeLeftMs(deadline));
-    ENSURE(remaining > 0ms, DeadlineError::kTimeout);
+    ENSURE(remaining > 0_ms, DeadlineError::kTimeout);
 
     eng::SleepFor(remaining);
     return {};

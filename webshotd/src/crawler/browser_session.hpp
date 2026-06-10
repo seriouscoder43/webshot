@@ -6,7 +6,7 @@
 #include "integers.hpp"
 #include "text.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <functional>
 #include <memory>
 #include <optional>
@@ -42,11 +42,11 @@ struct [[nodiscard]] BrowserSessionConfig final {
     std::string cgroup_root_path_;
     std::optional<CgroupLimits> cgroup_limits_;
     std::string local_fixture_trust_db_source_path;
-    std::chrono::milliseconds devtools_startup_timeout;
-    std::chrono::milliseconds cdp_handshake_timeout;
-    std::chrono::milliseconds cdp_command_timeout;
-    std::chrono::milliseconds devtools_poll_interval;
-    std::chrono::milliseconds browser_stop_timeout;
+    ws::chrono::milliseconds devtools_startup_timeout;
+    ws::chrono::milliseconds cdp_handshake_timeout;
+    ws::chrono::milliseconds cdp_command_timeout;
+    ws::chrono::milliseconds devtools_poll_interval;
+    ws::chrono::milliseconds browser_stop_timeout;
     i64 cdp_max_remote_payload_bytes{0};
     bool proxy_require_auth;
     bool enable_local_fixture_rewrite;

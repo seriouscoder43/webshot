@@ -1,25 +1,25 @@
 #pragma once
 
-#include <chrono>
+#include "chrono.hpp"
 
 namespace ws::s3refresh {
 
 /**
  * @brief Compute delay before refreshing STS credentials.
  *
- * Returns max(expiresAt - now - margin, 0s) in whole seconds.
+ * Returns max(expiresAt - now - margin, 0_s) in whole seconds.
  */
-[[nodiscard]] inline std::chrono::seconds ComputeRefreshDelay(
-    std::chrono::system_clock::time_point now, std::chrono::system_clock::time_point expires_at,
-    std::chrono::seconds margin
+[[nodiscard]] inline ws::chrono::seconds ComputeRefreshDelay(
+    ws::chrono::SystemClock::time_point now, ws::chrono::SystemClock::time_point expires_at,
+    ws::chrono::seconds margin
 )
 {
-    using namespace std::chrono_literals;
+    using namespace ws::chrono_literals;
 
     auto delay = expires_at - now - margin;
-    if (delay < 0s)
-        return 0s;
-    return std::chrono::duration_cast<std::chrono::seconds>(delay);
+    if (delay < 0_s)
+        return 0_s;
+    return ws::chrono::DurationCast<ws::chrono::seconds>(delay);
 }
 
 } // namespace ws::s3refresh

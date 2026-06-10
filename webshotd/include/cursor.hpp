@@ -12,7 +12,7 @@
 #include "text.hpp"
 #include "try.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <optional>
 
 #include <userver/crypto/base64.hpp>
@@ -23,7 +23,7 @@ namespace ws::crud {
 namespace us = userver;
 namespace json = us::formats::json;
 /** @brief Clock type used for pagination cursors. */
-using Clock = std::chrono::system_clock;
+using Clock = ws::chrono::SystemClock;
 
 enum class PageDirection {
     kNext,

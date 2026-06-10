@@ -3,7 +3,7 @@
 #include "integers.hpp"
 #include "text.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <string>
 #include <string_view>
 
@@ -53,7 +53,7 @@ public:
     [[nodiscard]] const String &S3Endpoint() const noexcept { return s3_endpoint_url_; }
     [[nodiscard]] const String &S3Region() const noexcept { return s3_region_name_; }
     [[nodiscard]] const String &S3PublicBaseUrl() const noexcept { return public_base_url_; }
-    [[nodiscard]] std::chrono::milliseconds S3Timeout() const noexcept
+    [[nodiscard]] ws::chrono::milliseconds S3Timeout() const noexcept
     {
         return s3_timeout_duration_;
     }
@@ -69,6 +69,6 @@ private:
     String s3_endpoint_url_;
     String s3_region_name_;
     String public_base_url_;
-    std::chrono::milliseconds s3_timeout_duration_;
+    ws::chrono::milliseconds s3_timeout_duration_;
 };
 } // namespace ws

@@ -2,8 +2,8 @@
 
 #include "integers.hpp"
 
+#include "chrono.hpp"
 #include <array>
-#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -49,7 +49,7 @@ public:
 
     void AccountCaptureJobCreated() noexcept;
 
-    void AccountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept;
+    void AccountCaptureCompleted(bool succeeded, ws::chrono::milliseconds duration) noexcept;
 
     void RegisterBrowserCgroup(std::string cgroup_path);
 

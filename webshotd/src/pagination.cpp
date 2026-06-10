@@ -42,7 +42,7 @@ namespace {
 EncodeCursor(Clock::time_point created_at, const Uuid &id, PageDirection direction)
 {
     auto micros = TimePointToMicros(created_at);
-    dto::PaginationCursor cur(micros, id, ToDto(direction));
+    dto::PaginationCursor cur{micros, id, ToDto(direction)};
     return EncodeToken(cur);
 }
 

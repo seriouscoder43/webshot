@@ -36,7 +36,7 @@ namespace {
 
 UTEST(Cursor, TimePointRoundTrip)
 {
-    auto tp = Clock::now();
+    auto tp = Clock::Now();
     auto micros = TimePointToMicros(tp);
     auto tp2 = MicrosToTimePoint(micros);
     EXPECT_EQ(TimePointToMicros(tp2), micros);
@@ -44,11 +44,11 @@ UTEST(Cursor, TimePointRoundTrip)
 
 UTEST(Cursor, EncodeDecodePaginationCursor)
 {
-    auto tp = Clock::time_point(std::chrono::microseconds(123456789));
+    auto tp = Clock::time_point{ws::chrono::microseconds{123456789}};
     auto micros = TimePointToMicros(tp);
     auto id = us::utils::generators::GenerateBoostUuid();
 
-    dto::PaginationCursor cur(micros, id, dto::PaginationCursor::D::kNext);
+    dto::PaginationCursor cur{micros, id, dto::PaginationCursor::D::kNext};
     auto token = EncodeToken(cur);
 
     auto decoded = DecodeToken<dto::PaginationCursor>(token);

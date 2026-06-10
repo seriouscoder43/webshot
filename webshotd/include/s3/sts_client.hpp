@@ -4,7 +4,7 @@
 #include "s3/credentials_types.hpp"
 #include "text.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <functional>
 #include <string>
 
@@ -31,7 +31,7 @@ struct [[nodiscard]] StsCredentials {
     s3::AccessKeyId access_key_id;
     s3::SecretAccessKey secret_access_key;
     s3::SessionToken session_token;
-    std::chrono::system_clock::time_point expires_at;
+    ws::chrono::SystemClock::time_point expires_at;
 
     [[nodiscard]] static Expected<StsCredentials, StsError> FromXml(const String &xml);
 };
@@ -47,14 +47,14 @@ struct [[nodiscard]] StsCredentials {
     const s3::AccessKeyId &static_access_key_id,
     const s3::SecretAccessKey &static_secret_access_key, const String &region,
     const String &role_arn, const String &role_session_name, const String &policy_json,
-    std::chrono::seconds duration, std::chrono::milliseconds timeout
+    ws::chrono::seconds duration, ws::chrono::milliseconds timeout
 );
 
 namespace detail {
 
 using StsExecutor = std::function<Expected<std::string, StsError>(
     const String &url, const String &body, const httpc::Headers &headers,
-    std::chrono::milliseconds timeout
+    ws::chrono::milliseconds timeout
 )>;
 
 [[nodiscard]] Expected<StsCredentials, StsError> FetchStsWithExecutor(
@@ -62,7 +62,7 @@ using StsExecutor = std::function<Expected<std::string, StsError>(
     const s3::AccessKeyId &static_access_key_id,
     const s3::SecretAccessKey &static_secret_access_key, const String &region,
     const String &role_arn, const String &role_session_name, const String &policy_json,
-    std::chrono::seconds duration, std::chrono::milliseconds timeout
+    ws::chrono::seconds duration, ws::chrono::milliseconds timeout
 );
 
 } // namespace detail

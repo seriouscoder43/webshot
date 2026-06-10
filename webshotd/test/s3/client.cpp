@@ -12,12 +12,11 @@
 
 namespace ws {
 namespace us = userver;
-namespace datetime = us::utils::datetime;
 } // namespace ws
 
 using namespace ws;
 
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 using ws::s3::AccessKeyId;
 using ws::s3::CanonicalRequestParts;
 using ws::s3::Client;
@@ -145,20 +144,21 @@ std::map<std::string, std::string> ParseQuery(const std::string &url)
 
 Config MakeConfig()
 {
-    Config cfg;
-    cfg.endpoint = "https://examplebucket.s3.amazonaws.com"_t;
-    cfg.region = "us-east-1"_t;
-    cfg.timeout = 1000ms;
-    cfg.virtual_hosted = false;
-    return cfg;
+    return Config{
+        .endpoint = "https://examplebucket.s3.amazonaws.com"_t,
+        .region = "us-east-1"_t,
+        .timeout = 1000_ms,
+        .virtual_hosted = false,
+    };
 }
 
 Credentials MakeCreds()
 {
-    Credentials creds;
-    creds.access_key_id = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t};
-    creds.secret_access_key = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t};
-    return creds;
+    return Credentials{
+        .access_key_id = AccessKeyId{"AKIAIOSFODNN7EXAMPLE"_t},
+        .secret_access_key = SecretAccessKey{"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"_t},
+        .session_token = {},
+    };
 }
 
 } // namespace
@@ -170,9 +170,9 @@ UTEST(SigClient, PresignPathStyleClampsShortTtl)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "examplebucket"_t);
 
-    auto expired = datetime::Now() - 1h;
+    auto expired = ws::chrono::Now() - 1_h;
     const std::string url = client->GenerateDownloadUrl(
-        "test.txt", std::chrono::system_clock::to_time_t(expired), true
+        "test.txt", ws::chrono::SystemClock::ToTimeT(expired), true
     );
 
     auto params = ParseQuery(url);
@@ -190,9 +190,9 @@ UTEST(SigClient, PresignPathStyleClampsLongTtl)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "examplebucket"_t);
 
-    auto far_future = datetime::Now() + 14 * 24h;
+    auto far_future = ws::chrono::Now() + 14 * 24_h;
     const std::string url = client->GenerateDownloadUrl(
-        "test.txt", std::chrono::system_clock::to_time_t(far_future), true
+        "test.txt", ws::chrono::SystemClock::ToTimeT(far_future), true
     );
 
     auto params = ParseQuery(url);
@@ -210,9 +210,9 @@ UTEST(SigClient, PresignPathStyleEncodesObjectKey)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "examplebucket"_t);
 
-    auto soon = datetime::Now() + 120s;
+    auto soon = ws::chrono::Now() + 120_s;
     const std::string url = client->GenerateDownloadUrl(
-        "folder/file with space.txt", std::chrono::system_clock::to_time_t(soon), true
+        "folder/file with space.txt", ws::chrono::SystemClock::ToTimeT(soon), true
     );
 
     auto scheme_pos = url.find("://");
@@ -242,7 +242,7 @@ UTEST(SigClient, VirtualHostUsesBucketInHost)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    auto expires_at = datetime::Now() + 60s;
+    auto expires_at = ws::chrono::ToStdSystemTimePoint(ws::chrono::Now() + 60_s);
     const std::string url = client->GenerateDownloadUrlVirtualHostAddressing(
         "path/object", expires_at, "https"
     );
@@ -264,7 +264,7 @@ UTEST(SigClient, UnsupportedOperationsThrow)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    us::s3api::ConnectionCfg new_cfg{50ms};
+    us::s3api::ConnectionCfg new_cfg{50_ms};
     EXPECT_NO_THROW(client->UpdateConfig(std::move(new_cfg)));
     EXPECT_EQ(client->GetBucketName(), std::string_view{"bucket-name"});
 }
@@ -277,7 +277,7 @@ UTEST(SigClient, UploadPresignIncludesContentType)
     auto creds = MakeCreds();
     auto client = std::make_shared<Client>(*http_client, cfg, creds, "bucket-name"_t);
 
-    auto expires_at = datetime::Now() + 120s;
+    auto expires_at = ws::chrono::ToStdSystemTimePoint(ws::chrono::Now() + 120_s);
     const std::string url = client->GenerateUploadUrlVirtualHostAddressing(
         "ignored-body", "text/plain", "path/file.txt", expires_at, "http"
     );

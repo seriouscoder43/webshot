@@ -9,7 +9,7 @@
 #include "text_postgres_formatter.hpp"
 #include "try.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <format>
 #include <utility>
 
@@ -19,15 +19,16 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+namespace chrono = ws::chrono;
+
 namespace ws {
 
 namespace us = userver;
 namespace pg = us::storages::postgres;
 namespace datetime = us::utils::datetime;
-namespace chrono = std::chrono;
 namespace sql = webshot::sql;
 
-using namespace std::chrono_literals;
+using namespace ws::chrono_literals;
 
 struct SharedStateRepo::Impl final {
     explicit Impl(const us::components::ComponentContext &context)
@@ -149,7 +150,7 @@ Expected<chrono::milliseconds, PgError> SharedStateRepo::MarkCrawlJobSucceeded(
         sql::kUpdateCrawlJobSucceeded, id, pg::TimePointTz{created_at.GetTimePoint()},
         result_capture_id
     ));
-    return row.duration_ms * 1ms;
+    return row.duration_ms * 1_ms;
 }
 
 Expected<chrono::milliseconds, PgError> SharedStateRepo::MarkCrawlJobFailed(
@@ -164,7 +165,7 @@ Expected<chrono::milliseconds, PgError> SharedStateRepo::MarkCrawlJobFailed(
         [&](auto &res) { return res.template AsSingleRow<Row>(pg::kRowTag); },
         sql::kUpdateCrawlJobFailed, id, error_category, error_message
     ));
-    return row.duration_ms * 1ms;
+    return row.duration_ms * 1_ms;
 }
 
 Expected<std::optional<SharedCrawlJobRow>, PgError> SharedStateRepo::LoadCrawlJob(Uuid id) const
@@ -198,20 +199,22 @@ SharedStateRepo::MakeOrReuseCrawlJobLocked(
     };
 
     return impl_->ReadwriteTransaction([&](auto &trx) -> MakeOrReuseCrawlJobResult {
-        if (link_ratelimit > 0s) {
+        if (link_ratelimit > 0_s) {
             trx.Execute(sql::kLockCrawlJobLink, text::Format("link:{}", link_key));
         }
 
-        if (link_ratelimit > 0s) {
+        if (link_ratelimit > 0_s) {
             auto latest_job_row_opt = trx.Execute(sql::kSelectLatestCrawlJobByLink, link_key)
                                           .template AsOptionalSingleRow<SharedCrawlJobRow>(
                                               pg::kRowTag
                                           );
             if (latest_job_row_opt) {
                 auto job = GrabValueOf(latest_job_row_opt);
-                auto now = datetime::Now();
-                auto last_created = datetime::TimePointTz(job.created_at.GetUnderlying());
-                auto ratelimit_until = last_created.GetTimePoint() + link_ratelimit;
+                auto now = chrono::Now();
+                auto last_created = chrono::FromStdSystemTimePoint(
+                    datetime::TimePointTz(job.created_at.GetUnderlying()).GetTimePoint()
+                );
+                auto ratelimit_until = last_created + link_ratelimit;
                 if (now < ratelimit_until) {
                     trx.Commit();
                     return SharedStateRepo::MakeOrReuseCrawlJobResult{

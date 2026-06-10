@@ -22,10 +22,10 @@
 
 #include <generated/browser_sandbox.sh.hpp>
 
+#include "chrono.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <exception>
 #include <format>
 #include <functional>
@@ -57,13 +57,13 @@
 #include <userver/utils/boost_uuid4.hpp>
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/resources.hpp>
-namespace chrono = std::chrono;
-namespace ujson = userver::formats::json;
-using namespace std::chrono_literals;
+namespace chrono = ws::chrono;
+using namespace ws::chrono_literals;
 using namespace text::literals;
 
 namespace ws {
 namespace us = userver;
+namespace ujson = us::formats::json;
 namespace eng = us::engine;
 namespace datetime = us::utils::datetime;
 namespace dns = us::clients::dns;
@@ -88,7 +88,7 @@ constexpr std::array kLocalFixtureHosts = {
 
 [[nodiscard]] String CurrentTimestamp()
 {
-    return *String::FromBytes(datetime::UtcTimestring(datetime::Now(), datetime::kRfc3339Format));
+    return *String::FromBytes(chrono::UtcTimestring(chrono::Now(), datetime::kRfc3339Format));
 }
 
 [[nodiscard]] std::unordered_map<std::string, std::string>
@@ -539,10 +539,10 @@ public:
     [[nodiscard]] bool IsIdleFor(chrono::seconds idle) const
     {
         auto state = data_.Lock();
-        return state->inflight.empty() && datetime::SteadyNow() - state->last_network_at >= idle;
+        return state->inflight.empty() && chrono::SteadyNow() - state->last_network_at >= idle;
     }
 
-    [[nodiscard]] datetime::SteadyClock::time_point IdleDeadline(chrono::seconds idle) const
+    [[nodiscard]] chrono::SteadyClock::time_point IdleDeadline(chrono::seconds idle) const
     {
         auto state = data_.Lock();
         return state->last_network_at + idle;
@@ -727,7 +727,7 @@ private:
         bool loaded{false};
         bool seed_navigation_started{false};
         std::optional<String> main_request_error;
-        chrono::steady_clock::time_point last_network_at{datetime::SteadyNow()};
+        chrono::SteadyClock::time_point last_network_at{chrono::SteadyNow()};
     };
 
     static void ApplyMainResponse(
@@ -846,7 +846,7 @@ private:
         auto request_method = *String::FromBytes(request_will_be_sent.request.method);
 
         state.inflight.insert(request_id_text);
-        state.last_network_at = datetime::SteadyNow();
+        state.last_network_at = chrono::SteadyNow();
 
         auto is_tracked_main_document = false;
         if (IsMainFrameDocumentRequest(state, request_will_be_sent)) {
@@ -953,7 +953,7 @@ private:
     {
         auto request_id_text = *String::FromBytes(loading_finished.requestId);
         state.inflight.erase(request_id_text);
-        state.last_network_at = datetime::SteadyNow();
+        state.last_network_at = chrono::SteadyNow();
         if (auto it = state.active_requests.find(request_id_text);
             it != std::end(state.active_requests)) {
             it->second.loaded = true;
@@ -972,7 +972,7 @@ private:
     {
         auto request_id_text = *String::FromBytes(loading_failed.requestId);
         state.inflight.erase(request_id_text);
-        state.last_network_at = datetime::SteadyNow();
+        state.last_network_at = chrono::SteadyNow();
 
         auto request_it = state.active_requests.find(request_id_text);
         if (request_it == std::end(state.active_requests)) {
@@ -1269,7 +1269,7 @@ private:
                 return Unex(*error);
             auto progress = event_progress_.UniqueLock();
             auto version = progress->version;
-            auto idle_deadline = eng::Deadline::FromTimePoint(GetPageTracker().IdleDeadline(idle));
+            auto idle_deadline = DeadlineAt(GetPageTracker().IdleDeadline(idle));
             auto wait_deadline = PickEarlierDeadline(deadline_, idle_deadline);
             progress.GetLock().unlock();
             if (GetPageTracker().IsIdleFor(idle))
@@ -1404,36 +1404,30 @@ private:
             [this]() { return GetPageTracker().IsLoadedOrFailed(); },
             "timed out waiting for page load"_t
         ));
-        if (timings_.post_load_delay > 0s) {
+        if (timings_.post_load_delay > 0_s) {
             browser_->MarkPhase("post_load_delay");
-            auto phase_deadline = PickEarlierDeadline(
-                deadline_, eng::Deadline::FromDuration(timings_.post_load_delay)
-            );
+            auto phase_deadline = ClampDeadline(deadline_, timings_.post_load_delay);
             TRY_ERR_AS(
                 SleepUntilDeadline(phase_deadline), "timed out waiting for post-load delay"_t
             );
             browser_->MarkPhase("post_load_delay_done");
         }
-        if (timings_.behavior_timeout > 0s) {
+        if (timings_.behavior_timeout > 0_s) {
             browser_->MarkPhase("run_site_behavior");
             browser_->MarkPhase("run_site_behavior_runtime_evaluate");
-            auto behavior_deadline = PickEarlierDeadline(
-                deadline_, eng::Deadline::FromDuration(timings_.behavior_timeout)
-            );
+            auto behavior_deadline = ClampDeadline(deadline_, timings_.behavior_timeout);
             TRY(RunSiteBehavior(GetSession(), behavior_deadline));
             browser_->MarkPhase("run_site_behavior_done");
         }
-        if (timings_.net_idle_wait > 0s) {
+        if (timings_.net_idle_wait > 0_s) {
             browser_->MarkPhase("wait_for_idle");
             browser_->MarkPhase("wait_for_idle_wait");
             TRY(WaitForIdle(timings_.net_idle_wait));
             browser_->MarkPhase("wait_for_idle_done");
         }
-        if (timings_.page_extra_delay > 0s) {
+        if (timings_.page_extra_delay > 0_s) {
             browser_->MarkPhase("page_extra_delay");
-            auto phase_deadline = PickEarlierDeadline(
-                deadline_, eng::Deadline::FromDuration(timings_.page_extra_delay)
-            );
+            auto phase_deadline = ClampDeadline(deadline_, timings_.page_extra_delay);
             TRY_ERR_AS(
                 SleepUntilDeadline(phase_deadline), "timed out waiting for extra page delay"_t
             );
@@ -1971,7 +1965,7 @@ CrawlerRunner::CrawlerRunner(
 
 CrawlerRunArtifacts CrawlerRunner::Run(const String &seed_url) const
 {
-    auto deadline = eng::Deadline::FromDuration(run_timeout_);
+    auto deadline = DeadlineAfter(run_timeout_);
     return ExecuteRun(
         access_policy_, config_, dns_resolver_, process_starter_, fs_task_processor_,
         browser_runs_root_, cgroup_root_path_, cgroup_limits_, timings_, tunables_,

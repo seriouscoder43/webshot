@@ -27,19 +27,18 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/text_light.hpp>
 
-namespace us = userver;
 using namespace text::literals;
 
 namespace ws::s3 {
 namespace us = userver;
-namespace datetime = us::utils::datetime;
 namespace httpc = us::clients::http;
-using namespace std::chrono_literals;
+namespace chrono = ws::chrono;
+using namespace ws::chrono_literals;
 
 namespace detail {
 
-constexpr std::chrono::seconds kMinPresignTtl = 1s;
-constexpr std::chrono::seconds kMaxPresignTtl = 604800s;
+constexpr chrono::seconds kMinPresignTtl = 1_s;
+constexpr chrono::seconds kMaxPresignTtl = 604800_s;
 
 EndpointParts ParseEndpoint(const String &ep)
 {
@@ -265,7 +264,7 @@ Client::ListMultipartUploads(const us::s3api::multipart_upload::ListMultipartUpl
 std::string
 Client::GenerateDownloadUrl(std::string_view path, time_t expires_epoch, bool use_ssl) const
 {
-    auto expires_at = std::chrono::system_clock::from_time_t(expires_epoch);
+    auto expires_at = chrono::SystemClock::FromTimeT(expires_epoch);
     auto method = "GET"_t;
     auto path_text = *String::FromBytes(path);
     auto protocol_text = use_ssl ? "https"_t : "http"_t;
@@ -281,7 +280,10 @@ std::string Client::GenerateDownloadUrlVirtualHostAddressing(
     auto method = "GET"_t;
     auto path_text = *String::FromBytes(path);
     auto protocol_text = *String::FromBytes(protocol);
-    return std::string{PresignVirtualHost(method, path_text, expires_at, protocol_text, {}).View()};
+    auto ws_expires_at = chrono::FromStdSystemTimePoint(expires_at);
+    return std::string{
+        PresignVirtualHost(method, path_text, ws_expires_at, protocol_text, {}).View()
+    };
 }
 
 std::string Client::GenerateUploadUrlVirtualHostAddressing(
@@ -296,26 +298,26 @@ std::string Client::GenerateUploadUrlVirtualHostAddressing(
     auto method = "PUT"_t;
     auto path_text = *String::FromBytes(path);
     auto protocol_text = *String::FromBytes(protocol);
+    auto ws_expires_at = chrono::FromStdSystemTimePoint(expires_at);
     auto url_text = PresignVirtualHost(
-        method, path_text, expires_at, protocol_text, std::move(hdrs)
+        method, path_text, ws_expires_at, protocol_text, std::move(hdrs)
     );
     return std::string{url_text.View()};
 }
 
-std::chrono::seconds Client::ComputePresignTtl(
-    const std::chrono::system_clock::time_point &now,
-    const std::chrono::system_clock::time_point &expires_at
+chrono::seconds Client::ComputePresignTtl(
+    const chrono::SystemClock::time_point &now, const chrono::SystemClock::time_point &expires_at
 )
 {
-    auto ttl = std::chrono::duration_cast<std::chrono::seconds>(expires_at - now);
-    if (ttl <= 0s)
+    auto ttl = chrono::DurationCast<chrono::seconds>(expires_at - now);
+    if (ttl <= 0_s)
         ttl = detail::kMinPresignTtl;
     if (ttl > detail::kMaxPresignTtl)
         ttl = detail::kMaxPresignTtl;
     return ttl;
 }
 
-SigParams Client::MakeSigParams(const std::chrono::system_clock::time_point &now) const
+SigParams Client::MakeSigParams(const chrono::SystemClock::time_point &now) const
 {
     return {config_.region.ToBytes(), "s3", creds_.access_key_id, creds_.secret_access_key,
             creds_.session_token,     now};
@@ -326,7 +328,7 @@ void Client::SignRequest(
     const String &payload_hash
 ) const
 {
-    auto now = datetime::Now();
+    auto now = chrono::Now();
     auto params = MakeSigParams(now);
     auto prepared = PrepareSignedHeaders(host.ToBytes(), headers);
     auto headers_text = *text::StringPairs(prepared);
@@ -395,16 +397,16 @@ detail::BuiltUrl Client::MakeVirtualHostUrl(String path, String protocol) const
 }
 
 String Client::PresignVirtualHost(
-    String method, String path, const std::chrono::system_clock::time_point &expires_at,
-    String protocol, std::optional<httpc::Headers> extra_headers
+    String method, String path, const chrono::SystemClock::time_point &expires_at, String protocol,
+    std::optional<httpc::Headers> extra_headers
 ) const
 {
-    auto now = datetime::Now();
+    auto now = chrono::Now();
     auto built = MakeVirtualHostUrl(std::move(path), std::move(protocol));
 
     const SigParams params = MakeSigParams(now);
 
-    httpc::Headers extra = extra_headers.value_or(httpc::Headers{});
+    httpc::Headers extra = extra_headers.value_or(httpc::Headers());
     auto prepared = PrepareSignedHeaders(built.host.ToBytes(), extra);
     auto headers_text = *text::StringPairs(prepared);
 
@@ -412,22 +414,21 @@ String Client::PresignVirtualHost(
 }
 
 String Client::PresignPathStyle(
-    String method, String path, const std::chrono::system_clock::time_point &expires_at,
-    String protocol
+    String method, String path, const chrono::SystemClock::time_point &expires_at, String protocol
 ) const
 {
-    auto now = datetime::Now();
+    auto now = chrono::Now();
     auto built = MakePathStyleUrl(std::move(path), std::move(protocol));
     SigParams params = MakeSigParams(now);
-    auto prepared = PrepareSignedHeaders(built.host.ToBytes(), httpc::Headers{});
+    auto prepared = PrepareSignedHeaders(built.host.ToBytes(), httpc::Headers());
     auto headers_text = *text::StringPairs(prepared);
 
     return MakePresignedUrl(method, built, now, expires_at, params, headers_text);
 }
 
 String Client::MakePresignedUrl(
-    String method, const detail::BuiltUrl &built, const std::chrono::system_clock::time_point &now,
-    const std::chrono::system_clock::time_point &expires_at, const SigParams &params,
+    String method, const detail::BuiltUrl &built, const chrono::SystemClock::time_point &now,
+    const chrono::SystemClock::time_point &expires_at, const SigParams &params,
     const std::vector<std::pair<String, String>> &headers
 ) const
 {
@@ -438,7 +439,9 @@ String Client::MakePresignedUrl(
         "X-Amz-Credential", std::format("{}/{}", params.access_key_id.GetUnderlying(), scope)
     );
     query.emplace_back("X-Amz-Date", params.amz_date);
-    query.emplace_back("X-Amz-Expires", std::to_string(ComputePresignTtl(now, expires_at).count()));
+    query.emplace_back(
+        "X-Amz-Expires", std::to_string(Raw(ComputePresignTtl(now, expires_at).count()))
+    );
 
     auto headers_utf8 = text::ToBytesPairs(headers);
     const std::string signed_headers = MakeSignedHeaders(headers_utf8);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <chrono>
+#include "chrono.hpp"
 #include <optional>
 #include <string>
 #include <string_view>
@@ -46,7 +46,7 @@ struct [[nodiscard]] SigParams {
     SigParams(
         std::string region, std::string service, const AccessKeyId &access_key_id,
         const SecretAccessKey &secret_access_key, std::optional<SessionToken> session_token,
-        const std::chrono::system_clock::time_point &now
+        const ws::chrono::SystemClock::time_point &now
     );
 };
 
@@ -55,9 +55,9 @@ struct [[nodiscard]] SigParams {
 [[nodiscard]] std::string
 ComputeSignature(const SigParams &params, std::string_view string_to_sign);
 /** @return AMZ date stamp for the given time point (UTC). */
-[[nodiscard]] std::string ToAmzDateUtc(std::chrono::system_clock::time_point tp);
+[[nodiscard]] std::string ToAmzDateUtc(ws::chrono::SystemClock::time_point tp);
 /** @return Date stamp (YYYYMMDD) for the given time point (UTC). */
-[[nodiscard]] std::string ToDateStampUtc(std::chrono::system_clock::time_point tp);
+[[nodiscard]] std::string ToDateStampUtc(ws::chrono::SystemClock::time_point tp);
 /** @return SHA-256 digest in hex of the input. */
 [[nodiscard]] String Sha256Hex(std::string_view data);
 

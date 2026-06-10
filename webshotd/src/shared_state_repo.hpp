@@ -4,7 +4,7 @@
 #include "expected.hpp"
 #include "text.hpp"
 
-#include <chrono>
+#include "chrono.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -76,10 +76,10 @@ public:
     InsertCrawlJob(Uuid id, const String &link_key) const;
 
     [[nodiscard]] Expected<void, PgError> MarkCrawlJobRunning(Uuid id) const;
-    [[nodiscard]] Expected<std::chrono::milliseconds, PgError> MarkCrawlJobSucceeded(
+    [[nodiscard]] Expected<ws::chrono::milliseconds, PgError> MarkCrawlJobSucceeded(
         Uuid id, Uuid result_capture_id, const datetime::TimePointTz &created_at
     ) const;
-    [[nodiscard]] Expected<std::chrono::milliseconds, PgError>
+    [[nodiscard]] Expected<ws::chrono::milliseconds, PgError>
     MarkCrawlJobFailed(Uuid id, const String &error_category, const String &error_message) const;
 
     [[nodiscard]] Expected<std::optional<SharedCrawlJobRow>, PgError> LoadCrawlJob(Uuid id) const;
@@ -92,7 +92,7 @@ public:
         bool created{false};
     };
     [[nodiscard]] Expected<MakeOrReuseCrawlJobResult, PgError>
-    MakeOrReuseCrawlJobLocked(const String &link_key, std::chrono::seconds link_ratelimit) const;
+    MakeOrReuseCrawlJobLocked(const String &link_key, ws::chrono::seconds link_ratelimit) const;
 
     [[nodiscard]] Expected<void, PgError>
     DeleteCrawlJobsExpired(const datetime::TimePointTz &cutoff) const;

@@ -14,6 +14,10 @@
 #include <utility>
 #include <vector>
 
+#include "chrono.hpp"
+
+namespace chrono = ws::chrono;
+
 namespace ws {
 
 namespace us = userver;
@@ -151,9 +155,9 @@ void Metrics::AccountError(Error which) noexcept { errors_[NumericCast<size_t>(w
 
 void Metrics::AccountCaptureJobCreated() noexcept { capture_.jobs_created++; }
 
-void Metrics::AccountCaptureCompleted(bool succeeded, std::chrono::milliseconds duration) noexcept
+void Metrics::AccountCaptureCompleted(bool succeeded, chrono::milliseconds duration) noexcept
 {
-    const int64_t duration_ms{duration.count()};
+    const int64_t duration_ms{Raw(duration.count())};
     if (succeeded) {
         capture_.succeeded++;
         capture_.succeeded_duration_ms_sum += duration_ms;

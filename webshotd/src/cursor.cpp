@@ -5,16 +5,18 @@
 
 #include "cursor.hpp"
 
+namespace chrono = ws::chrono;
+
 namespace ws::crud {
 
 [[nodiscard]] int64_t TimePointToMicros(Clock::time_point tp)
 {
-    return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
+    return Raw(chrono::DurationCast<chrono::microseconds>(tp.time_since_epoch()).count());
 }
 
 [[nodiscard]] Clock::time_point MicrosToTimePoint(int64_t micros)
 {
-    return Clock::time_point(std::chrono::microseconds(micros));
+    return Clock::time_point{chrono::microseconds{micros}};
 }
 
 } // namespace ws::crud
